@@ -1,0 +1,25 @@
+[project]
+name = "dspy-trainer"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Noah Ziems",email = "nziems2@nd.edu"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "click",
+]
+
+[project.scripts]
+dspy-trainer = "dspy_trainer.cli:cli"
+
+[tool.poetry]
+packages = [{include = "dspy_trainer", from = "src"}]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
