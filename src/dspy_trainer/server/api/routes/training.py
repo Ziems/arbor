@@ -1,15 +1,11 @@
 from fastapi import APIRouter, BackgroundTasks
-from services.training_manager import TrainingManager
-from pydantic import BaseModel
+from dspy_trainer.server.services.training_manager import TrainingManager
+from dspy_trainer.server.api.models.schemas import FineTuneRequest, JobStatus
 
 router = APIRouter()
 training_manager = TrainingManager()
 
 
-class FineTuneRequest(BaseModel):
-    model_name: str
-    training_file: str  # id of uploaded jsonl file
-
-@router.post("/fine-tune")
+@router.post("")
 def fine_tune(request: FineTuneRequest, background_tasks: BackgroundTasks):
     pass
