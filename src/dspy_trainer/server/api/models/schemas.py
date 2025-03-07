@@ -12,7 +12,7 @@ class FineTuneRequest(BaseModel):
     model_name: str
     training_file: str  # id of uploaded jsonl file
 
-class JobStatus(BaseModel):
+class JobStatusResponse(BaseModel):
     job_id: str
     status: str
     details: str = ""

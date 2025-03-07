@@ -78,3 +78,6 @@ class FileManager:
 
     self.files[file_id] = file_data
     return FileResponse(**file_data)
+
+  def get_file(self, file_id: str):
+    return self.files[file_id]

@@ -35,6 +35,7 @@ ENV/
 
 # Project specific
 uploads/
+models/
 *.jsonl
 *.log
 
