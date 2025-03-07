@@ -1,6 +1,6 @@
 from fastapi import APIRouter, UploadFile, File
-from dspy_trainer.server.services.job_manager import JobManager
-from dspy_trainer.server.api.models.schemas import JobStatusResponse
+from arbor.server.services.job_manager import JobManager
+from arbor.server.api.models.schemas import JobStatusResponse
 
 router = APIRouter()
 job_manager = JobManager()

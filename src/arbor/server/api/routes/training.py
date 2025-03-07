@@ -1,8 +1,8 @@
 from fastapi import APIRouter, BackgroundTasks
-from dspy_trainer.server.services.training_manager import TrainingManager
-from dspy_trainer.server.api.models.schemas import FineTuneRequest, JobStatusResponse
-from dspy_trainer.server.api.routes.jobs import job_manager # this should probably be in the jobs manager, not in the routes
-from dspy_trainer.server.services.job_manager import JobStatus
+from arbor.server.services.training_manager import TrainingManager
+from arbor.server.api.models.schemas import FineTuneRequest, JobStatusResponse
+from arbor.server.api.routes.jobs import job_manager # this should probably be in the jobs manager, not in the routes
+from arbor.server.services.job_manager import JobStatus
 
 router = APIRouter()
 training_manager = TrainingManager()

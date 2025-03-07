@@ -1,6 +1,6 @@
 import click
 import uvicorn
-from dspy_trainer.server.main import app
+from arbor.server.main import app
 
 @click.group()
 def cli():
@@ -10,7 +10,7 @@ def cli():
 @click.option('--host', default='0.0.0.0', help='Host to bind to')
 @click.option('--port', default=8000, help='Port to bind to')
 def serve(host, port):
-    """Start the DSPy Trainer API server"""
+    """Start the Arbor API server"""
     uvicorn.run(app, host=host, port=port)
 
 if __name__ == '__main__':

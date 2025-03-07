@@ -1,6 +1,6 @@
 import uuid
 from enum import Enum
-from dspy_trainer.server.api.models.schemas import FineTuneRequest
+from arbor.server.api.models.schemas import FineTuneRequest
 
 class JobStatus(Enum):
   PENDING = "pending"

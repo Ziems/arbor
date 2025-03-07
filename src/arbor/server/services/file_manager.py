@@ -5,7 +5,7 @@ import shutil
 import time
 import uuid
 from fastapi import UploadFile
-from dspy_trainer.server.api.models.schemas import FileResponse
+from arbor.server.api.models.schemas import FileResponse
 
 class FileManager:
   def __init__(self):

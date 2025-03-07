@@ -1,6 +1,6 @@
-from dspy_trainer.server.api.models.schemas import FineTuneRequest
-from dspy_trainer.server.services.job_manager import Job, JobStatus
-from dspy_trainer.server.api.routes.files import file_manager
+from arbor.server.api.models.schemas import FineTuneRequest
+from arbor.server.services.job_manager import Job, JobStatus
+from arbor.server.api.routes.files import file_manager
 
 class TrainingManager:
     def __init__(self):

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, UploadFile, File
-from dspy_trainer.server.services.file_manager import FileManager
-from dspy_trainer.server.api.models.schemas import FileResponse
+from arbor.server.services.file_manager import FileManager
+from arbor.server.api.models.schemas import FileResponse
 
 router = APIRouter()
 file_manager = FileManager()

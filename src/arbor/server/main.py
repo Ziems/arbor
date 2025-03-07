@@ -1,8 +1,8 @@
 from fastapi import FastAPI
-from dspy_trainer.server.api.routes import training, files, jobs
-from dspy_trainer.server.core.config import settings
+from arbor.server.api.routes import training, files, jobs
+from arbor.server.core.config import settings
 
-app = FastAPI(title="DSPy Trainer API")
+app = FastAPI(title="Arbor API")
 
 # Include routers
 app.include_router(training.router, prefix="/api/fine-tune")

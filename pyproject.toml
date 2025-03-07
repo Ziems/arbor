@@ -1,5 +1,5 @@
 [project]
-name = "dspy-trainer"
+name = "arbor-ai"
 version = "0.1.0"
 description = ""
 authors = [
@@ -20,10 +20,10 @@ dependencies = [
 ]
 
 [project.scripts]
-dspy-trainer = "dspy_trainer.cli:cli"
+arbor = "arbor.cli:cli"
 
 [tool.poetry]
-packages = [{include = "dspy_trainer", from = "src"}]
+packages = [{include = "arbor", from = "src"}]
 
 
 [build-system]

@@ -1,4 +1,4 @@
-# DSPy Trainer
+# Arbor AI
 
 ## Setup
 
@@ -7,7 +7,7 @@ poetry install
 ```
 
 ```bash
-poetry run dspy-trainer serve
+poetry run arbor serve
 ```
 
 ## Uploading Data
