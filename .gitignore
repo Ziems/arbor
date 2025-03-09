@@ -19,6 +19,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.pytest_cache/
 
 # Virtual Environment
 .env
@@ -34,8 +35,8 @@ ENV/
 *.swo
 
 # Project specific
-uploads/
-models/
+/uploads/
+/models/
 *.jsonl
 *.log
 

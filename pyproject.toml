@@ -1,7 +1,7 @@
 [project]
 name = "arbor-ai"
-version = "0.1.0"
-description = ""
+version = "0.1.3"
+description = "A framework for fine-tuning and managing language models"
 authors = [
     {name = "Noah Ziems",email = "nziems2@nd.edu"}
 ]
@@ -23,8 +23,29 @@ dependencies = [
 arbor = "arbor.cli:cli"
 
 [tool.poetry]
-packages = [{include = "arbor", from = "src"}]
+name = "arbor"
+version = "0.1.3"
+description = "A framework for fine-tuning and managing language models"
+authors = ["Noah Ziems <nziems2@nd.edu>"]
+readme = "README.md"
+packages = [
+    { include = "arbor", from = "src" }
+]
+repository = "https://github.com/arbor-ai/arbor"
+keywords = ["machine learning", "fine-tuning", "language models"]
+license = "MIT"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+]
 
+[tool.poetry.scripts]
+arbor = "arbor.cli:cli"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.5"
