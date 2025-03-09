@@ -1,6 +1,7 @@
 from arbor.server.api.models.schemas import FineTuneRequest
 from arbor.server.services.job_manager import Job, JobStatus
 from arbor.server.services.file_manager import FileManager
+
 class TrainingManager:
     def __init__(self):
         pass
@@ -35,136 +36,143 @@ class TrainingManager:
 
 
     def fine_tune(self, request: FineTuneRequest, job: Job, file_manager: FileManager):
+        # Get logger for this job
+        logger = job.setup_logger("training")
+
         job.status = JobStatus.RUNNING
-
-        train_kwargs = self.find_train_args(request, file_manager)
+        logger.info("Starting fine-tuning job")
 
         try:
+            train_kwargs = self.find_train_args(request, file_manager)
+
             import torch
-            from transformers import AutoModelForCausalLM, AutoTokenizer
+            from transformers import AutoModelForCausalLM, AutoTokenizer, TrainerCallback
             from trl import SFTConfig, SFTTrainer, setup_chat_format
-        except ImportError:
-            raise ImportError(
-                "For local finetuning, please install torch, transformers, and trl "
-                "by running `pip install -U torch transformers accelerate trl peft`"
+
+            device = train_kwargs.get("device", None)
+            if device is None:
+                device = (
+                    "cuda"
+                    if torch.cuda.is_available()
+                    else "mps" if torch.backends.mps.is_available() else "cpu"
+                )
+            logger.info(f"Using device: {device}")
+
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name_or_path=request.model_name
+            ).to(device)
+            tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path=request.model_name)
+
+            # Set up the chat format; generally only for non-chat model variants, hence the try-except.
+            try:
+                model, tokenizer = setup_chat_format(model=model, tokenizer=tokenizer)
+            except Exception:
+                pass
+
+            if tokenizer.pad_token_id is None:
+                logger.info("Adding pad token to tokenizer")
+                tokenizer.add_special_tokens({"pad_token": "[!#PAD#!]"})
+
+            logger.info("Creating dataset")
+            if "max_seq_length" not in train_kwargs or train_kwargs["max_seq_length"] is None:
+                train_kwargs["max_seq_length"] = 4096
+                logger.info(f"The 'train_kwargs' parameter didn't include a 'max_seq_length', defaulting to {train_kwargs['max_seq_length']}")
+
+
+            hf_dataset = dataset_from_file(train_kwargs["train_data_path"])
+            def tokenize_function(example):
+                return encode_sft_example(example, tokenizer, train_kwargs["max_seq_length"])
+            tokenized_dataset = hf_dataset.map(tokenize_function, batched=False)
+            tokenized_dataset.set_format(type="torch")
+            tokenized_dataset = tokenized_dataset.filter(lambda example: (example["labels"] != -100).any())
+
+            USE_PEFT = train_kwargs.get("use_peft", False)
+            peft_config = None
+
+            if USE_PEFT:
+                from peft import LoraConfig
+
+                rank_dimension = 32
+                lora_alpha = 64
+                lora_dropout = 0.05
+
+                peft_config = LoraConfig(
+                    r=rank_dimension,
+                    lora_alpha=lora_alpha,
+                    lora_dropout=lora_dropout,
+                    bias="none",
+                    target_modules="all-linear",
+                    task_type="CAUSAL_LM",
+                )
+
+            sft_config = SFTConfig(
+                output_dir=train_kwargs["output_dir"],
+                num_train_epochs=train_kwargs["num_train_epochs"],
+                per_device_train_batch_size=train_kwargs["per_device_train_batch_size"],
+                gradient_accumulation_steps=train_kwargs["gradient_accumulation_steps"],
+                learning_rate=train_kwargs["learning_rate"],
+                max_grad_norm=2.0,  # note that the current SFTConfig default is 1.0
+                logging_steps=20,
+                warmup_ratio=0.03,
+                lr_scheduler_type="constant",
+                save_steps=10_000,
+                bf16=train_kwargs["bf16"],
+                max_seq_length=train_kwargs["max_seq_length"],
+                packing=train_kwargs["packing"],
+                dataset_kwargs={  # We need to pass dataset_kwargs because we are processing the dataset ourselves
+                    "add_special_tokens": False,  # Special tokens handled by template
+                    "append_concat_token": False,  # No additional separator needed
+                },
             )
 
-        device = train_kwargs.get("device", None)
-        if device is None:
-            device = (
-                "cuda"
-                if torch.cuda.is_available()
-                else "mps" if torch.backends.mps.is_available() else "cpu"
-            )
-        print(f"Using device: {device}")
+            logger.info("Starting training")
+            trainer = SFTTrainer(
+                model=model,
+                args=sft_config,
+                train_dataset=tokenized_dataset,
+                peft_config=peft_config,
 
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name_or_path=request.model_name
-        ).to(device)
-        tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path=request.model_name)
-
-        # Set up the chat format; generally only for non-chat model variants, hence the try-except.
-        try:
-            model, tokenizer = setup_chat_format(model=model, tokenizer=tokenizer)
-        except Exception:
-            pass
-
-        if tokenizer.pad_token_id is None:
-            print("Adding pad token to tokenizer")
-            tokenizer.add_special_tokens({"pad_token": "[!#PAD#!]"})
-
-        print("Creating dataset")
-        if "max_seq_length" not in train_kwargs or train_kwargs["max_seq_length"] is None:
-            train_kwargs["max_seq_length"] = 4096
-            print(f"The 'train_kwargs' parameter didn't include a 'max_seq_length', defaulting to {train_kwargs['max_seq_length']}")
-
-
-        hf_dataset = dataset_from_file(train_kwargs["train_data_path"])
-        def tokenize_function(example):
-            return encode_sft_example(example, tokenizer, train_kwargs["max_seq_length"])
-        tokenized_dataset = hf_dataset.map(tokenize_function, batched=False)
-        tokenized_dataset.set_format(type="torch")
-        tokenized_dataset = tokenized_dataset.filter(lambda example: (example["labels"] != -100).any())
-
-        USE_PEFT = train_kwargs.get("use_peft", False)
-        peft_config = None
-
-        if USE_PEFT:
-            from peft import LoraConfig
-
-            rank_dimension = 32
-            lora_alpha = 64
-            lora_dropout = 0.05
-
-            peft_config = LoraConfig(
-                r=rank_dimension,
-                lora_alpha=lora_alpha,
-                lora_dropout=lora_dropout,
-                bias="none",
-                target_modules="all-linear",
-                task_type="CAUSAL_LM",
             )
 
-        sft_config = SFTConfig(
-            output_dir=train_kwargs["output_dir"],
-            num_train_epochs=train_kwargs["num_train_epochs"],
-            per_device_train_batch_size=train_kwargs["per_device_train_batch_size"],
-            gradient_accumulation_steps=train_kwargs["gradient_accumulation_steps"],
-            learning_rate=train_kwargs["learning_rate"],
-            max_grad_norm=2.0,  # note that the current SFTConfig default is 1.0
-            logging_steps=20,
-            warmup_ratio=0.03,
-            lr_scheduler_type="constant",
-            save_steps=10_000,
-            bf16=train_kwargs["bf16"],
-            max_seq_length=train_kwargs["max_seq_length"],
-            packing=train_kwargs["packing"],
-            dataset_kwargs={  # We need to pass dataset_kwargs because we are processing the dataset ourselves
-                "add_special_tokens": False,  # Special tokens handled by template
-                "append_concat_token": False,  # No additional separator needed
-            },
-        )
+            # Train!
+            trainer.train()
 
-        print("Starting training")
-        trainer = SFTTrainer(
-            model=model,
-            args=sft_config,
-            train_dataset=tokenized_dataset,
-            peft_config=peft_config,
-        )
+            # Save the model!
+            trainer.save_model()
 
-        # Train!
-        trainer.train()
+            MERGE = True
+            if USE_PEFT and MERGE:
+                from peft import AutoPeftModelForCausalLM
 
-        # Save the model!
-        trainer.save_model()
+                # Load PEFT model on CPU
+                model_ = AutoPeftModelForCausalLM.from_pretrained(
+                    pretrained_model_name_or_path=sft_config.output_dir,
+                    torch_dtype=torch.float16,
+                    low_cpu_mem_usage=True,
+                )
 
-        MERGE = True
-        if USE_PEFT and MERGE:
-            from peft import AutoPeftModelForCausalLM
+                merged_model = model_.merge_and_unload()
+                merged_model.save_pretrained(
+                    sft_config.output_dir, safe_serialization=True, max_shard_size="5GB"
+                )
 
-            # Load PEFT model on CPU
-            model_ = AutoPeftModelForCausalLM.from_pretrained(
-                pretrained_model_name_or_path=sft_config.output_dir,
-                torch_dtype=torch.float16,
-                low_cpu_mem_usage=True,
-            )
+            # Clean up!
+            import gc
 
-            merged_model = model_.merge_and_unload()
-            merged_model.save_pretrained(
-                sft_config.output_dir, safe_serialization=True, max_shard_size="5GB"
-            )
+            del model
+            del tokenizer
+            del trainer
+            gc.collect()
+            torch.cuda.empty_cache()
 
-        # Clean up!
-        import gc
-
-        del model
-        del tokenizer
-        del trainer
-        gc.collect()
-        torch.cuda.empty_cache()
-
-        job.status = JobStatus.COMPLETED
+            logger.info("Training completed successfully")
+            job.status = JobStatus.COMPLETED
+        except Exception as e:
+            logger.error(f"Training failed: {str(e)}")
+            job.status = JobStatus.FAILED
+            raise
+        finally:
+            job.cleanup_logger()
 
         return sft_config.output_dir
 
