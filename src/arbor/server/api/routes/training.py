@@ -13,4 +13,4 @@ def fine_tune(request: FineTuneRequest, background_tasks: BackgroundTasks, train
     job = job_manager.create_job()
     background_tasks.add_task(training_manager.fine_tune, request, job, file_manager)
     job.status = JobStatus.QUEUED
-    return JobStatusResponse(job_id=job.id, status=job.status.value)
+    return JobStatusResponse(id=job.id, status=job.status.value)

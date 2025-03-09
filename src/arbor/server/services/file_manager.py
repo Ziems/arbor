@@ -7,6 +7,10 @@ import uuid
 from fastapi import UploadFile
 from arbor.server.api.models.schemas import FileResponse
 
+class FileValidationError(Exception):
+    """Custom exception for file validation errors"""
+    pass
+
 class FileManager:
   def __init__(self):
     self.uploads_dir = Path("uploads")
@@ -81,3 +85,44 @@ class FileManager:
 
   def get_file(self, file_id: str):
     return self.files[file_id]
+
+  def validate_file_format(self, file_content: bytes) -> None:
+    """
+    Validates that the file content is properly formatted JSONL with expected structure.
+    Raises FileValidationError if validation fails.
+    """
+    if not file_content:
+      raise FileValidationError("File is empty")
+
+    try:
+      lines = file_content.decode('utf-8').strip().split('\n')
+      if not lines:
+        raise FileValidationError("File contains no valid data")
+
+      for line_num, line in enumerate(lines, 1):
+        try:
+          data = json.loads(line)
+
+          # Validate required structure
+          if not isinstance(data, dict):
+            raise FileValidationError(f"Line {line_num}: Each line must be a JSON object")
+
+          if "messages" not in data:
+            raise FileValidationError(f"Line {line_num}: Missing 'messages' field")
+
+          if not isinstance(data["messages"], list):
+            raise FileValidationError(f"Line {line_num}: 'messages' must be an array")
+
+          for msg in data["messages"]:
+            if not isinstance(msg, dict):
+              raise FileValidationError(f"Line {line_num}: Each message must be an object")
+            if "role" not in msg or "content" not in msg:
+              raise FileValidationError(f"Line {line_num}: Messages must have 'role' and 'content' fields")
+            if not isinstance(msg["role"], str) or not isinstance(msg["content"], str):
+              raise FileValidationError(f"Line {line_num}: Message 'role' and 'content' must be strings")
+
+        except json.JSONDecodeError:
+          raise FileValidationError(f"Invalid JSON on line {line_num}")
+
+    except UnicodeDecodeError:
+      raise FileValidationError("File must be valid UTF-8 encoded text")

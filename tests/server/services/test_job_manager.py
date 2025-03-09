@@ -11,6 +11,7 @@ def test_create_job():
     assert job.logs == []
     assert job.logger is None
     assert job.log_handler is None
+    assert job.fine_tuned_model is None
 
 def test_job_logging():
     job_manager = JobManager()
@@ -33,11 +34,11 @@ def test_job_logging():
     assert job.logger is None
     assert job.log_handler is None
 
-def test_get_job_status():
+def test_get_job():
     job_manager = JobManager()
     job = job_manager.create_job()
 
-    assert job_manager.get_job_status(job.id) == JobStatus.PENDING
+    assert job_manager.get_job(job.id).status == JobStatus.PENDING
 
     with pytest.raises(ValueError):
-        job_manager.get_job_status("nonexistent-id")
+        job_manager.get_job("nonexistent-id")

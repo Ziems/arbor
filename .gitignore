@@ -37,12 +37,11 @@ ENV/
 # Project specific
 /uploads/
 /models/
-*.jsonl
 *.log
 
 # OS specific
 .DS_Store
 Thumbs.db
 
-training_data.jsonl
-validation_data.jsonl
+/training_data_*.jsonl
+/validation_data_*.jsonl

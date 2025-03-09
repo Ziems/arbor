@@ -12,7 +12,7 @@ class TrainingManager:
             raise ValueError(f"Training file {request.training_file} not found")
 
         data_path = file["path"]
-        output_dir = f"models/{request.model_name}" # TODO: This should be updated to be unique in some way
+        output_dir = f"models/{request.model}" # TODO: This should be updated to be unique in some way
 
 
         default_train_kwargs = {
@@ -59,9 +59,9 @@ class TrainingManager:
             logger.info(f"Using device: {device}")
 
             model = AutoModelForCausalLM.from_pretrained(
-                pretrained_model_name_or_path=request.model_name
+                pretrained_model_name_or_path=request.model
             ).to(device)
-            tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path=request.model_name)
+            tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path=request.model)
 
             # Set up the chat format; generally only for non-chat model variants, hence the try-except.
             try:
@@ -166,7 +166,8 @@ class TrainingManager:
             torch.cuda.empty_cache()
 
             logger.info("Training completed successfully")
-            job.status = JobStatus.COMPLETED
+            job.status = JobStatus.SUCCEEDED
+            job.fine_tuned_model = sft_config.output_dir
         except Exception as e:
             logger.error(f"Training failed: {str(e)}")
             job.status = JobStatus.FAILED

@@ -3,12 +3,15 @@ from enum import Enum
 import logging
 from datetime import datetime
 
+# https://platform.openai.com/docs/api-reference/fine-tuning/object
 class JobStatus(Enum):
-  PENDING = "pending"
-  QUEUED = "queued"
-  RUNNING = "running"
-  COMPLETED = "completed"
-  FAILED = "failed"
+    PENDING = "pending" # Not in OAI
+    VALIDATING_FILES = "validating_files"
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
 
 class JobLogHandler(logging.Handler):
   def __init__(self, job):
@@ -27,6 +30,7 @@ class Job:
   def __init__(self, id: str, status: JobStatus):
     self.id = id
     self.status = status
+    self.fine_tuned_model = None
     self.logs = []
     self.logger = None
     self.log_handler = None
@@ -61,10 +65,10 @@ class JobManager:
   def __init__(self):
     self.jobs = {}
 
-  def get_job_status(self, job_id: str):
+  def get_job(self, job_id: str):
     if job_id not in self.jobs:
       raise ValueError(f"Job {job_id} not found")
-    return self.jobs[job_id].status
+    return self.jobs[job_id]
 
   def create_job(self):
     job = Job(id=str(uuid.uuid4()), status=JobStatus.PENDING)

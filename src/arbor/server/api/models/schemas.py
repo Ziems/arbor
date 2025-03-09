@@ -9,10 +9,11 @@ class FileResponse(BaseModel):
     purpose: str
 
 class FineTuneRequest(BaseModel):
-    model_name: str
+    model: str
     training_file: str  # id of uploaded jsonl file
 
 class JobStatusResponse(BaseModel):
-    job_id: str
+    id: str
     status: str
     details: str = ""
+    fine_tuned_model: str | None = None

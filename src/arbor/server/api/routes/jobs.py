@@ -10,5 +10,5 @@ def get_job_status(
     job_id: str,
     job_manager: JobManager = Depends(get_job_manager)
 ):
-    status = job_manager.get_job_status(job_id)
-    return JobStatusResponse(job_id=job_id, status=status.value)
+    job = job_manager.get_job(job_id)
+    return JobStatusResponse(id=job_id, status=job.status.value, fine_tuned_model=job.fine_tuned_model)
