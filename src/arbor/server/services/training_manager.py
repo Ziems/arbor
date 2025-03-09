@@ -1,13 +1,11 @@
 from arbor.server.api.models.schemas import FineTuneRequest
 from arbor.server.services.job_manager import Job, JobStatus
-from arbor.server.api.routes.files import file_manager
-
+from arbor.server.services.file_manager import FileManager
 class TrainingManager:
     def __init__(self):
         pass
 
-
-    def find_train_args(self, request: FineTuneRequest):
+    def find_train_args(self, request: FineTuneRequest, file_manager: FileManager):
         file = file_manager.get_file(request.training_file)
         if file is None:
             raise ValueError(f"Training file {request.training_file} not found")
@@ -36,10 +34,10 @@ class TrainingManager:
         return train_kwargs
 
 
-    def fine_tune(self, request: FineTuneRequest, job: Job):
+    def fine_tune(self, request: FineTuneRequest, job: Job, file_manager: FileManager):
         job.status = JobStatus.RUNNING
 
-        train_kwargs = self.find_train_args(request)
+        train_kwargs = self.find_train_args(request, file_manager)
 
         try:
             import torch
@@ -165,6 +163,8 @@ class TrainingManager:
         del trainer
         gc.collect()
         torch.cuda.empty_cache()
+
+        job.status = JobStatus.COMPLETED
 
         return sft_config.output_dir
 

@@ -16,11 +16,12 @@ class Job:
 
 class JobManager:
   def __init__(self):
-    pass
+    self.jobs = {}
 
   def get_job_status(self, job_id: str):
-    pass
+    return self.jobs[job_id].status
 
   def create_job(self):
     job = Job(id=str(uuid.uuid4()), status=JobStatus.PENDING)
+    self.jobs[job.id] = job
     return job
