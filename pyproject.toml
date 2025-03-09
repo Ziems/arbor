@@ -24,7 +24,7 @@ arbor = "arbor.cli:cli"
 
 [tool.poetry]
 name = "arbor"
-version = "0.1.3"
+version = "0.1.4"
 description = "A framework for fine-tuning and managing language models"
 authors = ["Noah Ziems <nziems2@nd.edu>"]
 readme = "README.md"
@@ -39,9 +39,7 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
 ]
 
 [tool.poetry.scripts]
