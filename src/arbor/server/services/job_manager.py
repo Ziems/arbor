@@ -37,6 +37,7 @@ class Job:
       logger_name = f"job_{self.id}"
 
     logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.INFO)
 
     # Create and setup handler if not already exists
     if self.log_handler is None:
