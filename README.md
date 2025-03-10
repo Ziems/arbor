@@ -1,67 +1,101 @@
-# Arbor 🌳
+# 🌳 Arbor 
 
-A drop-in replacement for OpenAI's fine-tuning API that lets you fine-tune and manage open-source language models locally. Train and deploy custom models with the same API you already know.
+**A drop-in replacement for OpenAI's fine-tuning API that lets you fine-tune open-source language models locally.**  
+Train and deploy custom models using the same API you already know.
 
-## Installation
+---
+
+## 🚀 Installation
+
+Install Arbor via pip:
 
 ```bash
 pip install arbor-ai
 ```
 
-## Quick Start
+---
 
-1. Start the Arbor server:
+## ⚡ Quick Start
+
+### 1️⃣ Start the Server
+
+**CLI:**
 
 ```bash
 arbor serve
 ```
 
-2. The server will be available at `http://localhost:8000`.
+**Python:**
 
-3. Upload your training data:
+```python
+from arbor import start_server, stop_server
+
+server = start_server()
+# Your fine-tuning operations here...
+stop_server(server)
+```
+
+> 📍 **By default, the server runs at** `http://localhost:8000`
+
+### 2️⃣ Upload Training Data
 
 ```python
 import requests
 
-requests.post('http://127.0.0.1:8000/api/files', files={'file': open('your_file.jsonl', 'rb')})
+requests.post(
+    'http://127.0.0.1:8000/api/files', 
+    files={'file': open('your_file.jsonl', 'rb')}
+)
 ```
 
-4. Submit a fine-tuning job:
+### 3️⃣ Submit a Fine-Tuning Job
 
 ```python
-requests.post('http://127.0.0.1:8000/api/fine-tune', json={'model': 'HuggingFaceTB/SmolLM2-135M-Instruct', 'training_file': 'Returned file ID from Step 3'})
+requests.post(
+    'http://127.0.0.1:8000/api/fine-tune',
+    json={'model': 'HuggingFaceTB/SmolLM2-135M-Instruct', 'training_file': 'your_file_id'}
+)
 ```
 
-5. Monitor the job status:
+### 4️⃣ Monitor Job Status
 
 ```python
-requests.get('http://127.0.0.1:8000/api/jobs/{Returned job ID from Step 4}')
+requests.get('http://127.0.0.1:8000/api/jobs/{your_job_id}')
 ```
 
+---
 
+## 🛠 Development Setup
 
-## Development Setup
+Clone the repo and set up your development environment:
 
 ```bash
 poetry install
-```
-
-```bash
 poetry run arbor serve
 ```
+
+Run tests:
 
 ```bash
 poetry run pytest
 ```
 
-## Contributing
+---
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+## 🤝 Contributing
 
-## License
+We welcome contributions!  
+Feel free to submit a Pull Request or open an issue. 🚀
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+---
 
-## Support
+## 📜 License
 
-If you encounter any issues or have questions, please file an issue on the [GitHub repository](https://github.com/Ziems/arbor/issues).
+Licensed under the **MIT License** – see the [LICENSE](./LICENSE) file for details.
+
+---
+
+## ❓ Support
+
+If you encounter any issues or have questions, please file an issue on the [GitHub repository](https://github.com/Ziems/arbor/issues).  
+We’re happy to help! 💡
