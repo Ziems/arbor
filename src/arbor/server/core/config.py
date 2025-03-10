@@ -1,8 +1,10 @@
-from pydantic_settings import BaseSettings
+from pydantic import BaseModel, ConfigDict
 
-class Settings(BaseSettings):
+class Settings(BaseModel):
+    model_config = ConfigDict(
+        env_file=".env",  # Add any config options you need
+    )
+
     STORAGE_PATH: str = "./storage"
-    class Config:
-        env_file = ".env"
 
 settings = Settings()
