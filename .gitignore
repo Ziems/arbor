@@ -38,6 +38,8 @@ ENV/
 /uploads/
 /models/
 *.log
+/test_storage/
+/storage/
 
 # OS specific
 .DS_Store

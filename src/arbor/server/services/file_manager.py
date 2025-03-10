@@ -6,15 +6,16 @@ import time
 import uuid
 from fastapi import UploadFile
 from arbor.server.api.models.schemas import FileResponse
+from arbor.server.core.config import Settings
 
 class FileValidationError(Exception):
     """Custom exception for file validation errors"""
     pass
 
 class FileManager:
-  def __init__(self):
-    self.uploads_dir = Path("uploads")
-    self.uploads_dir.mkdir(exist_ok=True)
+  def __init__(self, settings: Settings):
+    self.uploads_dir = Path(settings.STORAGE_PATH) / "uploads"
+    self.uploads_dir.mkdir(parents=True, exist_ok=True)
     self.files = self.load_files_from_uploads()
 
   def load_files_from_uploads(self):

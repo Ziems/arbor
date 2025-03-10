@@ -1,8 +1,20 @@
 import pytest
 from arbor.server.services.job_manager import JobManager, Job, JobStatus
+from arbor.server.core.config import Settings
 
-def test_create_job():
-    job_manager = JobManager()
+@pytest.fixture
+def test_settings(tmp_path):
+    # tmp_path is a Path object that points to a temporary directory
+    # It will be automatically cleaned up after tests
+    return Settings(
+        STORAGE_PATH=str(tmp_path / "test_storage")
+    )
+
+@pytest.fixture
+def job_manager(test_settings):
+    return JobManager(settings=test_settings)
+
+def test_create_job(job_manager):
     job = job_manager.create_job()
 
     assert isinstance(job, Job)
@@ -13,8 +25,7 @@ def test_create_job():
     assert job.log_handler is None
     assert job.fine_tuned_model is None
 
-def test_job_logging():
-    job_manager = JobManager()
+def test_job_logging(job_manager):
     job = job_manager.create_job()
 
     # Test logger setup
@@ -34,8 +45,7 @@ def test_job_logging():
     assert job.logger is None
     assert job.log_handler is None
 
-def test_get_job():
-    job_manager = JobManager()
+def test_get_job(job_manager):
     job = job_manager.create_job()
 
     assert job_manager.get_job(job.id).status == JobStatus.PENDING

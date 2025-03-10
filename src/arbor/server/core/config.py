@@ -1,9 +1,7 @@
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    UPLOADS_DIR: str = "uploads"
-    MODEL_CACHE_DIR: str = "model_cache"
-
+    STORAGE_PATH: str = "./storage"
     class Config:
         env_file = ".env"
 

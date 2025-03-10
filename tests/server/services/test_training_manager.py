@@ -13,12 +13,38 @@ def run_server():
     uvicorn.run(app, host="127.0.0.1", port=8000)
 
 @pytest.fixture(scope="module")
-def server():
+def server(tmp_path_factory):
+    """Set up a test server with configured dependencies"""
+    from arbor.server.main import app
+    from arbor.server.core.config import Settings
+    from arbor.server.services.file_manager import FileManager
+    from arbor.server.services.job_manager import JobManager
+    from arbor.server.services.training_manager import TrainingManager
+
+    # Use tmp_path_factory for module-scoped fixture
+    test_storage = tmp_path_factory.mktemp("test_storage")
+
+    # Create test settings
+    settings = Settings(
+        STORAGE_PATH=str(test_storage)
+    )
+
+    # Initialize services with test settings
+    file_manager = FileManager(settings=settings)
+    job_manager = JobManager(settings=settings)
+    training_manager = TrainingManager(settings=settings)
+
+    # Inject dependencies into app state
+    app.state.settings = settings
+    app.state.file_manager = file_manager
+    app.state.job_manager = job_manager
+    app.state.training_manager = training_manager
+
     # Start server in a separate process
     proc = Process(target=run_server)
     proc.start()
     time.sleep(1)  # Give the server a moment to start
-    yield
+    yield app
     proc.terminate()  # Shut down the server after tests
     proc.join()
 

@@ -1,16 +1,14 @@
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
-from arbor.server.services.file_manager import FileManager
+from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 from arbor.server.api.models.schemas import FileResponse
-from arbor.server.services.dependencies import get_file_manager
 from arbor.server.services.file_manager import FileValidationError
 
 router = APIRouter()
 
 @router.post("", response_model=FileResponse)
-async def upload_file(
+async def upload_file(request: Request,
     file: UploadFile = File(...),
-    file_manager: FileManager = Depends(get_file_manager)
 ):
+    file_manager = request.app.state.file_manager
     if not file.filename.endswith('.jsonl'):
         raise HTTPException(status_code=400, detail="Only .jsonl files are allowed")
 

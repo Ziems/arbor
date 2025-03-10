@@ -4,17 +4,40 @@ from fastapi import FastAPI
 from arbor.server.api.routes.files import router
 from arbor.server.services.file_manager import FileManager
 from pathlib import Path
-from arbor.server.services.dependencies import get_file_manager
 
-@pytest.fixture
-def app():
-    app = FastAPI()
-    app.include_router(router, prefix="/api/files")
+@pytest.fixture(scope="module")
+def server(tmp_path_factory):
+    """Set up a test server with configured dependencies"""
+    from arbor.server.main import app
+    from arbor.server.core.config import Settings
+    from arbor.server.services.file_manager import FileManager
+    from arbor.server.services.job_manager import JobManager
+    from arbor.server.services.training_manager import TrainingManager
+
+    # Use tmp_path_factory instead of tmp_path because we're using scope="module"
+    test_storage = tmp_path_factory.mktemp("test_storage")
+
+    # Create test settings
+    settings = Settings(
+        STORAGE_PATH=str(test_storage)
+    )
+
+    # Initialize services with test settings
+    file_manager = FileManager(settings=settings)
+    job_manager = JobManager(settings=settings)
+    training_manager = TrainingManager(settings=settings)
+
+    # Inject dependencies into app state
+    app.state.settings = settings
+    app.state.file_manager = file_manager
+    app.state.job_manager = job_manager
+    app.state.training_manager = training_manager
+
     return app
 
 @pytest.fixture
-def client(app):
-    return TestClient(app)
+def client(server):
+    return TestClient(server)
 
 def test_upload_file(client):
     # Load the test file from tests/data
@@ -104,7 +127,7 @@ def test_get_file_returns_same_content(client):
     file_id = response.json()["id"]
 
     # Get the file and verify contents match
-    file_manager = get_file_manager()
+    file_manager = client.app.state.file_manager
     file_data = file_manager.get_file(file_id)
 
     with open(file_data["path"], "rb") as f:

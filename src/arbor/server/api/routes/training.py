@@ -1,16 +1,17 @@
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Request
 
 from arbor.server.api.models.schemas import FineTuneRequest, JobStatusResponse
-from arbor.server.services.job_manager import JobManager, JobStatus
-from arbor.server.services.file_manager import FileManager
-from arbor.server.services.training_manager import TrainingManager
-from arbor.server.services.dependencies import get_training_manager, get_job_manager, get_file_manager
+from arbor.server.services.job_manager import JobStatus
 
 router = APIRouter()
 
 @router.post("", response_model=JobStatusResponse)
-def fine_tune(request: FineTuneRequest, background_tasks: BackgroundTasks, training_manager: TrainingManager = Depends(get_training_manager), job_manager: JobManager = Depends(get_job_manager), file_manager: FileManager = Depends(get_file_manager)):
+def fine_tune(request: Request, fine_tune_request: FineTuneRequest, background_tasks: BackgroundTasks):
+    job_manager = request.app.state.job_manager
+    file_manager = request.app.state.file_manager
+    training_manager = request.app.state.training_manager
+
     job = job_manager.create_job()
-    background_tasks.add_task(training_manager.fine_tune, request, job, file_manager)
+    background_tasks.add_task(training_manager.fine_tune, fine_tune_request, job, file_manager)
     job.status = JobStatus.QUEUED
     return JobStatusResponse(id=job.id, status=job.status.value)

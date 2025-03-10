@@ -2,7 +2,7 @@ import uuid
 from enum import Enum
 import logging
 from datetime import datetime
-
+from arbor.server.core.config import Settings
 # https://platform.openai.com/docs/api-reference/fine-tuning/object
 class JobStatus(Enum):
     PENDING = "pending" # Not in OAI
@@ -62,7 +62,7 @@ class Job:
       self.logger = None
 
 class JobManager:
-  def __init__(self):
+  def __init__(self, settings: Settings):
     self.jobs = {}
 
   def get_job(self, job_id: str):

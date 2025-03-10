@@ -11,6 +11,7 @@ class FileResponse(BaseModel):
 class FineTuneRequest(BaseModel):
     model: str
     training_file: str  # id of uploaded jsonl file
+    suffix: str | None = None
 
 class JobStatusResponse(BaseModel):
     id: str

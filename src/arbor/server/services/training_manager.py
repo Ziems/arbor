@@ -1,10 +1,22 @@
+import random
+import string
+from datetime import datetime
+from pathlib import Path
 from arbor.server.api.models.schemas import FineTuneRequest
 from arbor.server.services.job_manager import Job, JobStatus
 from arbor.server.services.file_manager import FileManager
+from arbor.server.core.config import Settings
 
 class TrainingManager:
-    def __init__(self):
-        pass
+    def __init__(self, settings: Settings):
+        self.settings = settings
+
+    def make_output_dir(self, request: FineTuneRequest):
+        model_name = request.model.split('/')[-1].lower()
+        suffix = request.suffix if request.suffix is not None else ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        name = f"ft:{model_name}:{suffix}:{timestamp}"
+        return name, str(Path(self.settings.STORAGE_PATH) / "models" / name)
 
     def find_train_args(self, request: FineTuneRequest, file_manager: FileManager):
         file = file_manager.get_file(request.training_file)
@@ -12,8 +24,8 @@ class TrainingManager:
             raise ValueError(f"Training file {request.training_file} not found")
 
         data_path = file["path"]
-        output_dir = f"models/{request.model}" # TODO: This should be updated to be unique in some way
 
+        name, output_dir = self.make_output_dir(request)
 
         default_train_kwargs = {
             "device": None,
@@ -30,7 +42,6 @@ class TrainingManager:
         }
         train_kwargs = {'packing': False}
         train_kwargs={**default_train_kwargs, **(train_kwargs or {})}
-        output_dir = train_kwargs["output_dir"]  # user might have changed the output_dir
 
         return train_kwargs
 
