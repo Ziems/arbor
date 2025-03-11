@@ -1,10 +1,10 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Request, Body
-from arbor.server.api.models.schemas import FileResponse
+from arbor.server.api.models.schemas import FileModel
 from arbor.server.services.file_manager import FileValidationError
 from typing import Literal
 router = APIRouter()
 
-@router.post("", response_model=FileResponse)
+@router.post("", response_model=FileModel)
 async def upload_file(request: Request,
     file: UploadFile = File(...),
     purpose: Literal["assistants", "vision", "fine-tune", "batch"] = Body("fine-tune"),
@@ -17,6 +17,6 @@ async def upload_file(request: Request,
         content = await file.read()
         file_manager.validate_file_format(content)
         await file.seek(0)  # Reset file pointer to beginning
-        return file_manager.save_uploaded_file(file)
+        return FileModel(**file_manager.save_uploaded_file(file))
     except FileValidationError as e:
         raise HTTPException(status_code=400, detail=f"Invalid file format: {str(e)}")

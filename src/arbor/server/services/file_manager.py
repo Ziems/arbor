@@ -5,7 +5,6 @@ import shutil
 import time
 import uuid
 from fastapi import UploadFile
-from arbor.server.api.models.schemas import FileResponse
 from arbor.server.core.config import Settings
 
 class FileValidationError(Exception):
@@ -51,7 +50,7 @@ class FileManager:
 
     return files
 
-  def save_uploaded_file(self, file: UploadFile) -> FileResponse:
+  def save_uploaded_file(self, file: UploadFile):
     file_id = str(uuid.uuid4())
     dir_path = self.uploads_dir / file_id
     dir_path.mkdir(exist_ok=True)
@@ -82,7 +81,7 @@ class FileManager:
     }
 
     self.files[file_id] = file_data
-    return FileResponse(**file_data)
+    return file_data
 
   def get_file(self, file_id: str):
     return self.files[file_id]

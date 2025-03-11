@@ -1,5 +1,5 @@
 import pytest
-from arbor.server.services.job_manager import JobManager, Job, JobStatus
+from arbor.server.services.job_manager import JobManager, Job, JobStatus, JobEvent, JobCheckpoint
 from arbor.server.core.config import Settings
 
 @pytest.fixture
@@ -18,32 +18,34 @@ def test_create_job(job_manager):
     job = job_manager.create_job()
 
     assert isinstance(job, Job)
+    assert "ftjob" in job.id
     assert job.id in job_manager.jobs
     assert job.status == JobStatus.PENDING
-    assert job.logs == []
-    assert job.logger is None
-    assert job.log_handler is None
+    assert job.events == []
+    assert job.checkpoints == []
     assert job.fine_tuned_model is None
 
-def test_job_logging(job_manager):
+def test_job_events(job_manager):
     job = job_manager.create_job()
 
-    # Test logger setup
-    logger = job.setup_logger("test_logger")
-    assert job.logger is not None
-    assert job.log_handler is not None
-
     # Test logging functionality
-    logger.info("Test message")
-    assert len(job.logs) == 1
-    log_entry = job.logs[0]
-    assert log_entry['level'] == 'INFO'
-    assert log_entry['message'] == 'Test message'
+    job.add_event(JobEvent(level="info", message="Test message"))
+    assert len(job.get_events()) == 1
+    event = job.get_events()[0]
+    assert "ftevent" in event.id
+    assert event.level == 'info'
+    assert event.message == 'Test message'
 
-    # Test cleanup
-    job.cleanup_logger()
-    assert job.logger is None
-    assert job.log_handler is None
+def test_job_checkpoints(job_manager):
+    job = job_manager.create_job()
+    job.add_checkpoint(JobCheckpoint(fine_tuned_model_checkpoint="example_path", fine_tuning_job_id=job.id, metrics={}, step_number=1))
+    assert len(job.get_checkpoints()) == 1
+    checkpoint = job.get_checkpoints()[0]
+    assert 'ftckpt' in checkpoint.id
+    assert checkpoint.fine_tuned_model_checkpoint == 'example_path'
+    assert checkpoint.fine_tuning_job_id == job.id
+    assert checkpoint.metrics == {}
+    assert checkpoint.step_number == 1
 
 def test_get_job(job_manager):
     job = job_manager.create_job()

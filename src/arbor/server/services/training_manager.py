@@ -3,7 +3,7 @@ import string
 from datetime import datetime
 from pathlib import Path
 from arbor.server.api.models.schemas import FineTuneRequest
-from arbor.server.services.job_manager import Job, JobStatus
+from arbor.server.services.job_manager import Job, JobStatus, JobEvent
 from arbor.server.services.file_manager import FileManager
 from arbor.server.core.config import Settings
 
@@ -16,7 +16,7 @@ class TrainingManager:
         suffix = request.suffix if request.suffix is not None else ''.join(random.choices(string.ascii_letters + string.digits, k=6))
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         name = f"ft:{model_name}:{suffix}:{timestamp}"
-        return name, str(Path(self.settings.STORAGE_PATH).resolve() / "models" / name)
+        return name, str(Path(self.settings.STORAGE_PATH) / "models" / name)
 
     def find_train_args(self, request: FineTuneRequest, file_manager: FileManager):
         file = file_manager.get_file(request.training_file)
@@ -47,17 +47,14 @@ class TrainingManager:
 
 
     def fine_tune(self, request: FineTuneRequest, job: Job, file_manager: FileManager):
-        # Get logger for this job
-        logger = job.setup_logger("training")
-
         job.status = JobStatus.RUNNING
-        logger.info("Starting fine-tuning job")
+        job.add_event(JobEvent(level="info", message="Starting fine-tuning job", data={}))
 
         try:
             train_kwargs = self.find_train_args(request, file_manager)
 
             import torch
-            from transformers import AutoModelForCausalLM, AutoTokenizer, TrainerCallback
+            from transformers import AutoModelForCausalLM, AutoTokenizer
             from trl import SFTConfig, SFTTrainer, setup_chat_format
 
             device = train_kwargs.get("device", None)
@@ -67,7 +64,7 @@ class TrainingManager:
                     if torch.cuda.is_available()
                     else "mps" if torch.backends.mps.is_available() else "cpu"
                 )
-            logger.info(f"Using device: {device}")
+            job.add_event(JobEvent(level="info", message=f"Using device: {device}", data={}))
 
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name_or_path=request.model
@@ -81,15 +78,15 @@ class TrainingManager:
                 pass
 
             if tokenizer.pad_token_id is None:
-                logger.info("Adding pad token to tokenizer")
+                job.add_event(JobEvent(level="info", message="Adding pad token to tokenizer", data={}))
                 tokenizer.add_special_tokens({"pad_token": "[!#PAD#!]"})
 
-            logger.info("Creating dataset")
+            job.add_event(JobEvent(level="info", message="Creating dataset", data={}))
             if "max_seq_length" not in train_kwargs or train_kwargs["max_seq_length"] is None:
                 train_kwargs["max_seq_length"] = 4096
-                logger.info(f"The 'train_kwargs' parameter didn't include a 'max_seq_length', defaulting to {train_kwargs['max_seq_length']}")
+                job.add_event(JobEvent(level="info", message=f"The 'train_kwargs' parameter didn't include a 'max_seq_length', defaulting to {train_kwargs['max_seq_length']}", data={}))
 
-
+            job.add_event(JobEvent(level="info", message="Tokenizing dataset", data={}))
             hf_dataset = dataset_from_file(train_kwargs["train_data_path"])
             def tokenize_function(example):
                 return encode_sft_example(example, tokenizer, train_kwargs["max_seq_length"])
@@ -136,7 +133,7 @@ class TrainingManager:
                 },
             )
 
-            logger.info("Starting training")
+            job.add_event(JobEvent(level="info", message="Starting training", data={}))
             trainer = SFTTrainer(
                 model=model,
                 args=sft_config,
@@ -148,8 +145,12 @@ class TrainingManager:
             # Train!
             trainer.train()
 
+            job.add_event(JobEvent(level="info", message="Training completed successfully", data={}))
+
+            job.add_event(JobEvent(level="info", message="Saving model", data={}))
             # Save the model!
             trainer.save_model()
+            job.add_event(JobEvent(level="info", message="Model saved", data={'location': sft_config.output_dir}))
 
             MERGE = True
             if USE_PEFT and MERGE:
@@ -176,15 +177,15 @@ class TrainingManager:
             gc.collect()
             torch.cuda.empty_cache()
 
-            logger.info("Training completed successfully")
+            job.add_event(JobEvent(level="info", message="Training completed successfully", data={}))
             job.status = JobStatus.SUCCEEDED
             job.fine_tuned_model = sft_config.output_dir
         except Exception as e:
-            logger.error(f"Training failed: {str(e)}")
+            job.add_event(JobEvent(level="error", message=f"Training failed: {str(e)}", data={}))
             job.status = JobStatus.FAILED
             raise
         finally:
-            job.cleanup_logger()
+            pass
 
         return sft_config.output_dir
 

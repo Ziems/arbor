@@ -1,8 +1,16 @@
-from typing import Optional, List, Literal, Generic, TypeVar, Dict, Any
+from typing import Optional, List, Literal, Generic, TypeVar, Any
 from enum import Enum
 from pydantic import BaseModel, ConfigDict
 
-class FileResponse(BaseModel):
+# Generic type for list items
+T = TypeVar('T')
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    object: str = "list"
+    data: List[T]
+    has_more: bool = False
+
+class FileModel(BaseModel):
     id: str
     object: str = "file"
     bytes: int
@@ -16,7 +24,7 @@ class WandbConfig(BaseModel):
     entity: Optional[str] = None
     tags: Optional[List[str]] = None
 
-class Integration(BaseModel):
+class IntegrationModel(BaseModel):
     type: str
     wandb: WandbConfig
 
@@ -26,7 +34,7 @@ class FineTuneRequest(BaseModel):
     suffix: Optional[str] = None
     # UNUSED
     validation_file: Optional[str] = None
-    integrations: Optional[List[Integration]] = []
+    integrations: Optional[List[IntegrationModel]] = []
     seed: Optional[int] = None
 
 class ErrorModel(BaseModel):
@@ -67,7 +75,7 @@ class JobStatus(Enum):
     CANCELLED = "cancelled"
 
 # https://platform.openai.com/docs/api-reference/fine-tuning/object
-class JobStatusResponse(BaseModel):
+class JobStatusModel(BaseModel):
     object: str = "fine_tuning.job"
     id: str
     fine_tuned_model: str | None = None
@@ -91,12 +99,31 @@ class JobStatusResponse(BaseModel):
     # method: MethodModel
     # metadata: dict[str, str]
 
-# Generic type for list items
-T = TypeVar('T')
+class JobEventModel(BaseModel):
+    object: str = "fine_tuning.job_event"
+    id: str
+    created_at: int
+    level: str
+    message: str
+    data: dict[str, Any]
+    type: str
 
-class PaginatedResponse(BaseModel, Generic[T]):
-    object: str = "list"
-    data: List[T]
-    has_more: bool = False
 
-    model_config = ConfigDict(exclude_none=True)
+class MetricsModel(BaseModel):
+    step: int
+    train_loss: float
+    train_mean_token_accuracy: float
+    valid_loss: float
+    valid_mean_token_accuracy: float
+    full_valid_loss: float
+    full_valid_mean_token_accuracy: float
+
+
+class JobCheckpointModel(BaseModel):
+    object: str = "fine_tuning.job_checkpoint"
+    id: str
+    created_at: int
+    fine_tuned_model_checkpoint: str
+    step_number: int
+    metrics: MetricsModel
+    fine_tuning_job_id: str
