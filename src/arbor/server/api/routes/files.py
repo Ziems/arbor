@@ -1,12 +1,13 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Request
+from fastapi import APIRouter, UploadFile, File, HTTPException, Request, Body
 from arbor.server.api.models.schemas import FileResponse
 from arbor.server.services.file_manager import FileValidationError
-
+from typing import Literal
 router = APIRouter()
 
 @router.post("", response_model=FileResponse)
 async def upload_file(request: Request,
     file: UploadFile = File(...),
+    purpose: Literal["assistants", "vision", "fine-tune", "batch"] = Body("fine-tune"),
 ):
     file_manager = request.app.state.file_manager
     if not file.filename.endswith('.jsonl'):

@@ -52,3 +52,12 @@ def test_get_job(job_manager):
 
     with pytest.raises(ValueError):
         job_manager.get_job("nonexistent-id")
+
+def test_get_jobs(job_manager):
+    job = job_manager.create_job()
+    assert len(job_manager.get_jobs()) == 1
+    assert job_manager.get_jobs()[0].id == job.id
+
+    job2 = job_manager.create_job()
+    assert len(job_manager.get_jobs()) == 2
+    assert job_manager.get_jobs()[1].id == job2.id

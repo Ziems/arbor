@@ -65,3 +65,6 @@ class JobManager:
     job = Job(id=str(uuid.uuid4()), status=JobStatus.PENDING)
     self.jobs[job.id] = job
     return job
+
+  def get_jobs(self):
+    return list(self.jobs.values())

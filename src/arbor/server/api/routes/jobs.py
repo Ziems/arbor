@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Request, BackgroundTasks
 from typing import List
 
-from arbor.server.api.models.schemas import JobStatusResponse, FineTuneRequest, JobStatus
+from arbor.server.api.models.schemas import JobStatusResponse, FineTuneRequest, JobStatus, PaginatedResponse
 from arbor.server.services.job_manager import JobStatus
 
 router = APIRouter()
 
+# Create a fine-tune job
 @router.post("", response_model=JobStatusResponse)
 def create_fine_tune_job(request: Request, fine_tune_request: FineTuneRequest, background_tasks: BackgroundTasks):
     job_manager = request.app.state.job_manager
@@ -17,12 +18,25 @@ def create_fine_tune_job(request: Request, fine_tune_request: FineTuneRequest, b
     job.status = JobStatus.QUEUED
     return JobStatusResponse(id=job.id, status=job.status.value)
 
+# List fine-tune jobs (paginated)
 @router.get("", response_model=List[JobStatusResponse])
 def get_jobs(request: Request):
     job_manager = request.app.state.job_manager
-    return [JobStatusResponse(id=job.id, status=job.status.value) for job in job_manager.get_jobs()]
+    return PaginatedResponse(
+        data=[
+            JobStatusResponse(id=job.id, status=job.status.value)
+            for job in job_manager.get_jobs()
+        ],
+        has_more=False
+    )
 
+# List fine-tuning events
+# TODO: Implement
 
+# List fine-tuning checkpoints
+# TODO: Implement
+
+# Retrieve a fine-tune job by id
 @router.get("/{job_id}", response_model=JobStatusResponse)
 def get_job_status(
     request: Request,
@@ -31,3 +45,6 @@ def get_job_status(
     job_manager = request.app.state.job_manager
     job = job_manager.get_job(job_id)
     return JobStatusResponse(id=job_id, status=job.status.value, fine_tuned_model=job.fine_tuned_model)
+
+# Cancel a fine-tune job
+# TODO: Implement

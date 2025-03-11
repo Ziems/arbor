@@ -1,6 +1,6 @@
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Generic, TypeVar, Dict, Any
 from enum import Enum
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 class FileResponse(BaseModel):
     id: str
@@ -90,3 +90,13 @@ class JobStatusResponse(BaseModel):
     # estimated_finish: int | None = None # The Unix timestamp (in seconds) for when the fine-tuning job is estimated to finish. The value will be null if the fine-tuning job is not running.
     # method: MethodModel
     # metadata: dict[str, str]
+
+# Generic type for list items
+T = TypeVar('T')
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    object: str = "list"
+    data: List[T]
+    has_more: bool = False
+
+    model_config = ConfigDict(exclude_none=True)
