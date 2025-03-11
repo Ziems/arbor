@@ -76,12 +76,12 @@ def trained_model_job(server, client):
     test_content = test_file_path.read_bytes()
     files = {"file": ("test.jsonl", test_content, "application/json")}
 
-    upload_response = client.post("/api/files", files=files)
+    upload_response = client.post("/v1/files", files=files)
     assert upload_response.status_code == 200
     file_id = upload_response.json()["id"]
 
     # 2. Start fine-tuning job
-    finetune_response = client.post("/api/fine-tune", json={
+    finetune_response = client.post("/v1/fine_tuning/jobs", json={
         "training_file": file_id,
         "model": "HuggingFaceTB/SmolLM2-135M-Instruct"
     })
@@ -95,7 +95,7 @@ def trained_model_job(server, client):
     time.sleep(2)
 
     for _ in range(max_attempts):
-        status_response = client.get(f"/api/job/{job_id}")
+        status_response = client.get(f"/v1/fine_tuning/jobs/{job_id}")
         assert status_response.status_code == 200
 
         status = status_response.json()["status"]
@@ -112,14 +112,14 @@ def trained_model_job(server, client):
 
 def test_complete_workflow(trained_model_job, client):
     # Just verify final status since training is already done
-    final_response = client.get(f"/api/job/{trained_model_job}")
+    final_response = client.get(f"/v1/fine_tuning/jobs/{trained_model_job}")
     assert final_response.status_code == 200
     assert final_response.json()["status"] == "succeeded"
     assert final_response.json()["fine_tuned_model"] is not None
 
 def test_model_can_be_loaded(trained_model_job, client):
     # Your test code here, using trained_model_job
-    final_response = client.get(f"/api/job/{trained_model_job}")
+    final_response = client.get(f"/v1/fine_tuning/jobs/{trained_model_job}")
     model_path = final_response.json()["fine_tuned_model"]
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -138,7 +138,7 @@ def test_model_can_be_loaded(trained_model_job, client):
 
 def test_model_can_be_prompted(trained_model_job, client):
     # Your test code here, using trained_model_job
-    final_response = client.get(f"/api/job/{trained_model_job}")
+    final_response = client.get(f"/v1/fine_tuning/jobs/{trained_model_job}")
     model_path = final_response.json()["fine_tuned_model"]
 
     device = "cuda" if torch.cuda.is_available() else "cpu"

@@ -27,7 +27,7 @@ def test_server_lifecycle(test_storage):
         test_file_path = Path(__file__).parent / "data" / "training_data_sft.jsonl"
         with open(test_file_path, 'rb') as file:
             files = {'file': file}
-            response = requests.post('http://localhost:8000/api/files', files=files)
+            response = requests.post('http://localhost:8000/v1/files', files=files)
         assert response.status_code == 200
 
     finally:
@@ -43,8 +43,8 @@ def test_multiple_servers(test_storage):
 
         # Test both servers are running
         test_file_path = Path(__file__).parent / "data" / "training_data_sft.jsonl"
-        resp1 = upload_file('http://localhost:8124/api/files', test_file_path)
-        resp2 = upload_file('http://localhost:8125/api/files', test_file_path)
+        resp1 = upload_file('http://localhost:8124/v1/files', test_file_path)
+        resp2 = upload_file('http://localhost:8125/v1/files', test_file_path)
 
         assert resp1.status_code == 200
         assert resp2.status_code == 200

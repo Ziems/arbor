@@ -1,17 +1,8 @@
 import uuid
-from enum import Enum
 import logging
 from datetime import datetime
 from arbor.server.core.config import Settings
-# https://platform.openai.com/docs/api-reference/fine-tuning/object
-class JobStatus(Enum):
-    PENDING = "pending" # Not in OAI
-    VALIDATING_FILES = "validating_files"
-    QUEUED = "queued"
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
+from arbor.server.api.models.schemas import JobStatus
 
 class JobLogHandler(logging.Handler):
   def __init__(self, job):

@@ -43,7 +43,7 @@ stop_server(server)
 import requests
 
 requests.post(
-    'http://127.0.0.1:8000/api/files',
+    'http://127.0.0.1:8000/v1/files',
     files={'file': open('your_file.jsonl', 'rb')}
 )
 ```
@@ -66,7 +66,7 @@ The response will look something like:
 
 ```python
 requests.post(
-    'http://127.0.0.1:8000/api/fine-tune',
+    'http://127.0.0.1:8000/v1/fine_tuning/jobs',
     json={'model': 'HuggingFaceTB/SmolLM2-135M-Instruct', 'training_file': 'your_file_id'}
 )
 ```
@@ -86,7 +86,7 @@ The response will look something like:
 ### 4️⃣ Monitor Job Status
 
 ```python
-requests.get('http://127.0.0.1:8000/api/jobs/{your_job_id}')
+requests.get('http://127.0.0.1:8000/v1/fine_tuning/jobs/{your_job_id}')
 ```
 
 While the job is running, the response will look something like:

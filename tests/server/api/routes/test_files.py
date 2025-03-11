@@ -45,7 +45,7 @@ def test_upload_file(client):
     test_content = test_file_path.read_bytes()
     files = {"file": ("test.jsonl", test_content, "application/json")}
 
-    response = client.post("/api/files", files=files)
+    response = client.post("/v1/files", files=files)
 
     assert response.status_code == 200
     assert "id" in response.json()
@@ -64,13 +64,13 @@ def test_upload_file_validates_file_type(client):
 
     for filename, content, content_type in invalid_files:
         files = {"file": (filename, content, content_type)}
-        response = client.post("/api/files", files=files)
+        response = client.post("/v1/files", files=files)
         assert response.status_code == 400
         assert "Only .jsonl files are allowed" in response.json()["detail"]
 
     # Test accepted file type
     files = {"file": ("test.jsonl", test_content, "application/json")}
-    response = client.post("/api/files", files=files)
+    response = client.post("/v1/files", files=files)
     assert response.status_code == 200
     assert "id" in response.json()
 
@@ -81,37 +81,37 @@ def test_upload_file_validates_format(client):
 
     # Test valid format
     files = {"file": ("test.jsonl", valid_content, "application/json")}
-    response = client.post("/api/files", files=files)
+    response = client.post("/v1/files", files=files)
     assert response.status_code == 200
     assert "id" in response.json()
 
     # Test empty file
     files = {"file": ("test.jsonl", b"", "application/json")}
-    response = client.post("/api/files", files=files)
+    response = client.post("/v1/files", files=files)
     assert response.status_code == 400
     assert "Invalid file format" in response.json()["detail"]
 
     # Test plain text
     files = {"file": ("test.jsonl", b"This is not a JSONL file", "application/json")}
-    response = client.post("/api/files", files=files)
+    response = client.post("/v1/files", files=files)
     assert response.status_code == 400
     assert "Invalid file format" in response.json()["detail"]
 
     # Test invalid JSON structure
     files = {"file": ("test.jsonl", b'{"messages": [{"role": "user"}]}\n{"broken_json":', "application/json")}
-    response = client.post("/api/files", files=files)
+    response = client.post("/v1/files", files=files)
     assert response.status_code == 400
     assert "Invalid file format" in response.json()["detail"]
 
     # Test missing required fields
     files = {"file": ("test.jsonl", b'{"wrong_field": "test"}\n{"also_wrong": "test"}', "application/json")}
-    response = client.post("/api/files", files=files)
+    response = client.post("/v1/files", files=files)
     assert response.status_code == 400
     assert "Invalid file format" in response.json()["detail"]
 
     # Test missing messages field
     files = {"file": ("test.jsonl", b'{"other": "data"}\n{"more": "data"}', "application/json")}
-    response = client.post("/api/files", files=files)
+    response = client.post("/v1/files", files=files)
     assert response.status_code == 400
     assert "Invalid file format" in response.json()["detail"]
 
@@ -122,7 +122,7 @@ def test_get_file_returns_same_content(client):
 
     # Upload file first
     files = {"file": ("test.jsonl", valid_content, "application/json")}
-    response = client.post("/api/files", files=files)
+    response = client.post("/v1/files", files=files)
     assert response.status_code == 200
     file_id = response.json()["id"]
 
