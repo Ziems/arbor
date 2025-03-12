@@ -51,7 +51,7 @@ class FileManager:
     return files
 
   def save_uploaded_file(self, file: UploadFile):
-    file_id = str(uuid.uuid4())
+    file_id = f'file-{str(uuid.uuid4())}'
     dir_path = self.uploads_dir / file_id
     dir_path.mkdir(exist_ok=True)
 

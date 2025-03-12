@@ -67,6 +67,9 @@ class MethodModel(BaseModel):
 # https://platform.openai.com/docs/api-reference/fine-tuning/object
 class JobStatus(Enum):
     PENDING = "pending" # Not in OAI
+    PENDING_PAUSE = "pending_pause" # Not in OAI
+    PENDING_RESUME = "pending_resume" # Not in OAI
+    PAUSED = "paused" # Not in OAI
     VALIDATING_FILES = "validating_files"
     QUEUED = "queued"
     RUNNING = "running"
@@ -127,3 +130,27 @@ class JobCheckpointModel(BaseModel):
     step_number: int
     metrics: MetricsModel
     fine_tuning_job_id: str
+
+
+class ChatCompletionMessage(BaseModel):
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+class ChatCompletionRequest(BaseModel):
+    model: str
+    messages: List[ChatCompletionMessage]
+    temperature: float | None = None
+    top_p: float | None = None
+    max_tokens: int | None = None
+
+class ChatCompletionChoice(BaseModel):
+    message: ChatCompletionMessage
+    index: int
+    finish_reason: Literal["stop", "length", "tool_calls"]
+
+class ChatCompletionModel(BaseModel):
+    id: str
+    object: str = "chat.completion"
+    created: int
+    model: str
+    choices: List[ChatCompletionChoice]

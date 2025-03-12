@@ -63,3 +63,9 @@ class JobManager:
 
   def get_jobs(self):
     return list(self.jobs.values())
+
+  def get_active_job(self):
+    for job in self.jobs.values():
+      if job.status == JobStatus.RUNNING:
+        return job
+    return None

@@ -1,11 +1,26 @@
+import time
 import random
 import string
 from datetime import datetime
 from pathlib import Path
+
+from transformers.trainer_callback import TrainerCallback
+
 from arbor.server.api.models.schemas import FineTuneRequest
 from arbor.server.services.job_manager import Job, JobStatus, JobEvent
 from arbor.server.services.file_manager import FileManager
 from arbor.server.core.config import Settings
+
+
+class PauseTrainingCallback(TrainerCallback):
+    def __init__(self, job: Job):
+        self.job = job
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if self.job.status == JobStatus.PENDING_PAUSE:
+            control.should_training_stop = True
+            control.should_save = True
+
 
 class TrainingManager:
     def __init__(self, settings: Settings):
@@ -133,19 +148,35 @@ class TrainingManager:
                 },
             )
 
-            job.add_event(JobEvent(level="info", message="Starting training", data={}))
+            job.add_event(JobEvent(level="info", message="Starting training"))
             trainer = SFTTrainer(
                 model=model,
                 args=sft_config,
                 train_dataset=tokenized_dataset,
                 peft_config=peft_config,
-
+                callbacks=[PauseTrainingCallback(job)]
             )
 
             # Train!
             trainer.train()
 
-            job.add_event(JobEvent(level="info", message="Training completed successfully", data={}))
+
+            if job.status == JobStatus.PENDING_PAUSE:
+                trainer.accelerator.save_state(output_dir=sft_config.output_dir)
+                current_step = trainer.state.global_step
+                job.status = JobStatus.PAUSED
+                job.add_event(JobEvent(level="info", message="Training paused", data={"step": current_step}))
+
+            while job.status == JobStatus.PAUSED:
+                time.sleep(1)  # Sleep to avoid busy waiting
+                if job.status == JobStatus.PENDING_RESUME:
+                    job.status = JobStatus.RUNNING
+                    job.add_event(JobEvent(level="info", message="Resuming training"))
+                    trainer.accelerator.load_state(input_dir=sft_config.output_dir)
+                    trainer.train(resume_from_checkpoint=True)
+
+
+            job.add_event(JobEvent(level="info", message="Training completed successfully"))
 
             job.add_event(JobEvent(level="info", message="Saving model", data={}))
             # Save the model!
