@@ -73,6 +73,5 @@ def cancel_job(request: Request, job_id: str):
             detail=f"Cannot cancel job with status {job.status.value}"
         )
 
-    job.status = JobStatus.CANCELLED
-    # TODO: Needs to cancel the training process
-    pass
+    job.status = JobStatus.PENDING_CANCEL
+    return JobStatusModel(id=job.id, status=job.status.value)

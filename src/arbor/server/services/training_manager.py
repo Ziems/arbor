@@ -17,9 +17,10 @@ class PauseTrainingCallback(TrainerCallback):
         self.job = job
 
     def on_step_end(self, args, state, control, **kwargs):
-        if self.job.status == JobStatus.PENDING_PAUSE:
+        if self.job.status in [JobStatus.PENDING_PAUSE, JobStatus.PENDING_CANCEL]:
             control.should_training_stop = True
-            control.should_save = True
+            if self.job.status == JobStatus.PENDING_PAUSE: # only save if we're pausing
+                control.should_save = True
 
 
 class TrainingManager:
@@ -175,6 +176,16 @@ class TrainingManager:
                     trainer.accelerator.load_state(input_dir=sft_config.output_dir)
                     trainer.train(resume_from_checkpoint=True)
 
+            if job.status == JobStatus.PENDING_CANCEL:
+                job.status = JobStatus.CANCELLED
+                job.add_event(JobEvent(level="info", message="Training cancelled"))
+                import gc
+                del model
+                del tokenizer
+                del trainer
+                gc.collect()
+                torch.cuda.empty_cache()
+                raise Exception("Training cancelled") # not sure if this should be raised or just return None
 
             job.add_event(JobEvent(level="info", message="Training completed successfully"))
 
@@ -199,7 +210,7 @@ class TrainingManager:
                     sft_config.output_dir, safe_serialization=True, max_shard_size="5GB"
                 )
 
-            # Clean up!
+            # Clean up! (TODO: This should be a function because its used when cancelling as well)
             import gc
 
             del model
@@ -208,7 +219,6 @@ class TrainingManager:
             gc.collect()
             torch.cuda.empty_cache()
 
-            job.add_event(JobEvent(level="info", message="Training completed successfully", data={}))
             job.status = JobStatus.SUCCEEDED
             job.fine_tuned_model = sft_config.output_dir
         except Exception as e:
