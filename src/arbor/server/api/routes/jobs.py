@@ -36,7 +36,14 @@ def get_job_events(request: Request, job_id: str):
     job_manager = request.app.state.job_manager
     job = job_manager.get_job(job_id)
     return PaginatedResponse(
-        data=[JobEventModel(id=event.id, level=event.level, message=event.message, data=event.data) for event in job.get_events()],
+        data=[JobEventModel(
+            id=event.id,
+            level=event.level,
+            message=event.message,
+            data=event.data,
+            created_at=int(event.created_at.timestamp()),
+            type="message"
+            ) for event in job.get_events()],
         has_more=False
     )
 
