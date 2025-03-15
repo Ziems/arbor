@@ -6,17 +6,20 @@ authors = [
     {name = "Noah Ziems",email = "nziems2@nd.edu"}
 ]
 readme = "README.md"
-requires-python = ">=3.9, <3.14"
+requires-python = ">=3.9, <3.12"
 dependencies = [
     "fastapi",
     "uvicorn",
     "click",
-    "python-multipart (>=0.0.20,<0.0.21)",
-    "pydantic-settings (>=2.8.1,<3.0.0)",
-    "torch (>=2.6.0,<3.0.0)",
-    "transformers (>=4.49.0,<5.0.0)",
-    "trl (>=0.15.2,<0.16.0)",
-    "peft (>=0.14.0,<0.15.0)",
+    "python-multipart",
+    "pydantic-settings",
+    "torch",
+    "transformers",
+    "trl",
+    "peft",
+    "ray>=2.9",
+    "sglang[all]>=0.4.4.post1",
+    "setuptools (>=76.0.0,<77.0.0)",
 ]
 
 [project.scripts]
