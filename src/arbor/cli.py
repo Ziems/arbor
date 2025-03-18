@@ -6,6 +6,7 @@ from arbor.server.core.config import Settings
 from arbor.server.services.file_manager import FileManager
 from arbor.server.services.job_manager import JobManager
 from arbor.server.services.training_manager import TrainingManager
+from arbor.server.services.inference_manager import InferenceManager
 
 @click.group()
 def cli():
@@ -29,12 +30,13 @@ def create_app(storage_path='./storage'):
     file_manager = FileManager(settings=settings)
     job_manager = JobManager(settings=settings)
     training_manager = TrainingManager(settings=settings)
-
+    inference_manager = InferenceManager(settings=settings)
     # Inject settings into app state
     app.state.settings = settings
     app.state.file_manager = file_manager
     app.state.job_manager = job_manager
     app.state.training_manager = training_manager
+    app.state.inference_manager = inference_manager
 
     return app
 

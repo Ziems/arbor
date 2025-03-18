@@ -76,6 +76,7 @@ class JobStatus(Enum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    PENDING_CANCEL = "pending_cancel"
 
 # https://platform.openai.com/docs/api-reference/fine-tuning/object
 class JobStatusModel(BaseModel):

@@ -29,21 +29,21 @@ class Job:
     self.id = str(f'ftjob-{uuid.uuid4()}')
     self.status = status
     self.fine_tuned_model = None
-    self.events = []
-    self.checkpoints = []
+    self.events: list[JobEvent] = []
+    self.checkpoints: list[JobCheckpoint] = []
 
     self.created_at = datetime.now()
 
   def add_event(self, event: JobEvent):
     self.events.append(event)
 
-  def get_events(self):
+  def get_events(self) -> list[JobEvent]:
     return self.events
 
   def add_checkpoint(self, checkpoint: JobCheckpoint):
     self.checkpoints.append(checkpoint)
 
-  def get_checkpoints(self):
+  def get_checkpoints(self) -> list[JobCheckpoint]:
     return self.checkpoints
 
 

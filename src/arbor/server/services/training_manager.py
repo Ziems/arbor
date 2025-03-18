@@ -32,7 +32,7 @@ class TrainingManager:
         suffix = request.suffix if request.suffix is not None else ''.join(random.choices(string.ascii_letters + string.digits, k=6))
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         name = f"ft:{model_name}:{suffix}:{timestamp}"
-        return name, str(Path(self.settings.STORAGE_PATH) / "models" / name)
+        return name, str(Path(self.settings.STORAGE_PATH).resolve() / "models" / name)
 
     def find_train_args(self, request: FineTuneRequest, file_manager: FileManager):
         file = file_manager.get_file(request.training_file)

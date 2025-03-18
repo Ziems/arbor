@@ -1,0 +1,172 @@
+import threading
+import subprocess
+import os
+import socket
+import time
+import requests
+from typing import Optional, Dict, Any
+import litellm
+
+from arbor.server.core.config import Settings
+from arbor.server.api.models.schemas import ChatCompletionRequest
+
+class InferenceManager:
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self.process = None
+        self.launch_kwargs = {}
+        self.last_activity = None
+        self.inactivity_checker = None
+
+    def launch(self, model: str, launch_kwargs: Optional[Dict[str, Any]] = None):
+        try:
+            import sglang  # noqa: F401
+        except ImportError:
+            raise ImportError(
+                "For local model launching, please install sglang by running "
+                '`pip install "sglang[all]"; pip install flashinfer -i https://flashinfer.ai/whl/cu121/torch2.4/`'
+            )
+
+        if self.process is not None:
+            print("Server is already launched.")
+            return
+
+        launch_kwargs = launch_kwargs or self.launch_kwargs
+
+
+        if model.startswith("openai/"):
+            model = model[7:]
+        if model.startswith("local:"):
+            model = model[6:]
+        if model.startswith("huggingface/"):
+            model = model[len("huggingface/"):]
+
+        import os
+        print(f"Grabbing a free port to launch an SGLang server for model {model}")
+        print(
+            f"We see that CUDA_VISIBLE_DEVICES is {os.environ.get('CUDA_VISIBLE_DEVICES', 'unset')}"
+        )
+        port = get_free_port()
+        timeout = launch_kwargs.get("timeout", 1800)
+        command = f"python -m sglang.launch_server --model-path {model} --port {port} --host 0.0.0.0"
+
+        # We will manually stream & capture logs.
+        process = subprocess.Popen(
+            command.replace("\\\n", " ").replace("\\", " ").split(),
+            text=True,
+            stdout=subprocess.PIPE,  # We'll read from pipe
+            stderr=subprocess.STDOUT,  # Merge stderr into stdout
+        )
+
+        # A threading.Event to control printing after the server is ready.
+        # This will store *all* lines (both before and after readiness).
+        print(f"SGLang server process started with PID {process.pid}.")
+        stop_printing_event = threading.Event()
+        logs_buffer = []
+
+        def _tail_process(proc, buffer, stop_event):
+            while True:
+                line = proc.stdout.readline()
+                if not line and proc.poll() is not None:
+                    # Process ended and no new line
+                    break
+                if line:
+                    buffer.append(line)
+                    # Print only if stop_event is not set
+                    if not stop_event.is_set():
+                        print(line, end="")
+
+        # Start a background thread to read from the process continuously
+        thread = threading.Thread(
+            target=_tail_process,
+            args=(process, logs_buffer, stop_printing_event),
+            daemon=True,
+        )
+        thread.start()
+
+        # Wait until the server is ready (or times out)
+        base_url = f"http://localhost:{port}"
+        try:
+            wait_for_server(base_url, timeout=timeout)
+        except TimeoutError:
+            # If the server doesn't come up, we might want to kill it:
+            process.kill()
+            raise
+
+        # Once server is ready, we tell the thread to stop printing further lines.
+        stop_printing_event.set()
+
+        # A convenience getter so the caller can see all logs so far (and future).
+        def get_logs() -> str:
+            # Join them all into a single string, or you might return a list
+            return "".join(logs_buffer)
+
+        # Let the user know server is up
+        print(
+            f"Server ready on random port {port}! Logs are available via lm.get_logs() method on returned lm."
+        )
+
+        self.launch_kwargs["api_base"] = f"http://localhost:{port}/v1"
+        self.launch_kwargs["api_key"] = "local"
+        self.get_logs = get_logs
+        self.process = process
+        self.thread = thread
+
+    def kill(self):
+        from sglang.utils import terminate_process
+        if self.process is None:
+            print("No running server to kill.")
+            return
+        # Ideally, the following happens atomically
+        terminate_process(self.process)
+        self.thread.join()
+        del self.process
+        del self.thread
+        del self.get_logs
+        print("Server killed.")
+
+    def run_inference(self, chat_completion_request: ChatCompletionRequest):
+        url = f"{self.launch_kwargs['api_base']}/v1/chat/completions"
+        response = requests.post(url, json=chat_completion_request.model_dump())
+        return response.json()
+        # return litellm.completion(
+        #     base_url=self.launch_kwargs["api_base"],
+        #     # cache=cache, # TODO: Implement caching
+        #     # **retry_kwargs, # TODO: Implement retry
+        #     **chat_completion_request,
+        # )
+
+
+def get_free_port() -> int:
+    """
+    Return a free TCP port on localhost.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("localhost", 0))
+        return s.getsockname()[1]
+
+def wait_for_server(base_url: str, timeout: int = None) -> None:
+    """
+    Wait for the server to be ready by polling the /v1/models endpoint.
+
+    Args:
+        base_url: The base URL of the server (e.g. http://localhost:1234)
+        timeout: Maximum time to wait in seconds. None means wait forever.
+    """
+    start_time = time.time()
+    while True:
+        try:
+            response = requests.get(
+                f"{base_url}/v1/models",
+                headers={"Authorization": "Bearer None"},
+            )
+            if response.status_code == 200:
+                # A small extra sleep to ensure server is fully up.
+                time.sleep(5)
+                break
+
+            if timeout and (time.time() - start_time) > timeout:
+                raise TimeoutError("Server did not become ready within timeout period")
+        except requests.exceptions.RequestException:
+            # Server not up yet, wait and retry
+            time.sleep(1)
