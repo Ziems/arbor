@@ -126,8 +126,8 @@ class InferenceManager:
         print("Server killed.")
 
     def run_inference(self, chat_completion_request: ChatCompletionRequest):
-        url = f"{self.launch_kwargs['api_base']}/v1/chat/completions"
-        response = requests.post(url, json=chat_completion_request.model_dump())
+        url = f"{self.launch_kwargs['api_base']}/chat/completions"
+        response = requests.post(url, json=chat_completion_request.model_dump(exclude_none=True))
         return response.json()
         # return litellm.completion(
         #     base_url=self.launch_kwargs["api_base"],
