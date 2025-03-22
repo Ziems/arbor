@@ -6,5 +6,6 @@ class Settings(BaseModel):
     )
 
     STORAGE_PATH: str = "./storage"
+    INACTIVITY_TIMEOUT: int = 1 * 60 # 1 minute
 
 settings = Settings()

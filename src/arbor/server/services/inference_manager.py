@@ -6,6 +6,7 @@ import time
 import requests
 from typing import Optional, Dict, Any
 import litellm
+from datetime import datetime
 
 from arbor.server.core.config import Settings
 from arbor.server.api.models.schemas import ChatCompletionRequest
@@ -16,7 +17,9 @@ class InferenceManager:
         self.process = None
         self.launch_kwargs = {}
         self.last_activity = None
-        self.inactivity_checker = None
+
+    def is_server_running(self):
+        return self.process is not None
 
     def launch(self, model: str, launch_kwargs: Optional[Dict[str, Any]] = None):
         try:
@@ -27,7 +30,7 @@ class InferenceManager:
                 '`pip install "sglang[all]"; pip install flashinfer -i https://flashinfer.ai/whl/cu121/torch2.4/`'
             )
 
-        if self.process is not None:
+        if self.is_server_running():
             print("Server is already launched.")
             return
 
@@ -117,15 +120,29 @@ class InferenceManager:
         if self.process is None:
             print("No running server to kill.")
             return
-        # Ideally, the following happens atomically
-        terminate_process(self.process)
-        self.thread.join()
-        del self.process
-        del self.thread
-        del self.get_logs
+
+        # Store a reference to process and thread before clearing
+        process = self.process
+        thread = self.thread
+
+        # Clear the references first
+        self.process = None
+        self.thread = None
+        self.get_logs = None
+        self.last_activity = None
+
+        # Then terminate the process and join thread
+        terminate_process(process)
+        thread.join()
         print("Server killed.")
 
     def run_inference(self, chat_completion_request: ChatCompletionRequest):
+        # Update last_activity timestamp
+        self.last_activity = datetime.now()
+
+        if self.process is None or self.launch_kwargs.get('api_base') is None:
+            raise RuntimeError("Server is not running. Please launch it first.")
+
         url = f"{self.launch_kwargs['api_base']}/chat/completions"
         response = requests.post(url, json=chat_completion_request.model_dump(exclude_none=True))
         return response.json()
