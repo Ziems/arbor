@@ -7,7 +7,7 @@ import requests
 from typing import Optional, Dict, Any
 import litellm
 from datetime import datetime
-
+from fastapi import Request
 from arbor.server.core.config import Settings
 from arbor.server.api.models.schemas import ChatCompletionRequest
 
@@ -136,7 +136,7 @@ class InferenceManager:
         thread.join()
         print("Server killed.")
 
-    def run_inference(self, chat_completion_request: ChatCompletionRequest):
+    def run_inference(self, request_json: dict):
         # Update last_activity timestamp
         self.last_activity = datetime.now()
 
@@ -144,7 +144,7 @@ class InferenceManager:
             raise RuntimeError("Server is not running. Please launch it first.")
 
         url = f"{self.launch_kwargs['api_base']}/chat/completions"
-        response = requests.post(url, json=chat_completion_request.model_dump(exclude_none=True))
+        response = requests.post(url, json=request_json)
         return response.json()
         # return litellm.completion(
         #     base_url=self.launch_kwargs["api_base"],

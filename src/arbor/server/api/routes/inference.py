@@ -34,10 +34,11 @@ async def check_inactivity(app):
 router = APIRouter(lifespan=lifespan)
 
 
-@router.post("/completions", response_model=ChatCompletionModel)
-def run_inference(request: Request, chat_completion_request: ChatCompletionRequest):
+@router.post("/completions")
+async def run_inference(request: Request): # TODO: Ideally this should be ChatCompletionRequest
     inference_manager = request.app.state.inference_manager
     job_manager = request.app.state.job_manager
+    raw_json = await request.json()
 
     active_job = job_manager.get_active_job()
 
@@ -49,10 +50,10 @@ def run_inference(request: Request, chat_completion_request: ChatCompletionReque
 
     # if a server isnt running, launch one
     if not inference_manager.is_server_running():
-        inference_manager.launch(chat_completion_request.model)
+        inference_manager.launch(raw_json["model"])
 
     # forward the request to the inference server
-    completion = inference_manager.run_inference(chat_completion_request)
+    completion = inference_manager.run_inference(raw_json)
 
 
     # Resume Training if it was paused
