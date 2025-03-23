@@ -86,6 +86,16 @@ class FileManager:
   def get_file(self, file_id: str):
     return self.files[file_id]
 
+  def delete_file(self, file_id: str):
+    if file_id not in self.files:
+      return
+
+    dir_path = self.uploads_dir / file_id
+    if dir_path.exists():
+      shutil.rmtree(dir_path)
+
+    del self.files[file_id]
+
   def validate_file_format(self, file_content: bytes) -> None:
     """
     Validates that the file content is properly formatted JSONL with expected structure.

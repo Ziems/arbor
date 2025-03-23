@@ -1,7 +1,9 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Request, Body
-from arbor.server.api.models.schemas import FileModel
+from arbor.server.api.models.schemas import FileModel, PaginatedResponse
 from arbor.server.services.file_manager import FileValidationError
 from typing import Literal
+
+# https://platform.openai.com/docs/api-reference/files/list
 router = APIRouter()
 
 @router.post("", response_model=FileModel)
@@ -20,3 +22,23 @@ async def upload_file(request: Request,
         return FileModel(**file_manager.save_uploaded_file(file))
     except FileValidationError as e:
         raise HTTPException(status_code=400, detail=f"Invalid file format: {str(e)}")
+
+@router.get("", response_model=PaginatedResponse[FileModel])
+def list_files(request: Request):
+    file_manager = request.app.state.file_manager
+    return PaginatedResponse(
+        items=file_manager.get_files(),
+        total=len(file_manager.get_files()),
+        page=1,
+        page_size=10)
+
+@router.get("/{file_id}", response_model=FileModel)
+def get_file(request: Request, file_id: str):
+    file_manager = request.app.state.file_manager
+    return file_manager.get_file(file_id)
+
+@router.delete("/{file_id}")
+def delete_file(request: Request, file_id: str):
+    file_manager = request.app.state.file_manager
+    file_manager.delete_file(file_id)
+    return {"message": "File deleted"}
