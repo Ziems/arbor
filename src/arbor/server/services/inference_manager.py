@@ -22,13 +22,13 @@ class InferenceManager:
         return self.process is not None
 
     def launch(self, model: str, launch_kwargs: Optional[Dict[str, Any]] = None):
-        try:
-            import sglang  # noqa: F401
-        except ImportError:
-            raise ImportError(
-                "For local model launching, please install sglang by running "
-                '`pip install "sglang[all]"; pip install flashinfer -i https://flashinfer.ai/whl/cu121/torch2.4/`'
-            )
+        # try:
+        #     import sglang  # noqa: F401
+        # except ImportError:
+        #     raise ImportError(
+        #         "For local model launching, please install sglang by running "
+        #         '`pip install "sglang[all]"; pip install flashinfer -i https://flashinfer.ai/whl/cu121/torch2.4/`'
+        #     )
 
         if self.is_server_running():
             print("Server is already launched.")
@@ -51,7 +51,7 @@ class InferenceManager:
         )
         port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
-        command = f"python -m sglang.launch_server --model-path {model} --port {port} --host 0.0.0.0"
+        command = f"vllm serve {model} --port {port} --host 0.0.0.0"
 
         # We will manually stream & capture logs.
         process = subprocess.Popen(
@@ -63,7 +63,7 @@ class InferenceManager:
 
         # A threading.Event to control printing after the server is ready.
         # This will store *all* lines (both before and after readiness).
-        print(f"SGLang server process started with PID {process.pid}.")
+        print(f"vLLM server process started with PID {process.pid}.")
         stop_printing_event = threading.Event()
         logs_buffer = []
 
