@@ -83,9 +83,7 @@ class InferenceManager:
         thread.start()
 
         # Wait until the server is ready (or times out)
-        self.base_url = f"http://localhost:{self.port}"
-        # self.base_url = f"http://{self.host}:{self.port}"
-        # self.base_url = f"http://{self.host}:{self.port}/generate"
+        self.base_url = f"http://{self.host}:{self.port}"
         try:
             wait_for_server(self.base_url, timeout=timeout)
         except TimeoutError:
@@ -113,10 +111,6 @@ class InferenceManager:
         self.process = process
         self.thread = thread
 
-        # self.client = OpenAI(
-        #     api_key=self.launch_kwargs["api_key"],
-        #     base_url=self.launch_kwargs["api_base"],
-        # )
 
     def kill(self):
         from sglang.utils import terminate_process
@@ -191,4 +185,3 @@ def wait_for_server(base_url: str, timeout: int = None) -> None:
         except requests.exceptions.RequestException:
             # Server not up yet, wait and retry
             time.sleep(1)
-            
