@@ -11,8 +11,34 @@ def inference_manager():
 
 def test_inference(inference_manager):
     inference_manager.launch("Qwen/Qwen2.5-1.5B-Instruct")
-    response = inference_manager.run_inference("How are you today?")
-    print("Inference response:", response)
+    print("Launch complete!!!")
+
+    request_json = {
+        "headers": {
+            "Content-Type": "application/json"
+        },
+
+        "pload": {
+            "model": "Qwen/Qwen2.5-1.5B-Instruct",
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": "Who won the world series in 2020?"}
+            ]
+        }
+    }
+    
+    # request_json = {
+    #     headers: {"User-Agent": "Test Client"},
+    #     pload: {
+    #         "prompt": "How are you today",
+    #         "n": 1,
+    #         "temperature": 0.0,
+    #         "max_tokens": 16,
+    #         "stream": False,
+    #     }
+    # }
+    response = inference_manager.run_inference(request_json)
+    print("Inference response:", response.json())
 
     inference_manager.kill()
     print("Successfully killed inference manager")

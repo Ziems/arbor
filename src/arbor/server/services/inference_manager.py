@@ -44,6 +44,7 @@ class InferenceManager:
         )
         self.port = get_free_port()
         self.host = "0.0.0.0"
+        # self.host = "localhost"
         timeout = launch_kwargs.get("timeout", 1800)
         command = f"vllm serve {model} --port {self.port} --host {self.host}"
 
@@ -82,9 +83,11 @@ class InferenceManager:
         thread.start()
 
         # Wait until the server is ready (or times out)
-        base_url = f"http://localhost:{self.port}"
+        self.base_url = f"http://localhost:{self.port}"
+        # self.base_url = f"http://{self.host}:{self.port}"
+        # self.base_url = f"http://{self.host}:{self.port}/generate"
         try:
-            wait_for_server(base_url, timeout=timeout)
+            wait_for_server(self.base_url, timeout=timeout)
         except TimeoutError:
             # If the server doesn't come up, we might want to kill it:
             process.kill()
@@ -110,10 +113,10 @@ class InferenceManager:
         self.process = process
         self.thread = thread
 
-        self.client = OpenAI(
-            api_key=self.launch_kwargs["api_key"],
-            base_url=self.launch_kwargs["api_base"],
-        )
+        # self.client = OpenAI(
+        #     api_key=self.launch_kwargs["api_key"],
+        #     base_url=self.launch_kwargs["api_base"],
+        # )
 
     def kill(self):
         from sglang.utils import terminate_process
@@ -135,22 +138,23 @@ class InferenceManager:
         terminate_process(process)
         thread.join()
         print("Server killed.")
+    
+    def post_http_request(self, url, request_json) -> requests.Response:
+        headers = request_json['headers']
+        pload = request_json['pload']
+        response = requests.post(url, headers=headers, json=pload)
+        return response
 
-
-    def run_inference(self, prompt):
+    def run_inference(self, request_json: dict):
         # Update last_activity timestamp
         self.last_activity = datetime.now()
 
         if self.process is None or self.launch_kwargs.get('api_base') is None:
             raise RuntimeError("Server is not running. Please launch it first.")
+
+        url = self.base_url + "/v1/chat/completions"
+        chat_response = self.post_http_request(url, request_json)
         
-        chat_response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt},
-            ]
-        )
         return chat_response
 
 
@@ -187,3 +191,4 @@ def wait_for_server(base_url: str, timeout: int = None) -> None:
         except requests.exceptions.RequestException:
             # Server not up yet, wait and retry
             time.sleep(1)
+            
