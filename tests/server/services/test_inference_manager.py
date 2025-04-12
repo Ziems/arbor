@@ -1,15 +1,20 @@
+import pytest
 from arbor.server.services.inference_manager import InferenceManager
 from arbor.server.core.config import Settings
 
-settings = Settings()
-my_manager = InferenceManager(settings)
+@pytest.fixture(scope="module")
+def inference_manager():
+    settings = Settings()
+    manager = InferenceManager(settings)
+    yield manager
+    manager.kill()  # ensure cleanup after test
 
+def test_inference(inference_manager):
+    inference_manager.launch("Qwen/Qwen2.5-1.5B-Instruct")
+    response = inference_manager.run_inference("How are you today?")
+    print("Inference response:", response)
 
-my_manager.launch("Qwen/Qwen2.5-1.5B-Instruct")
-
-response = my_manager.run_inference("How are you today?")
-print(response)
-
-my_manager.kill()
-print("successfully killed inference manager")
-print("existing process:", my_manager.process)
+    inference_manager.kill()
+    print("Successfully killed inference manager")
+    print("Existing process:", inference_manager.process)
+    assert inference_manager.process is None
