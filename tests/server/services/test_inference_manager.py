@@ -57,7 +57,7 @@ def test_simple_inference(client):
 
     response = client.post("/v1/chat/completions", json=request_json)
 
-    print("!!!!!!!!!!", response.json())
+    print("Inference response:", response.json())
 
     client.app.state.inference_manager.kill()
     print("Successfully killed inference manager")
