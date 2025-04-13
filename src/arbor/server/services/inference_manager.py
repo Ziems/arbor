@@ -149,7 +149,7 @@ class InferenceManager:
         url = self.base_url + "/v1/chat/completions"
         chat_response = self.post_http_request(url, request_json)
         
-        return chat_response
+        return chat_response.json()
 
 
 def get_free_port() -> int:
