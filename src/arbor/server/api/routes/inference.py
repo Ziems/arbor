@@ -50,11 +50,10 @@ async def run_inference(request: Request): # TODO: Ideally this should be ChatCo
 
     # if a server isnt running, launch one
     if not inference_manager.is_server_running():
-        inference_manager.launch(raw_json["model"])
+        inference_manager.launch(raw_json['pload']["model"])
 
     # forward the request to the inference server
     completion = inference_manager.run_inference(raw_json)
-
 
     # Resume Training if it was paused
     if active_job is not None and active_job.status == JobStatus.PAUSED:

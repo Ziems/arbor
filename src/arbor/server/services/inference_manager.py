@@ -22,20 +22,12 @@ class InferenceManager:
         return self.process is not None
 
     def launch(self, model: str, launch_kwargs: Optional[Dict[str, Any]] = None):
-        try:
-            import sglang  # noqa: F401
-        except ImportError:
-            raise ImportError(
-                "For local model launching, please install sglang by running "
-                '`pip install "sglang[all]"; pip install flashinfer -i https://flashinfer.ai/whl/cu121/torch2.4/`'
-            )
-
         if self.is_server_running():
             print("Server is already launched.")
             return
 
         launch_kwargs = launch_kwargs or self.launch_kwargs
-
+        self.model = model
 
         if model.startswith("openai/"):
             model = model[7:]
@@ -45,13 +37,15 @@ class InferenceManager:
             model = model[len("huggingface/"):]
 
         import os
-        print(f"Grabbing a free port to launch an SGLang server for model {model}")
+        print(f"Grabbing a free port to launch an vLLM server for model {model}")
         print(
             f"We see that CUDA_VISIBLE_DEVICES is {os.environ.get('CUDA_VISIBLE_DEVICES', 'unset')}"
         )
-        port = get_free_port()
+        self.port = get_free_port()
+        self.host = "0.0.0.0"
+        # self.host = "localhost"
         timeout = launch_kwargs.get("timeout", 1800)
-        command = f"python -m sglang.launch_server --model-path {model} --port {port} --host 0.0.0.0"
+        command = f"vllm serve {model} --port {self.port} --host {self.host}"
 
         # We will manually stream & capture logs.
         process = subprocess.Popen(
@@ -63,7 +57,7 @@ class InferenceManager:
 
         # A threading.Event to control printing after the server is ready.
         # This will store *all* lines (both before and after readiness).
-        print(f"SGLang server process started with PID {process.pid}.")
+        print(f"vLLM server process started with PID {process.pid}.")
         stop_printing_event = threading.Event()
         logs_buffer = []
 
@@ -88,14 +82,15 @@ class InferenceManager:
         thread.start()
 
         # Wait until the server is ready (or times out)
-        base_url = f"http://localhost:{port}"
+        self.base_url = f"http://{self.host}:{self.port}"
         try:
-            wait_for_server(base_url, timeout=timeout)
+            wait_for_server(self.base_url, timeout=timeout)
         except TimeoutError:
             # If the server doesn't come up, we might want to kill it:
             process.kill()
             raise
-
+        
+        
         # Once server is ready, we tell the thread to stop printing further lines.
         stop_printing_event.set()
 
@@ -106,14 +101,15 @@ class InferenceManager:
 
         # Let the user know server is up
         print(
-            f"Server ready on random port {port}! Logs are available via lm.get_logs() method on returned lm."
+            f"Server ready on random port {self.port}! Logs are available via lm.get_logs() method on returned lm."
         )
 
-        self.launch_kwargs["api_base"] = f"http://localhost:{port}/v1"
+        self.launch_kwargs["api_base"] = f"http://{self.host}:{self.port}/v1"
         self.launch_kwargs["api_key"] = "local"
         self.get_logs = get_logs
         self.process = process
         self.thread = thread
+
 
     def kill(self):
         from sglang.utils import terminate_process
@@ -135,6 +131,12 @@ class InferenceManager:
         terminate_process(process)
         thread.join()
         print("Server killed.")
+    
+    def post_http_request(self, url, request_json) -> requests.Response:
+        headers = request_json['headers']
+        pload = request_json['pload']
+        response = requests.post(url, headers=headers, json=pload)
+        return response
 
     def run_inference(self, request_json: dict):
         # Update last_activity timestamp
@@ -144,14 +146,9 @@ class InferenceManager:
             raise RuntimeError("Server is not running. Please launch it first.")
 
         url = f"{self.launch_kwargs['api_base']}/chat/completions"
-        response = requests.post(url, json=request_json)
-        return response.json()
-        # return litellm.completion(
-        #     base_url=self.launch_kwargs["api_base"],
-        #     # cache=cache, # TODO: Implement caching
-        #     # **retry_kwargs, # TODO: Implement retry
-        #     **chat_completion_request,
-        # )
+        chat_response = self.post_http_request(url, request_json)
+        
+        return chat_response.json()
 
 
 def get_free_port() -> int:
