@@ -10,7 +10,6 @@ from datetime import datetime
 from fastapi import Request
 from arbor.server.core.config import Settings
 from arbor.server.api.models.schemas import ChatCompletionRequest
-from openai import OpenAI
 
 class InferenceManager:
     def __init__(self, settings: Settings):
@@ -105,7 +104,7 @@ class InferenceManager:
             f"Server ready on random port {self.port}! Logs are available via lm.get_logs() method on returned lm."
         )
 
-        self.launch_kwargs["api_base"] = f"http://localhost:{self.port}/v1"
+        self.launch_kwargs["api_base"] = f"http://{self.host}:{self.port}/v1"
         self.launch_kwargs["api_key"] = "local"
         self.get_logs = get_logs
         self.process = process
@@ -146,7 +145,7 @@ class InferenceManager:
         if self.process is None or self.launch_kwargs.get('api_base') is None:
             raise RuntimeError("Server is not running. Please launch it first.")
 
-        url = self.base_url + "/v1/chat/completions"
+        url = f"{self.launch_kwargs['api_base']}/chat/completions"
         chat_response = self.post_http_request(url, request_json)
         
         return chat_response.json()

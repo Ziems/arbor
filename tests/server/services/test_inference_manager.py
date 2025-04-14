@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from arbor.server.api.routes.files import router
 from arbor.server.services.file_manager import FileManager
 from pathlib import Path
+from openai import OpenAI
 
 @pytest.fixture(scope="module")
 def server(tmp_path_factory):
@@ -35,6 +36,73 @@ def server(tmp_path_factory):
 
     return app
 
+
+class CarType(str, Enum):
+    sedan = "sedan"
+    suv = "SUV"
+    truck = "Truck"
+    coupe = "Coupe"
+
+class CarDescription(BaseModel):
+    brand: str
+    model: str
+    car_type: CarType
+
+# @pytest.fixture
+def test_simple_inference_openai(server):
+    server.state.inference_manager.launch("Qwen/Qwen2.5-1.5B-Instruct")
+    host = server.state.inference_manager.host
+    port = server.state.inference_manager.port
+    base_url = f"http://{host}:{port}/v1"
+    client = OpenAI(
+        base_url=base_url,  # Using Arbor server
+        api_key="not-needed"  # If you're using a local server, you dont need an API key
+    )
+
+    response = client.chat.completions.create(
+        model="Qwen/Qwen2.5-1.5B-Instruct",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Hi! What is the capital of the moon?"},
+        ]
+    )
+
+
+    print("Inference response:", response.json())
+    server.state.inference_manager.kill()
+    print("Successfully killed inference manager")
+    print("test_simple_inference_openai PASSED!!!\n\n\n")
+
+
+def test_structured_inference_openai(server):
+    json_schema = CarDescription.model_json_schema()
+
+    server.state.inference_manager.launch("Qwen/Qwen2.5-1.5B-Instruct")
+    host = server.state.inference_manager.host
+    port = server.state.inference_manager.port
+    base_url = f"http://{host}:{port}/v1"
+    client = OpenAI(
+        base_url=base_url,  # Using Arbor server
+        api_key="not-needed"  # If you're using a local server, you dont need an API key
+    )
+    prompt = ("Generate a JSON with the brand, model and car_type of"
+          "the most iconic car from the 90's")
+    response = client.chat.completions.create(
+        model="Qwen/Qwen2.5-1.5B-Instruct",
+        messages=[{
+            "role": "user",
+            "content": prompt,
+        }],
+        extra_body={"guided_json": json_schema},
+    )
+
+    print("Inference response:", response.json())
+    server.state.inference_manager.kill()
+    print("Successfully killed inference manager")
+    print("test_structured_inference_openai PASSED!!!\n\n\n")
+
+
+
 @pytest.fixture
 def client(server):
     return TestClient(server)
@@ -50,7 +118,7 @@ def test_simple_inference(client):
             "model": "Qwen/Qwen2.5-1.5B-Instruct",
             "messages": [
                 {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": "Who won the world series in 2020?"}
+                {"role": "user", "content": "Hi! What is the capital of the moon?"}
             ]
         }
     }
@@ -63,18 +131,9 @@ def test_simple_inference(client):
     print("Successfully killed inference manager")
     print("Existing process:", client.app.state.inference_manager.process)
     assert client.app.state.inference_manager.process is None
+    print("test_simple_inference PASSED!!!\n\n\n")
 
 
-class CarType(str, Enum):
-    sedan = "sedan"
-    suv = "SUV"
-    truck = "Truck"
-    coupe = "Coupe"
-
-class CarDescription(BaseModel):
-    brand: str
-    model: str
-    car_type: CarType
 
 def test_structured_inference(client):
     json_schema = CarDescription.model_json_schema()
@@ -101,3 +160,4 @@ def test_structured_inference(client):
     print("Successfully killed inference manager")
     print("Existing process:", client.app.state.inference_manager.process)
     assert client.app.state.inference_manager.process is None
+    print("test_structured_inference PASSED!!!\n\n\n")
