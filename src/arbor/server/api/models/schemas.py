@@ -155,3 +155,24 @@ class ChatCompletionModel(BaseModel):
     created: int
     model: str
     choices: List[ChatCompletionChoice]
+
+class GRPORequest(BaseModel):
+    model: str
+    update_inference_model: bool
+    batch: List[dict]
+
+class GRPOConfigRequest(BaseModel):
+    model: str
+    temperature: Optional[float] = None
+    beta: Optional[float] = None
+    num_iterations: Optional[int] = None
+    suffix: Optional[str] = None
+
+class GRPOConfigResponse(BaseModel):
+    status: str
+
+class GRPOTerminateRequest(BaseModel):
+    status: str
+
+class GRPOTerminateResponse(BaseModel):
+    status: str
