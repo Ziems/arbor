@@ -18,8 +18,8 @@ dependencies = [
     "trl",
     "peft",
     "ray>=2.9",
-    "sglang[all]>=0.4.4.post1",
     "setuptools (>=76.0.0,<77.0.0)",
+    "vllm"
 ]
 
 [project.scripts]
