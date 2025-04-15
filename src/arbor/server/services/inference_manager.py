@@ -151,6 +151,7 @@ class InferenceManager:
         """
         dtype, shape = str(weights.dtype), tuple(weights.shape)
         url = f"{self.launch_kwargs['api_base']}/update_named_param/"
+        import pdb; pdb.set_trace()
         response = requests.post(url, json={"name": name, "dtype": dtype, "shape": shape})
         if response.status_code != 200:
             raise Exception(f"Request failed: {response.status_code}, {response.text}")
