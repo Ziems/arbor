@@ -14,6 +14,8 @@ from arbor.server.api.models.schemas import GRPORequest, GRPOConfigRequest
 from arbor.server.core.config import Settings
 from arbor.server.services.job_manager import Job, JobEvent, JobStatus
 from arbor.server.services.inference_manager import InferenceManager
+
+
 class GRPOManager:
     def __init__(self, settings: Settings):
         self.settings = settings

@@ -34,5 +34,8 @@ def run_grpo_step(request: Request, grpo_request: GRPORequest, background_tasks:
 @router.post("/terminate", response_model=GRPOTerminateResponse)
 def terminate_grpo(request: Request, grpo_request: GRPOTerminateRequest):
     grpo_manager = request.app.state.grpo_manager
-    grpo_manager.terminate()
+    inference_manager = request.app.state.inference_manager
+
+    grpo_manager.terminate(inference_manager)
+    import pdb; pdb.set_trace()
     return GRPOTerminateResponse(status="success")

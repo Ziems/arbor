@@ -40,7 +40,7 @@ class InferenceManager:
         )
         port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
-        command = f"vllm serve {model} --port {port}"
+        command = f"vllm serve {model} --port {port} --gpu-memory-utilization=0.6"
         print(f"Running command: {command}")
 
         # We will manually stream & capture logs.

@@ -5,6 +5,7 @@ def initialize_grpo(model, url='http://127.0.0.1:8000/v1/fine_tuning/grpo/initia
     headers = {'Content-Type': 'application/json'}
     data = {
         'model': model,
+        'suffix': 'test'
     }
     response = requests.post(url, headers=headers, json=data)
     return response
@@ -70,3 +71,4 @@ fine_tune_response = run_grpo_step(model_name="Qwen/Qwen2-0.5B-Instruct", batch=
 print(fine_tune_response.status_code)
 print(fine_tune_response.text)
 
+terminate_response = terminate_grpo()
