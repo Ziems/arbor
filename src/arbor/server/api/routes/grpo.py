@@ -6,8 +6,9 @@ router = APIRouter()
 
 @router.post("/initialize", response_model=GRPOConfigResponse)
 def initialize_grpo(request: Request, grpo_request: GRPOConfigRequest):
+    inference_manager = request.app.state.inference_manager
     grpo_manager = request.app.state.grpo_manager
-    grpo_manager.initialize_config(grpo_request)
+    grpo_manager.initialize_config(grpo_request, inference_manager)
     return GRPOConfigResponse(status="success")
 
 # Create a grpo job
