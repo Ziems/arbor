@@ -32,7 +32,9 @@ def terminate_grpo(url='http://127.0.0.1:8000/v1/fine_tuning/grpo/terminate'):
 
 
 
-initialize_grpo(model="Qwen/Qwen2-0.5B-Instruct")
+response = initialize_grpo(model="Qwen/Qwen2-0.5B-Instruct")
+print(response.status_code)
+print(response.text)
 
 test_batch = [
         {
@@ -67,3 +69,4 @@ test_batch = [
 fine_tune_response = run_grpo_step(model_name="Qwen/Qwen2-0.5B-Instruct", batch=test_batch)
 print(fine_tune_response.status_code)
 print(fine_tune_response.text)
+
