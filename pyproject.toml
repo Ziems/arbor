@@ -19,40 +19,8 @@ dependencies = [
     "peft",
     "ray>=2.9",
     "setuptools (>=76.0.0,<77.0.0)",
-    "vllm"
+    "vllm>=0.8.2",
 ]
 
 [project.scripts]
 arbor = "arbor.cli:cli"
-
-[tool.poetry]
-name = "arbor"
-version = "0.1.4"
-description = "A framework for fine-tuning and managing language models"
-authors = ["Noah Ziems <nziems2@nd.edu>"]
-readme = "README.md"
-packages = [
-    { include = "arbor", from = "src" }
-]
-repository = "https://github.com/arbor-ai/arbor"
-keywords = ["machine learning", "fine-tuning", "language models"]
-license = "MIT"
-classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-]
-
-[tool.poetry.scripts]
-arbor = "arbor.cli:cli"
-
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.3.5"
-pytest-asyncio = "^0.25.3"
-httpx = "^0.28.1"
-
-[build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
