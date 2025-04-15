@@ -42,7 +42,7 @@ class GRPOManager:
             "bf16": True,
             "output_dir": output_dir,
             # Using the default TRL values here
-            "beta": 0.04,
+            "beta": 0.00,
             "num_iterations": 1,
             "temperature": 0.9, # TODO: This should match vLLM
             "num_generations": 3,
