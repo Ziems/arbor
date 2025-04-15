@@ -54,6 +54,9 @@ def test_simple_inference_openai(server):
     host = server.state.inference_manager.host
     port = server.state.inference_manager.port
     base_url = f"http://{host}:{port}/v1"
+
+    assert server.state.inference_manager.launch_kwargs["api_base"] == base_url
+    
     client = OpenAI(
         base_url=base_url,  # Using Arbor server
         api_key="not-needed"  # If you're using a local server, you dont need an API key
@@ -67,20 +70,23 @@ def test_simple_inference_openai(server):
         ]
     )
 
-
     print("Inference response:", response.json())
     server.state.inference_manager.kill()
+    assert server.state.inference_manager.process is None
     print("Successfully killed inference manager")
-    print("test_simple_inference_openai PASSED!!!\n\n\n")
 
 
 def test_structured_inference_openai(server):
     json_schema = CarDescription.model_json_schema()
 
     server.state.inference_manager.launch("Qwen/Qwen2.5-1.5B-Instruct")
+
     host = server.state.inference_manager.host
     port = server.state.inference_manager.port
     base_url = f"http://{host}:{port}/v1"
+
+    assert server.state.inference_manager.launch_kwargs["api_base"] == base_url
+
     client = OpenAI(
         base_url=base_url,  # Using Arbor server
         api_key="not-needed"  # If you're using a local server, you dont need an API key
@@ -95,11 +101,24 @@ def test_structured_inference_openai(server):
         }],
         extra_body={"guided_json": json_schema},
     )
+    
+    content = response.choices[0].message.content
+
+    import json
+    try:
+        structured_output = json.loads(content)
+    except json.JSONDecodeError:
+        raise AssertionError("Response is not valid JSON")
+
+    for field in ["brand", "model", "car_type"]:
+        assert field in structured_output, f"{field} missing in response"
 
     print("Inference response:", response.json())
+    
+
     server.state.inference_manager.kill()
+    assert server.state.inference_manager.process is None
     print("Successfully killed inference manager")
-    print("test_structured_inference_openai PASSED!!!\n\n\n")
 
 
 
@@ -124,14 +143,16 @@ def test_simple_inference(client):
     }
 
     response = client.post("/v1/chat/completions", json=request_json)
+    assert response.status_code == 200
 
-    print("Inference response:", response.json())
+    response = response.json()
+
+    print("Inference response:", response)
 
     client.app.state.inference_manager.kill()
     print("Successfully killed inference manager")
     print("Existing process:", client.app.state.inference_manager.process)
     assert client.app.state.inference_manager.process is None
-    print("test_simple_inference PASSED!!!\n\n\n")
 
 
 
@@ -154,10 +175,22 @@ def test_structured_inference(client):
     
 
     response = client.post("/v1/chat/completions", json=request_json)
-    print("Inference response:", response.json())
+    assert response.status_code == 200
+    response = response.json()
+    print("Inference response:", response)
+
+    content = response['choices'][0]['message']['content']
+
+    import json
+    try:
+        structured_output = json.loads(content)
+    except json.JSONDecodeError:
+        raise AssertionError("Response is not valid JSON")
+
+    for field in ["brand", "model", "car_type"]:
+        assert field in structured_output, f"{field} missing in response"
 
     client.app.state.inference_manager.kill()
     print("Successfully killed inference manager")
     print("Existing process:", client.app.state.inference_manager.process)
     assert client.app.state.inference_manager.process is None
-    print("test_structured_inference PASSED!!!\n\n\n")
