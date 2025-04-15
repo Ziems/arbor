@@ -136,14 +136,17 @@ Coming soon:
 Clone the repo and set up your development environment:
 
 ```bash
-poetry install
-poetry run arbor serve
+uv venv
+source .venv/bin/activate
+
+uv pip install -e .
+uv run arbor serve
 ```
 
 Run tests:
 
 ```bash
-poetry run pytest
+uv run pytest
 ```
 
 ---
