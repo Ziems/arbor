@@ -5,15 +5,15 @@ from arbor.server.api.models.schemas import JobStatusModel, GRPORequest, GRPOCon
 router = APIRouter()
 
 @router.post("/initialize", response_model=GRPOConfigResponse)
-def initialize_grpo(request: Request, grpo_request: GRPOConfigRequest):
+def initialize_grpo(request: Request, grpo_config_request: GRPOConfigRequest):
     inference_manager = request.app.state.inference_manager
     grpo_manager = request.app.state.grpo_manager
-    grpo_manager.initialize_config(grpo_request, inference_manager)
+    grpo_manager.initialize_config(grpo_config_request, inference_manager)
     return GRPOConfigResponse(status="success")
 
 # Create a grpo job
 @router.post("/step", response_model=JobStatusModel)
-def create_fine_tune_job(request: Request, grpo_request: GRPORequest, background_tasks: BackgroundTasks):
+def run_grpo_step(request: Request, grpo_request: GRPORequest, background_tasks: BackgroundTasks):
     job_manager = request.app.state.job_manager
     inference_manager = request.app.state.inference_manager
     grpo_manager = request.app.state.grpo_manager

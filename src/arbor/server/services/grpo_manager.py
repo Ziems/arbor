@@ -19,16 +19,16 @@ class GRPOManager:
         self.settings = settings
 
 
-    def make_output_dir(self, request: GRPORequest):
-        model_name = request.model.split('/')[-1].lower()
-        suffix = request.suffix if request.suffix is not None else ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+    def make_output_dir(self, model_name, run_suffix):
+        model_name = model_name.split('/')[-1].lower()
+        suffix = run_suffix if run_suffix is not None else ''.join(random.choices(string.ascii_letters + string.digits, k=6))
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         name = f"grpo:{model_name}:{suffix}:{timestamp}"
         return name, str(Path(self.settings.STORAGE_PATH).resolve() / "models" / name)
 
     def find_training_args(self, request: GRPOConfigRequest):
 
-        name, output_dir = self.make_output_dir(request)
+        name, output_dir = self.make_output_dir(request.model, request.suffix)
 
         default_train_kwargs = {
             "device": None,
@@ -38,7 +38,7 @@ class GRPOManager:
             "gradient_accumulation_steps": 8,
             "learning_rate": 1e-5,
             "max_seq_length": None,
-            "packing": True,
+            "packing": False, # TODO: Turning this off for now
             "bf16": True,
             "output_dir": output_dir,
             # Using the default TRL values here
@@ -51,7 +51,7 @@ class GRPOManager:
             "epsilon_high": 0.2,
         }
 
-        train_kwargs = {'packing': False}
+        train_kwargs = request.model_dump(exclude_unset=True)
         train_kwargs={**default_train_kwargs, **(train_kwargs or {})}
 
         return train_kwargs
