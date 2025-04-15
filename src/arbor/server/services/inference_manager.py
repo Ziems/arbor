@@ -1,15 +1,13 @@
 import threading
 import subprocess
-import os
 import socket
 import time
 import requests
+import torch
 from typing import Optional, Dict, Any
-import litellm
 from datetime import datetime
-from fastapi import Request
 from arbor.server.core.config import Settings
-from arbor.server.api.models.schemas import ChatCompletionRequest
+
 
 class InferenceManager:
     def __init__(self, settings: Settings):
@@ -27,7 +25,6 @@ class InferenceManager:
             return
 
         launch_kwargs = launch_kwargs or self.launch_kwargs
-        self.model = model
 
         if model.startswith("openai/"):
             model = model[7:]
@@ -41,11 +38,10 @@ class InferenceManager:
         print(
             f"We see that CUDA_VISIBLE_DEVICES is {os.environ.get('CUDA_VISIBLE_DEVICES', 'unset')}"
         )
-        self.port = get_free_port()
-        self.host = "0.0.0.0"
-        # self.host = "localhost"
+        port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
-        command = f"vllm serve {model} --port {self.port} --host {self.host}"
+        command = f"vllm serve {model} --port {port}"
+        print(f"Running command: {command}")
 
         # We will manually stream & capture logs.
         process = subprocess.Popen(
@@ -82,15 +78,15 @@ class InferenceManager:
         thread.start()
 
         # Wait until the server is ready (or times out)
-        self.base_url = f"http://{self.host}:{self.port}"
+        base_url = f"http://localhost:{port}"
         try:
-            wait_for_server(self.base_url, timeout=timeout)
+            wait_for_server(base_url, timeout=timeout)
         except TimeoutError:
             # If the server doesn't come up, we might want to kill it:
             process.kill()
             raise
-        
-        
+
+
         # Once server is ready, we tell the thread to stop printing further lines.
         stop_printing_event.set()
 
@@ -101,10 +97,10 @@ class InferenceManager:
 
         # Let the user know server is up
         print(
-            f"Server ready on random port {self.port}! Logs are available via lm.get_logs() method on returned lm."
+            f"Server ready on random port {port}!"
         )
 
-        self.launch_kwargs["api_base"] = f"http://{self.host}:{self.port}/v1"
+        self.launch_kwargs["api_base"] = f"http://localhost:{port}/v1"
         self.launch_kwargs["api_key"] = "local"
         self.get_logs = get_logs
         self.process = process
@@ -112,7 +108,6 @@ class InferenceManager:
 
 
     def kill(self):
-        from sglang.utils import terminate_process
         if self.process is None:
             print("No running server to kill.")
             return
@@ -128,15 +123,10 @@ class InferenceManager:
         self.last_activity = None
 
         # Then terminate the process and join thread
-        terminate_process(process)
+        process.terminate()  # Send SIGTERM signal
+        process.wait()  # Wait for process to finish
         thread.join()
         print("Server killed.")
-    
-    def post_http_request(self, url, request_json) -> requests.Response:
-        headers = request_json['headers']
-        pload = request_json['pload']
-        response = requests.post(url, headers=headers, json=pload)
-        return response
 
     def run_inference(self, request_json: dict):
         # Update last_activity timestamp
@@ -146,9 +136,42 @@ class InferenceManager:
             raise RuntimeError("Server is not running. Please launch it first.")
 
         url = f"{self.launch_kwargs['api_base']}/chat/completions"
-        chat_response = self.post_http_request(url, request_json)
-        
-        return chat_response.json()
+        response = requests.post(url, json=request_json)
+        return response.json()
+
+    def update_named_param(self, name: str, weights: torch.Tensor):
+        """
+        Updates a specific named parameter in the model and broadcasts it to other processes.
+
+        Args:
+            name (`str`):
+                Name of the layer whose weights are being updated.
+            weights (`torch.Tensor`):
+                Tensor containing the updated weights.
+        """
+        dtype, shape = str(weights.dtype), tuple(weights.shape)
+        url = f"{self.launch_kwargs['api_base']}/update_named_param/"
+        response = requests.post(url, json={"name": name, "dtype": dtype, "shape": shape})
+        if response.status_code != 200:
+            raise Exception(f"Request failed: {response.status_code}, {response.text}")
+
+        # Broadcast the weights to the other processes
+        # self.pynccl_comm.broadcast(weights, src=self.rank, stream=torch.cuda.current_stream())
+        # self.pynccl_comm.group.barrier()
+
+    def reset_prefix_cache(self):
+        """
+        Resets the prefix cache for the model.
+        """
+        url = f"{self.launch_kwargs['api_base']}/reset_prefix_cache/"
+        response = requests.post(url)
+        if response.status_code != 200:
+            raise Exception(f"Request failed: {response.status_code}, {response.text}")
+
+    def update_model(self, model):
+        for name, param in model.named_parameters():
+            self.update_named_param(name, param.data)
+        self.reset_prefix_cache()
 
 
 def get_free_port() -> int:

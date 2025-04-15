@@ -31,7 +31,9 @@ async def check_inactivity(app):
                 inference_manager.kill()
 
 
-router = APIRouter(lifespan=lifespan)
+# Temporarily disabling inactivity check because its not working with vllm.
+# router = APIRouter(lifespan=lifespan)
+router = APIRouter()
 
 
 @router.post("/completions")
@@ -40,24 +42,24 @@ async def run_inference(request: Request): # TODO: Ideally this should be ChatCo
     job_manager = request.app.state.job_manager
     raw_json = await request.json()
 
-    active_job = job_manager.get_active_job()
+    # active_job = job_manager.get_active_job()
 
-    if active_job is not None:
-        active_job.status = JobStatus.PENDING_PAUSE
+    # if active_job is not None:
+    #     active_job.status = JobStatus.PENDING_PAUSE
 
-        while active_job.status != JobStatus.PAUSED: # TODO: This should be improved incase the job does not pause...etc
-            time.sleep(0.5)
+    #     while active_job.status != JobStatus.PAUSED: # TODO: This should be improved incase the job does not pause...etc
+    #         time.sleep(0.5)
 
     # if a server isnt running, launch one
     if not inference_manager.is_server_running():
-        inference_manager.launch(raw_json['pload']["model"])
+        inference_manager.launch(raw_json["model"])
 
     # forward the request to the inference server
     completion = inference_manager.run_inference(raw_json)
 
     # Resume Training if it was paused
-    if active_job is not None and active_job.status == JobStatus.PAUSED:
-        active_job.status = JobStatus.PENDING_RESUME
+    # if active_job is not None and active_job.status == JobStatus.PAUSED:
+    #     active_job.status = JobStatus.PENDING_RESUME
 
     return completion
 

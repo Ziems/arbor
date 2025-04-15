@@ -19,7 +19,7 @@ def create_fine_tune_job(request: Request, grpo_request: GRPORequest, background
 
     job = job_manager.create_job()
 
-    grpo_manager.grpo_step(grpo_request, job)
+    grpo_manager.grpo_step(grpo_request, job, inference_manager)
 
 
     # if inference_manager.is_server_running():

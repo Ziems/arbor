@@ -13,7 +13,7 @@ from trl.models.modeling_base import create_reference_model
 from arbor.server.api.models.schemas import GRPORequest, GRPOConfigRequest
 from arbor.server.core.config import Settings
 from arbor.server.services.job_manager import Job, JobEvent, JobStatus
-
+from arbor.server.services.inference_manager import InferenceManager
 class GRPOManager:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -56,8 +56,10 @@ class GRPOManager:
 
         return train_kwargs
 
-    def initialize_config(self, request: GRPOConfigRequest):
+    def initialize_config(self, request: GRPOConfigRequest, inference_manager: InferenceManager):
         self.train_kwargs = self.find_training_args(request)
+        print("Launching inference server...")
+        inference_manager.launch(request.model)
         if self.train_kwargs.get("device", None) is None:
             self.train_kwargs["device"] = (
                 "cuda"
@@ -96,7 +98,7 @@ class GRPOManager:
             self.train_kwargs["max_seq_length"] = 4096
 
 
-    def grpo_step(self, request: GRPORequest, job: Job):
+    def grpo_step(self, request: GRPORequest, job: Job, inference_manager: InferenceManager):
         job.status = JobStatus.RUNNING
         job.add_event(JobEvent(level="info", message="Running GRPO step", data={}))
 
@@ -114,6 +116,13 @@ class GRPOManager:
             total_loss = total_loss / len(batch)
             total_loss.backward()
             self.optimizer.step()
+
+            if request.update_inference_model:
+                print("Updating inference model...")
+                import pdb; pdb.set_trace()
+                inference_manager.update_model(self.model)
+                print("SUCCESS")
+                import pdb; pdb.set_trace()
 
         except Exception as e:
             job.add_event(JobEvent(level="error", message=f"Training failed: {str(e)}", data={}))

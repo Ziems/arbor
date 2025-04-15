@@ -166,6 +166,9 @@ class GRPOConfigRequest(BaseModel):
     temperature: Optional[float] = None
     beta: Optional[float] = None
     num_iterations: Optional[int] = None
+    num_generations: Optional[int] = None
+
+    # To name the run
     suffix: Optional[str] = None
 
 class GRPOConfigResponse(BaseModel):

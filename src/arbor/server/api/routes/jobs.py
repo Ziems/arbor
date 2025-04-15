@@ -15,10 +15,11 @@ def create_fine_tune_job(request: Request, fine_tune_request: FineTuneRequest, b
     training_manager = request.app.state.training_manager
     inference_manager = request.app.state.inference_manager
 
-    if inference_manager.is_server_running():
-        inference_manager.kill()
-        while inference_manager.is_server_running(): # TODO: This should be done cleaner
-            time.sleep(1)
+    # TODO: Temporarily disabling this because kill isn't working properly.
+    # if inference_manager.is_server_running():
+    #     inference_manager.kill()
+    #     while inference_manager.is_server_running(): # TODO: This should be done cleaner
+    #         time.sleep(1)
 
     job = job_manager.create_job()
     background_tasks.add_task(training_manager.fine_tune, fine_tune_request, job, file_manager)
