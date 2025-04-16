@@ -38,6 +38,7 @@ def terminate_grpo(url='http://127.0.0.1:8000/v1/fine_tuning/grpo/terminate'):
 
 
 def reward_func(prompts, completions):
+
     return [-abs(20 - len(completion)) if completion is not None else -300 for completion in completions]
 
 
@@ -54,9 +55,9 @@ for i in range(len(dataset)):
         temperature=0.7,
         n=8
     )
-    completions = [choice.message for choice in response.choices]
+    completions = [{'message': choice.message.content, 'role': choice.message.role} for choice in response.choices]
     import pdb; pdb.set_trace()
-    rewards = reward_func(inputs["prompt"], completions)
+    rewards = reward_func(inputs["prompt"], [c["message"] for c in completions])
     import pdb; pdb.set_trace()
     print(rewards)
     # TODO Zip rewards with completions
