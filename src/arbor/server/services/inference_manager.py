@@ -81,15 +81,15 @@ class InferenceManager:
         )
         thread.start()
 
-        self.vllm_client = VLLMClient(host="localhost", server_port=port)
+        self.vllm_client = VLLMClient(host="localhost", server_port=port, connection_timeout=timeout)
 
         # Wait until the server is ready (or times out)
-        try:
-            self.vllm_client.check_server(timeout=timeout)
-        except TimeoutError:
-            # If the server doesn't come up, we might want to kill it:
-            process.kill()
-            raise
+        # try:
+        #     self.vllm_client.check_server(timeout=timeout)
+        # except TimeoutError:
+        #     # If the server doesn't come up, we might want to kill it:
+        #     process.kill()
+        #     raise
 
 
         # Once server is ready, we tell the thread to stop printing further lines.
