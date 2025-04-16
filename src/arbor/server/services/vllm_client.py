@@ -87,7 +87,6 @@ class VLLMClient:
             total_timeout (`float`, *optional*, defaults to `0.0`):
                 Total timeout duration in seconds.
         """
-        print(f"CHECKING SERVER")
         url = f"http://{self.host}:{self.server_port}/health/"
         start_time = time.time()  # Record the start time
 
@@ -236,7 +235,12 @@ class VLLMClient:
             raise Exception(f"Request failed: {response.status_code}, {response.text}")
 
         # Set up the communication group for weight broadcasting
-        pg = StatelessProcessGroup.create(host=self.host, port=self.group_port, rank=self.rank, world_size=world_size) # type: ignore
+        pg = StatelessProcessGroup.create(
+            host="127.0.0.1" if self.host == "localhost" or self.host == "0.0.0.0" else self.host,
+            port=self.group_port,
+            rank=self.rank,
+            world_size=world_size
+        )
         self.pynccl_comm = PyNcclCommunicator(pg, device="cuda:0") # type: ignore
 
     def update_named_param(self, name: str, weights: torch.Tensor):
