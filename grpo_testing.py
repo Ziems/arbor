@@ -55,16 +55,18 @@ for i in range(len(dataset)):
         temperature=0.7,
         n=8
     )
-    completions = [{'message': choice.message.content, 'role': choice.message.role} for choice in response.choices]
-    import pdb; pdb.set_trace()
-    rewards = reward_func(inputs["prompt"], [c["message"] for c in completions])
-    import pdb; pdb.set_trace()
-    print(rewards)
-    # TODO Zip rewards with completions
+    completions = [{'content': choice.message.content, 'role': choice.message.role} for choice in response.choices]
+    rewards = reward_func(inputs["prompt"], [c["content"] for c in completions])
     for c, r in zip(completions, rewards):
         c["reward"] = r
 
-    run_grpo_step(model_name="Qwen/Qwen2-0.5B-Instruct", batch=[{"input": input_messages, "completions": completions}])
+    batch = [{
+        "input": {
+            "messages": input_messages
+        },
+        "completions": completions
+    }]
+    run_grpo_step(model_name="Qwen/Qwen2-0.5B-Instruct", batch=batch)
 
 
 # test_batch = [
