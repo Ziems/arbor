@@ -119,8 +119,9 @@ class GRPOManager:
             total_loss.backward()
             self.optimizer.step()
 
-            if request.update_inference_model:
-                inference_manager.update_model(self.model)
+            # TODO: This should be done every N steps or something like that
+            # if request.update_inference_model:
+            #     inference_manager.update_model(self.model)
 
         except Exception as e:
             job.add_event(JobEvent(level="error", message=f"Training failed: {str(e)}", data={}))
