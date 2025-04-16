@@ -36,6 +36,6 @@ def terminate_grpo(request: Request, grpo_request: GRPOTerminateRequest):
     grpo_manager = request.app.state.grpo_manager
     inference_manager = request.app.state.inference_manager
 
-    grpo_manager.terminate(inference_manager)
+    res = grpo_manager.terminate(inference_manager)
     import pdb; pdb.set_trace()
     return GRPOTerminateResponse(status="success")
