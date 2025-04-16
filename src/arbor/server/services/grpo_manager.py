@@ -120,11 +120,7 @@ class GRPOManager:
             self.optimizer.step()
 
             if request.update_inference_model:
-                print("Updating inference model...")
-                import pdb; pdb.set_trace()
                 inference_manager.update_model(self.model)
-                print("SUCCESS")
-                import pdb; pdb.set_trace()
 
         except Exception as e:
             job.add_event(JobEvent(level="error", message=f"Training failed: {str(e)}", data={}))
@@ -153,7 +149,6 @@ class GRPOManager:
 
         # Compute the loss
         advantages = inputs["advantages"]
-        import pdb; pdb.set_trace()
         # When using num_iterations == 1, old_per_token_logps == per_token_logps, so we can skip it's computation (see
         # _generate_and_score_completions) and use per_token_logps.detach() instead.
         old_per_token_logps = inputs["old_per_token_logps"] if self.train_kwargs["num_iterations"] > 1 else per_token_logps.detach()
@@ -271,6 +266,18 @@ class GRPOManager:
             "ref_per_token_logps": ref_per_token_logps,
             "advantages": advantages,
         }
+
+    def terminate(self, inference_manager: InferenceManager):
+        if inference_manager.process is not None:
+            inference_manager.kill()
+
+        output_dir = self.train_kwargs.get("output_dir")
+        if output_dir is None:
+            print("No output directory specified in train_kwargs, skipping model save")
+            return
+
+        print(f"Saving model to {output_dir}")
+        return self.model.save_pretrained(output_dir, from_pt=True)
 
 def dataset_from_json(json_data):
     from datasets import Dataset

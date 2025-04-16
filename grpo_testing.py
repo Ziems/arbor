@@ -1,5 +1,4 @@
 import requests
-import json
 
 def initialize_grpo(model, url='http://127.0.0.1:8000/v1/fine_tuning/grpo/initialize'):
     headers = {'Content-Type': 'application/json'}
@@ -36,6 +35,7 @@ def terminate_grpo(url='http://127.0.0.1:8000/v1/fine_tuning/grpo/terminate'):
 response = initialize_grpo(model="Qwen/Qwen2-0.5B-Instruct")
 print(response.status_code)
 print(response.text)
+import pdb; pdb.set_trace()
 
 test_batch = [
         {

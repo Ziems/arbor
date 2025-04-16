@@ -6,7 +6,9 @@ import requests
 import torch
 from typing import Optional, Dict, Any
 from datetime import datetime
+
 from arbor.server.core.config import Settings
+from arbor.server.services.vllm_client import VLLMClient
 
 
 class InferenceManager:
@@ -15,6 +17,7 @@ class InferenceManager:
         self.process = None
         self.launch_kwargs = {}
         self.last_activity = None
+        self.vllm_client = None
 
     def is_server_running(self):
         return self.process is not None
@@ -40,7 +43,8 @@ class InferenceManager:
         )
         port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
-        command = f"vllm serve {model} --port {port} --gpu-memory-utilization=0.6"
+
+        command = f"python src/arbor/server/services/vllm_serve.py --model {model} --port {port} --max_model_len 8192  --gpu_memory_utilization 0.6 --enable_prefix_caching True"
         print(f"Running command: {command}")
 
         # We will manually stream & capture logs.
@@ -77,10 +81,11 @@ class InferenceManager:
         )
         thread.start()
 
+        self.vllm_client = VLLMClient(host="localhost", server_port=port)
+
         # Wait until the server is ready (or times out)
-        base_url = f"http://localhost:{port}"
         try:
-            wait_for_server(base_url, timeout=timeout)
+            self.vllm_client.check_server(timeout=timeout)
         except TimeoutError:
             # If the server doesn't come up, we might want to kill it:
             process.kill()
@@ -105,6 +110,7 @@ class InferenceManager:
         self.get_logs = get_logs
         self.process = process
         self.thread = thread
+
 
 
     def kill(self):
@@ -132,47 +138,27 @@ class InferenceManager:
         # Update last_activity timestamp
         self.last_activity = datetime.now()
 
-        if self.process is None or self.launch_kwargs.get('api_base') is None:
+        if self.process is None or self.vllm_client is None:
             raise RuntimeError("Server is not running. Please launch it first.")
 
-        url = f"{self.launch_kwargs['api_base']}/chat/completions"
-        response = requests.post(url, json=request_json)
-        return response.json()
+        # url = f"{self.launch_kwargs['api_base']}/chat/completions"
+        # response = requests.post(url, json=request_json)
+        # return response.json()
+        messages = request_json["messages"]
+        response = self.vllm_client.chat(messages)
+        import pdb; pdb.set_trace()
+
+        return response
+
 
     def update_named_param(self, name: str, weights: torch.Tensor):
-        """
-        Updates a specific named parameter in the model and broadcasts it to other processes.
-
-        Args:
-            name (`str`):
-                Name of the layer whose weights are being updated.
-            weights (`torch.Tensor`):
-                Tensor containing the updated weights.
-        """
-        dtype, shape = str(weights.dtype), tuple(weights.shape)
-        url = f"{self.launch_kwargs['api_base']}/update_named_param/"
-        import pdb; pdb.set_trace()
-        response = requests.post(url, json={"name": name, "dtype": dtype, "shape": shape})
-        if response.status_code != 200:
-            raise Exception(f"Request failed: {response.status_code}, {response.text}")
-
-        # Broadcast the weights to the other processes
-        # self.pynccl_comm.broadcast(weights, src=self.rank, stream=torch.cuda.current_stream())
-        # self.pynccl_comm.group.barrier()
+        return self.vllm_client.update_named_param(name, weights)
 
     def reset_prefix_cache(self):
-        """
-        Resets the prefix cache for the model.
-        """
-        url = f"{self.launch_kwargs['api_base']}/reset_prefix_cache/"
-        response = requests.post(url)
-        if response.status_code != 200:
-            raise Exception(f"Request failed: {response.status_code}, {response.text}")
+        return self.vllm_client.reset_prefix_cache()
 
     def update_model(self, model):
-        for name, param in model.named_parameters():
-            self.update_named_param(name, param.data)
-        self.reset_prefix_cache()
+        return self.vllm_client.update_model_params(model)
 
 
 def get_free_port() -> int:
@@ -182,29 +168,3 @@ def get_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("localhost", 0))
         return s.getsockname()[1]
-
-def wait_for_server(base_url: str, timeout: int = None) -> None:
-    """
-    Wait for the server to be ready by polling the /v1/models endpoint.
-
-    Args:
-        base_url: The base URL of the server (e.g. http://localhost:1234)
-        timeout: Maximum time to wait in seconds. None means wait forever.
-    """
-    start_time = time.time()
-    while True:
-        try:
-            response = requests.get(
-                f"{base_url}/v1/models",
-                headers={"Authorization": "Bearer None"},
-            )
-            if response.status_code == 200:
-                # A small extra sleep to ensure server is fully up.
-                time.sleep(5)
-                break
-
-            if timeout and (time.time() - start_time) > timeout:
-                raise TimeoutError("Server did not become ready within timeout period")
-        except requests.exceptions.RequestException:
-            # Server not up yet, wait and retry
-            time.sleep(1)
