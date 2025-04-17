@@ -192,7 +192,6 @@ class GRPOManager:
                     self.tokenizer
                 )
             )
-        import pdb; pdb.set_trace()
         prompt_texts = [prompt_completion_text['prompt'] for prompt_completion_text in prompt_completion_texts]
         prompt_inputs = self.tokenizer(prompt_texts, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False).to(device)
         prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
@@ -247,8 +246,6 @@ class GRPOManager:
         rewards = torch.tensor([example['reward'] for example in batch], dtype=torch.float32).to(device)
         mean_grouped_rewards = rewards.view(-1, self.train_kwargs["num_generations"]).mean(dim=1)
         std_grouped_rewards = rewards.view(-1, self.train_kwargs["num_generations"]).std(dim=1)
-
-        import pdb; pdb.set_trace()
 
         mean_grouped_rewards = mean_grouped_rewards.repeat_interleave(self.train_kwargs["num_generations"], dim=0)
         std_grouped_rewards = std_grouped_rewards.repeat_interleave(self.train_kwargs["num_generations"], dim=0)
