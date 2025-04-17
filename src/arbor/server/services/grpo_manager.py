@@ -51,6 +51,7 @@ class GRPOManager:
             "scale_rewards": True,
             "epsilon_low": 0.2,
             "epsilon_high": 0.2,
+            "update_interval": 25
         }
 
         train_kwargs = request.model_dump(exclude_unset=True)
@@ -118,8 +119,7 @@ class GRPOManager:
                 loss.backward()
                 self.optimizer.step()
 
-            # TODO: This should be done every N steps or something like that
-            if self.steps_count % 50 == 0 and self.steps_count > 0:
+            if self.steps_count % self.train_kwargs["update_interval"] == 0 and self.steps_count > 0:
                 if request.update_inference_model:
                     inference_manager.update_model(self.model, self.train_kwargs["tokenizer_name"], self.train_kwargs["output_dir"])
                     self.current_model = self.train_kwargs["output_dir"]

@@ -167,6 +167,7 @@ class GRPOConfigRequest(BaseModel):
     beta: Optional[float] = None
     num_iterations: Optional[int] = None
     num_generations: Optional[int] = None
+    update_interval: Optional[int] = None
 
     # To name the run
     suffix: Optional[str] = None
