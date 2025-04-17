@@ -1,4 +1,5 @@
 import threading
+import os
 import subprocess
 import socket
 import time
@@ -19,7 +20,7 @@ class InferenceManager:
     def is_server_running(self):
         return self.process is not None
 
-    def launch(self, model: str, launch_kwargs: Optional[Dict[str, Any]] = None):
+    def launch(self, model: str, tokenizer_name: str,launch_kwargs: Optional[Dict[str, Any]] = None):
         if self.is_server_running():
             print("Server is already launched.")
             return
@@ -40,7 +41,7 @@ class InferenceManager:
         )
         port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
-        command = f"vllm serve {model} --port {port}"
+        command = f"vllm serve {model} --port {port} --tokenizer {tokenizer_name} --gpu-memory-utilization 0.7 --max_model_len 8192"
         print(f"Running command: {command}")
 
         # We will manually stream & capture logs.
@@ -139,39 +140,22 @@ class InferenceManager:
         response = requests.post(url, json=request_json)
         return response.json()
 
-    def update_named_param(self, name: str, weights: torch.Tensor):
-        """
-        Updates a specific named parameter in the model and broadcasts it to other processes.
+    def update_model(self, model, tokenizer_name, output_dir):
+        tik = time.time()
+        self.kill()
+        print("Killed server")
+        model.save_pretrained(output_dir)
+        # Check that output directory exists and was created successfully
+        if not os.path.exists(output_dir):
+            raise RuntimeError(f"Failed to save model - output directory {output_dir} does not exist")
 
-        Args:
-            name (`str`):
-                Name of the layer whose weights are being updated.
-            weights (`torch.Tensor`):
-                Tensor containing the updated weights.
-        """
-        dtype, shape = str(weights.dtype), tuple(weights.shape)
-        url = f"{self.launch_kwargs['api_base']}/update_named_param/"
-        response = requests.post(url, json={"name": name, "dtype": dtype, "shape": shape})
-        if response.status_code != 200:
-            raise Exception(f"Request failed: {response.status_code}, {response.text}")
+        print("Saved model")
+        self.launch(output_dir, tokenizer_name,self.launch_kwargs)
+        print("Launched server")
+        tok = time.time()
+        print(f"Time taken to update model: {tok - tik} seconds")
 
-        # Broadcast the weights to the other processes
-        # self.pynccl_comm.broadcast(weights, src=self.rank, stream=torch.cuda.current_stream())
-        # self.pynccl_comm.group.barrier()
 
-    def reset_prefix_cache(self):
-        """
-        Resets the prefix cache for the model.
-        """
-        url = f"{self.launch_kwargs['api_base']}/reset_prefix_cache/"
-        response = requests.post(url)
-        if response.status_code != 200:
-            raise Exception(f"Request failed: {response.status_code}, {response.text}")
-
-    def update_model(self, model):
-        for name, param in model.named_parameters():
-            self.update_named_param(name, param.data)
-        self.reset_prefix_cache()
 
 
 def get_free_port() -> int:

@@ -179,3 +179,7 @@ class GRPOTerminateRequest(BaseModel):
 
 class GRPOTerminateResponse(BaseModel):
     status: str
+
+class GRPOStepResponse(BaseModel):
+    status: str
+    current_model: str

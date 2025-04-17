@@ -49,3 +49,4 @@ Thumbs.db
 /validation_data_*.jsonl
 
 mise.toml
+uv.lock

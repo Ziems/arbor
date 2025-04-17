@@ -14,21 +14,23 @@ from arbor.server.api.models.schemas import GRPORequest, GRPOConfigRequest
 from arbor.server.core.config import Settings
 from arbor.server.services.job_manager import Job, JobEvent, JobStatus
 from arbor.server.services.inference_manager import InferenceManager
+
+
 class GRPOManager:
     def __init__(self, settings: Settings):
         self.settings = settings
 
 
-    def make_output_dir(self, request: GRPORequest):
-        model_name = request.model.split('/')[-1].lower()
-        suffix = request.suffix if request.suffix is not None else ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+    def make_output_dir(self, model_name, run_suffix):
+        model_name = model_name.split('/')[-1].lower()
+        suffix = run_suffix if run_suffix is not None else ''.join(random.choices(string.ascii_letters + string.digits, k=6))
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         name = f"grpo:{model_name}:{suffix}:{timestamp}"
         return name, str(Path(self.settings.STORAGE_PATH).resolve() / "models" / name)
 
     def find_training_args(self, request: GRPOConfigRequest):
 
-        name, output_dir = self.make_output_dir(request)
+        name, output_dir = self.make_output_dir(request.model, request.suffix)
 
         default_train_kwargs = {
             "device": None,
@@ -38,20 +40,20 @@ class GRPOManager:
             "gradient_accumulation_steps": 8,
             "learning_rate": 1e-5,
             "max_seq_length": None,
-            "packing": True,
+            "packing": False, # TODO: Turning this off for now
             "bf16": True,
             "output_dir": output_dir,
             # Using the default TRL values here
             "beta": 0.04,
             "num_iterations": 1,
             "temperature": 0.9, # TODO: This should match vLLM
-            "num_generations": 3,
+            "num_generations": 8,
             "scale_rewards": True,
             "epsilon_low": 0.2,
             "epsilon_high": 0.2,
         }
 
-        train_kwargs = {'packing': False}
+        train_kwargs = request.model_dump(exclude_unset=True)
         train_kwargs={**default_train_kwargs, **(train_kwargs or {})}
 
         return train_kwargs
@@ -59,7 +61,7 @@ class GRPOManager:
     def initialize_config(self, request: GRPOConfigRequest, inference_manager: InferenceManager):
         self.train_kwargs = self.find_training_args(request)
         print("Launching inference server...")
-        inference_manager.launch(request.model)
+        inference_manager.launch(request.model, request.model)
         if self.train_kwargs.get("device", None) is None:
             self.train_kwargs["device"] = (
                 "cuda"
@@ -97,39 +99,39 @@ class GRPOManager:
         if "max_seq_length" not in self.train_kwargs or self.train_kwargs["max_seq_length"] is None:
             self.train_kwargs["max_seq_length"] = 4096
 
+        # TODO: Maybe there is a situation where the tokenizer name is not the same as the model name?
+        self.train_kwargs["tokenizer_name"] = request.model
+        self.current_model = request.model
+        self.steps_count = 0
 
-    def grpo_step(self, request: GRPORequest, job: Job, inference_manager: InferenceManager):
-        job.status = JobStatus.RUNNING
-        job.add_event(JobEvent(level="info", message="Running GRPO step", data={}))
+
+
+    def grpo_step(self, request: GRPORequest, inference_manager: InferenceManager):
 
         try:
-            job.add_event(JobEvent(level="info", message="Tokenizing batch", data={}))
             batch = dataset_from_json(request.batch)
 
-            self.optimizer.zero_grad()
-            total_loss = 0
             for example in batch:
+                self.optimizer.zero_grad()
                 inputs = self.score_completions(example)
                 loss = self.compute_loss(inputs)
-                total_loss += loss
+                loss.backward()
+                self.optimizer.step()
 
-            total_loss = total_loss / len(batch)
-            total_loss.backward()
-            self.optimizer.step()
+            # TODO: This should be done every N steps or something like that
+            if self.steps_count % 50 == 0 and self.steps_count > 0:
+                if request.update_inference_model:
+                    inference_manager.update_model(self.model, self.train_kwargs["tokenizer_name"], self.train_kwargs["output_dir"])
+                    self.current_model = self.train_kwargs["output_dir"]
 
-            if request.update_inference_model:
-                print("Updating inference model...")
-                import pdb; pdb.set_trace()
-                inference_manager.update_model(self.model)
-                print("SUCCESS")
-                import pdb; pdb.set_trace()
+
+            self.steps_count += 1
+            return self.current_model
 
         except Exception as e:
-            job.add_event(JobEvent(level="error", message=f"Training failed: {str(e)}", data={}))
-            job.status = JobStatus.FAILED
             raise
         finally:
-            pass
+            return self.current_model
 
     def compute_loss(self, inputs):
         # Compute the per-token log probabilities for the model
@@ -151,7 +153,6 @@ class GRPOManager:
 
         # Compute the loss
         advantages = inputs["advantages"]
-        import pdb; pdb.set_trace()
         # When using num_iterations == 1, old_per_token_logps == per_token_logps, so we can skip it's computation (see
         # _generate_and_score_completions) and use per_token_logps.detach() instead.
         old_per_token_logps = inputs["old_per_token_logps"] if self.train_kwargs["num_iterations"] > 1 else per_token_logps.detach()
@@ -269,6 +270,18 @@ class GRPOManager:
             "ref_per_token_logps": ref_per_token_logps,
             "advantages": advantages,
         }
+
+    def terminate(self, inference_manager: InferenceManager):
+        if inference_manager.process is not None:
+            inference_manager.kill()
+
+        output_dir = self.train_kwargs.get("output_dir")
+        if output_dir is None:
+            print("No output directory specified in train_kwargs, skipping model save")
+            return
+
+        print(f"Saving model to {output_dir}")
+        return self.model.save_pretrained(output_dir, from_pt=True)
 
 def dataset_from_json(json_data):
     from datasets import Dataset
