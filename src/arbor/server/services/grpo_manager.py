@@ -111,16 +111,12 @@ class GRPOManager:
             job.add_event(JobEvent(level="info", message="Tokenizing batch", data={}))
             batch = dataset_from_json(request.batch)
 
-            self.optimizer.zero_grad()
-            total_loss = 0
             for example in batch:
+                self.optimizer.zero_grad()
                 inputs = self.score_completions(example)
                 loss = self.compute_loss(inputs)
-                total_loss += loss
-
-            total_loss = total_loss / len(batch)
-            total_loss.backward()
-            self.optimizer.step()
+                loss.backward()
+                self.optimizer.step()
 
             # TODO: This should be done every N steps or something like that
             if self.steps_count % 50 == 0 and self.steps_count > 0:
