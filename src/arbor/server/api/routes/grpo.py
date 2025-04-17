@@ -17,7 +17,7 @@ def run_grpo_step(request: Request, grpo_request: GRPORequest, background_tasks:
     inference_manager = request.app.state.inference_manager
     grpo_manager = request.app.state.grpo_manager
 
-    current_model =grpo_manager.grpo_step(grpo_request, inference_manager)
+    current_model = grpo_manager.grpo_step(grpo_request, inference_manager)
 
 
     # if inference_manager.is_server_running():
