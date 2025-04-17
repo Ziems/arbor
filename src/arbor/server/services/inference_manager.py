@@ -4,7 +4,8 @@ import subprocess
 import socket
 import time
 import requests
-import torch
+import signal
+import sys
 from typing import Optional, Dict, Any
 from datetime import datetime
 from arbor.server.core.config import Settings
@@ -16,6 +17,15 @@ class InferenceManager:
         self.process = None
         self.launch_kwargs = {}
         self.last_activity = None
+
+        # Set up signal handler for graceful shutdown
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+
+    def _signal_handler(self, signum, frame):
+        print("\nReceived signal to terminate. Cleaning up...")
+        self.kill()
+        sys.exit(0)
 
     def is_server_running(self):
         return self.process is not None
