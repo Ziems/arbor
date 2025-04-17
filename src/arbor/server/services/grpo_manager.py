@@ -187,7 +187,7 @@ class GRPOManager:
                 maybe_apply_chat_template(
                     {
                         'prompt': example['messages'],
-                        'completion': example['completion']
+                        'completion': [example['completion']]
                     },
                     self.tokenizer
                 )
