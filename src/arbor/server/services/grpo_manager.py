@@ -106,12 +106,9 @@ class GRPOManager:
 
 
 
-    def grpo_step(self, request: GRPORequest, job: Job, inference_manager: InferenceManager):
-        job.status = JobStatus.RUNNING
-        job.add_event(JobEvent(level="info", message="Running GRPO step", data={}))
+    def grpo_step(self, request: GRPORequest, inference_manager: InferenceManager):
 
         try:
-            job.add_event(JobEvent(level="info", message="Tokenizing batch", data={}))
             batch = dataset_from_json(request.batch)
 
             for example in batch:
@@ -132,8 +129,6 @@ class GRPOManager:
             return self.current_model
 
         except Exception as e:
-            job.add_event(JobEvent(level="error", message=f"Training failed: {str(e)}", data={}))
-            job.status = JobStatus.FAILED
             raise
         finally:
             pass

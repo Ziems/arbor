@@ -4,7 +4,6 @@ from datasets import load_dataset
 client = OpenAI(
     base_url="http://127.0.0.1:8000/v1",  # Using Arbor server
     api_key="not-needed",  # If you're using a local server, you dont need an API key
-    timeout=180
 )
 
 def initialize_grpo(model, url='http://127.0.0.1:8000/v1/fine_tuning/grpo/initialize'):
@@ -70,7 +69,7 @@ for i in range(len(dataset)):
         },
         "completions": completions
     }]
-    step_response = run_grpo_step(batch=batch)
+    step_response = run_grpo_step(model_name=current_model, batch=batch)
     current_model = step_response.json()["current_model"]
 
 
