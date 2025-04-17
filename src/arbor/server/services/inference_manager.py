@@ -40,7 +40,7 @@ class InferenceManager:
         )
         port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
-        command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.7"
+        command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.7 --max_model_len 8192"
         print(f"Running command: {command}")
 
         # We will manually stream & capture logs.
@@ -139,39 +139,18 @@ class InferenceManager:
         response = requests.post(url, json=request_json)
         return response.json()
 
-    def update_named_param(self, name: str, weights: torch.Tensor):
-        """
-        Updates a specific named parameter in the model and broadcasts it to other processes.
+    def update_model(self, model, output_dir):
+        tik = time.time()
+        self.kill()
+        print("Killed server")
+        model.save_pretrained(output_dir)
+        print("Saved model")
+        self.launch(output_dir, self.launch_kwargs)
+        print("Launched server")
+        tok = time.time()
+        print(f"Time taken to update model: {tok - tik} seconds")
 
-        Args:
-            name (`str`):
-                Name of the layer whose weights are being updated.
-            weights (`torch.Tensor`):
-                Tensor containing the updated weights.
-        """
-        dtype, shape = str(weights.dtype), tuple(weights.shape)
-        url = f"{self.launch_kwargs['api_base']}/update_named_param/"
-        response = requests.post(url, json={"name": name, "dtype": dtype, "shape": shape})
-        if response.status_code != 200:
-            raise Exception(f"Request failed: {response.status_code}, {response.text}")
 
-        # Broadcast the weights to the other processes
-        # self.pynccl_comm.broadcast(weights, src=self.rank, stream=torch.cuda.current_stream())
-        # self.pynccl_comm.group.barrier()
-
-    def reset_prefix_cache(self):
-        """
-        Resets the prefix cache for the model.
-        """
-        url = f"{self.launch_kwargs['api_base']}/reset_prefix_cache/"
-        response = requests.post(url)
-        if response.status_code != 200:
-            raise Exception(f"Request failed: {response.status_code}, {response.text}")
-
-    def update_model(self, model):
-        for name, param in model.named_parameters():
-            self.update_named_param(name, param.data)
-        self.reset_prefix_cache()
 
 
 def get_free_port() -> int:

@@ -10,7 +10,8 @@ def initialize_grpo(model, url='http://127.0.0.1:8000/v1/fine_tuning/grpo/initia
     headers = {'Content-Type': 'application/json'}
     data = {
         'model': model,
-        'suffix': 'test'
+        'suffix': 'test',
+        'num_generations': 8
     }
     response = requests.post(url, headers=headers, json=data)
     return response
@@ -69,38 +70,4 @@ for i in range(len(dataset)):
     run_grpo_step(model_name="Qwen/Qwen2-0.5B-Instruct", batch=batch)
 
 
-# test_batch = [
-#         {
-#         "input": {
-#             "messages": [
-#                 {
-#                     "role": "user",
-#                     "content": "What is the weather in San Francisco?"
-#                 }
-#             ]
-#         },
-#         "completions": [
-#             {
-#                 "role": "assistant",
-#                 "content": "The weather in San Francisco is 70 degrees Fahrenheit.",
-#                 "reward": 3
-#             },
-#             {
-#                 "role": "assistant",
-#                 "content": "The weather in San Francisco is 21 degrees Celsius.",
-#                 "reward": 1
-#             },
-#             {
-#                 "role": "assistant",
-#                 "content": "As an artificial intelligence, I don't have real-time weather information and cannot give you an exact answer. To obtain the current weather in San Francisco, you can use a weather app or website like Weather.com that provides up-to-date weather conditions for a specific location.",
-#                 "reward": 1
-#             }
-#         ]
-#         },
-#     ]
-# Example usage (continuing from previous upload):
-# fine_tune_response = run_grpo_step(model_name="Qwen/Qwen2-0.5B-Instruct", batch=test_batch)
-# print(fine_tune_response.status_code)
-# print(fine_tune_response.text)
-
-# terminate_response = terminate_grpo()
+terminate_response = terminate_grpo()

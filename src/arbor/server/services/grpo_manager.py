@@ -47,7 +47,7 @@ class GRPOManager:
             "beta": 0.04,
             "num_iterations": 1,
             "temperature": 0.9, # TODO: This should match vLLM
-            "num_generations": 3,
+            "num_generations": 8,
             "scale_rewards": True,
             "epsilon_low": 0.2,
             "epsilon_high": 0.2,
@@ -99,6 +99,9 @@ class GRPOManager:
         if "max_seq_length" not in self.train_kwargs or self.train_kwargs["max_seq_length"] is None:
             self.train_kwargs["max_seq_length"] = 4096
 
+        self.steps_count = 0
+
+
 
     def grpo_step(self, request: GRPORequest, job: Job, inference_manager: InferenceManager):
         job.status = JobStatus.RUNNING
@@ -120,8 +123,11 @@ class GRPOManager:
             self.optimizer.step()
 
             # TODO: This should be done every N steps or something like that
-            # if request.update_inference_model:
-            #     inference_manager.update_model(self.model)
+            if self.steps_count % 50 == 0 and self.steps_count > 0:
+                if request.update_inference_model:
+                    inference_manager.update_model(self.model, self.train_kwargs["output_dir"])
+
+            self.steps_count += 1
 
         except Exception as e:
             job.add_event(JobEvent(level="error", message=f"Training failed: {str(e)}", data={}))
