@@ -63,12 +63,17 @@ for i in range(len(dataset)):
     for c, r in zip(completions, rewards):
         c["reward"] = r
 
-    batch = [{
-        "input": {
-            "messages": input_messages
-        },
-        "completions": completions
-    }]
+    batch = []
+    for completion, reward in zip(completions, rewards):
+        batch.append({
+            "inputs": {
+                "messages": input_messages
+            },
+            "completions": {
+                "messages": [completion]
+            },
+            "reward": reward
+        })
     step_response = run_grpo_step(model_name=current_model, batch=batch)
     current_model = step_response.json()["current_model"]
 

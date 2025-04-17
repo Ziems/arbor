@@ -135,7 +135,6 @@ class GRPOManager:
 
     def compute_loss(self, inputs):
         # Compute the per-token log probabilities for the model
-
         prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
         completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
         input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
@@ -184,16 +183,17 @@ class GRPOManager:
     def score_completions(self, example):
         device = 'cuda'
         prompt_completion_texts = []
-        for completion in example['completions']:
+        for sample in example:
             prompt_completion_texts.append(
                 maybe_apply_chat_template(
                     {
-                        'prompt': example['input']['messages'],
-                        'completion': [completion]
+                        'prompt': sample['inputs']['messages'],
+                        'completion': sample['completions']['messages']
                     },
                     self.tokenizer
                 )
             )
+        import pdb; pdb.set_trace()
         prompt_texts = [prompt_completion_text['prompt'] for prompt_completion_text in prompt_completion_texts]
         prompt_inputs = self.tokenizer(prompt_texts, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False).to(device)
         prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
