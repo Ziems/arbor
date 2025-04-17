@@ -187,8 +187,8 @@ class GRPOManager:
             prompt_completion_texts.append(
                 maybe_apply_chat_template(
                     {
-                        'prompt': sample['inputs']['messages'],
-                        'completion': sample['completions']['messages']
+                        'prompt': sample['messages'],
+                        'completion': sample['completion']
                     },
                     self.tokenizer
                 )

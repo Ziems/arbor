@@ -67,12 +67,8 @@ for i in range(len(dataset)):
     batch = []
     for completion, reward in zip(completions, rewards):
         batch.append({
-            "inputs": {
-                "messages": input_messages
-            },
-            "completions": {
-                "messages": [completion]
-            },
+            "messages": input_messages,
+            "completion": completion,
             "reward": reward
         })
     print(json.dumps(batch, indent=2))
