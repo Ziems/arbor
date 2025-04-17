@@ -3,7 +3,8 @@ from openai import OpenAI
 from datasets import load_dataset
 client = OpenAI(
     base_url="http://127.0.0.1:8000/v1",  # Using Arbor server
-    api_key="not-needed"  # If you're using a local server, you dont need an API key
+    api_key="not-needed",  # If you're using a local server, you dont need an API key
+    timeout=180
 )
 
 def initialize_grpo(model, url='http://127.0.0.1:8000/v1/fine_tuning/grpo/initialize'):
@@ -11,7 +12,7 @@ def initialize_grpo(model, url='http://127.0.0.1:8000/v1/fine_tuning/grpo/initia
     data = {
         'model': model,
         'suffix': 'test',
-        'num_generations': 8
+        'num_generations': 2
     }
     response = requests.post(url, headers=headers, json=data)
     return response
@@ -45,19 +46,21 @@ def reward_func(prompts, completions):
 
 
 dataset = load_dataset("trl-lib/tldr", split="train")
-initialize_response = initialize_grpo(model="Qwen/Qwen2-0.5B-Instruct")
+current_model = "Qwen/Qwen2-0.5B-Instruct"
+initialize_response = initialize_grpo(model=current_model)
 
 for i in range(len(dataset)):
     inputs = dataset[i]
     input_messages = [{"role": "user", "content": inputs["prompt"]}]
     response = client.chat.completions.create(
-        model="Qwen/Qwen2-0.5B-Instruct",
+        model=current_model,
         messages=input_messages,
         temperature=0.7,
-        n=8
+        n=2
     )
     completions = [{'content': choice.message.content, 'role': choice.message.role} for choice in response.choices]
     rewards = reward_func(inputs["prompt"], [c["content"] for c in completions])
+    print(rewards)
     for c, r in zip(completions, rewards):
         c["reward"] = r
 
@@ -67,7 +70,8 @@ for i in range(len(dataset)):
         },
         "completions": completions
     }]
-    run_grpo_step(model_name="Qwen/Qwen2-0.5B-Instruct", batch=batch)
+    step_response = run_grpo_step(batch=batch)
+    current_model = step_response.json()["current_model"]
 
 
 terminate_response = terminate_grpo()

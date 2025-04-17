@@ -101,7 +101,7 @@ class GRPOManager:
 
         # TODO: Maybe there is a situation where the tokenizer name is not the same as the model name?
         self.train_kwargs["tokenizer_name"] = request.model
-
+        self.current_model = request.model
         self.steps_count = 0
 
 
@@ -125,8 +125,11 @@ class GRPOManager:
             if self.steps_count % 50 == 0 and self.steps_count > 0:
                 if request.update_inference_model:
                     inference_manager.update_model(self.model, self.train_kwargs["tokenizer_name"], self.train_kwargs["output_dir"])
+                    self.current_model = self.train_kwargs["output_dir"]
+
 
             self.steps_count += 1
+            return self.current_model
 
         except Exception as e:
             job.add_event(JobEvent(level="error", message=f"Training failed: {str(e)}", data={}))
