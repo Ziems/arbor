@@ -1,4 +1,5 @@
 import requests
+import json
 from openai import OpenAI
 from datasets import load_dataset
 client = OpenAI(
@@ -74,6 +75,7 @@ for i in range(len(dataset)):
             },
             "reward": reward
         })
+    print(json.dumps(batch, indent=2))
     step_response = run_grpo_step(model_name=current_model, batch=batch)
     current_model = step_response.json()["current_model"]
 
