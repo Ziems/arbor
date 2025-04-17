@@ -70,12 +70,6 @@ for i in range(len(dataset)):
         "completions": completions
     }]
     step_response = run_grpo_step(model_name=current_model, batch=batch)
-    try:
-        current_model = step_response.json()["current_model"]
-    except (KeyError, ValueError) as e:
-        print(f"Warning: Could not get current model from response: {e}")
-        # Don't update the model if we can't get the current model from the response
-        pass
-
+    current_model = step_response.json()["current_model"]
 
 terminate_response = terminate_grpo()

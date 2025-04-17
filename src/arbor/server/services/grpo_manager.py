@@ -131,7 +131,7 @@ class GRPOManager:
         except Exception as e:
             raise
         finally:
-            pass
+            return self.current_model
 
     def compute_loss(self, inputs):
         # Compute the per-token log probabilities for the model
