@@ -1,5 +1,4 @@
 import requests
-import json
 from openai import OpenAI
 from datasets import load_dataset
 client = OpenAI(
@@ -61,8 +60,6 @@ for i in range(len(dataset)):
     completions = [{'content': choice.message.content, 'role': choice.message.role} for choice in response.choices]
     rewards = reward_func(inputs["prompt"], [c["content"] for c in completions])
     print(rewards)
-    for c, r in zip(completions, rewards):
-        c["reward"] = r
 
     batch = []
     for completion, reward in zip(completions, rewards):
@@ -71,7 +68,6 @@ for i in range(len(dataset)):
             "completion": completion,
             "reward": reward
         })
-    print(json.dumps(batch, indent=2))
     step_response = run_grpo_step(model_name=current_model, batch=batch)
     current_model = step_response.json()["current_model"]
 

@@ -112,12 +112,11 @@ class GRPOManager:
         try:
             batch = dataset_from_json(request.batch)
 
-            for example in batch:
-                self.optimizer.zero_grad()
-                inputs = self.score_completions(example)
-                loss = self.compute_loss(inputs)
-                loss.backward()
-                self.optimizer.step()
+            self.optimizer.zero_grad()
+            inputs = self.score_completions(batch)
+            loss = self.compute_loss(inputs)
+            loss.backward()
+            self.optimizer.step()
 
             if self.steps_count % self.train_kwargs["update_interval"] == 0 and self.steps_count > 0:
                 if request.update_inference_model:
@@ -129,7 +128,7 @@ class GRPOManager:
             return self.current_model
 
         except Exception as e:
-            raise
+            raise e
         finally:
             return self.current_model
 
@@ -180,20 +179,19 @@ class GRPOManager:
         logits = logits / self.train_kwargs["temperature"]
         return selective_log_softmax(logits, input_ids)  # compute logprobs for the input tokens
 
-    def score_completions(self, example):
+    def score_completions(self, batch):
         device = 'cuda'
         prompt_completion_texts = []
-        for sample in example:
+        for example in batch:
             prompt_completion_texts.append(
                 maybe_apply_chat_template(
                     {
-                        'prompt': sample['messages'],
-                        'completion': sample['completion']
+                        'prompt': example['messages'],
+                        'completion': [example['completion']]
                     },
                     self.tokenizer
                 )
             )
-        import pdb; pdb.set_trace()
         prompt_texts = [prompt_completion_text['prompt'] for prompt_completion_text in prompt_completion_texts]
         prompt_inputs = self.tokenizer(prompt_texts, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False).to(device)
         prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
@@ -245,7 +243,7 @@ class GRPOManager:
                     self.model, prompt_completion_ids, attention_mask, logits_to_keep
                 )
 
-        rewards = torch.tensor([completion['reward'] for completion in example['completions']], dtype=torch.float32).to(device)
+        rewards = torch.tensor([example['reward'] for example in batch], dtype=torch.float32).to(device)
         mean_grouped_rewards = rewards.view(-1, self.train_kwargs["num_generations"]).mean(dim=1)
         std_grouped_rewards = rewards.view(-1, self.train_kwargs["num_generations"]).std(dim=1)
 
