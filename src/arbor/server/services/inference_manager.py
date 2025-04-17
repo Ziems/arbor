@@ -1,4 +1,5 @@
 import threading
+import os
 import subprocess
 import socket
 import time
@@ -19,7 +20,7 @@ class InferenceManager:
     def is_server_running(self):
         return self.process is not None
 
-    def launch(self, model: str, launch_kwargs: Optional[Dict[str, Any]] = None):
+    def launch(self, model: str, tokenizer_name: str,launch_kwargs: Optional[Dict[str, Any]] = None):
         if self.is_server_running():
             print("Server is already launched.")
             return
@@ -40,7 +41,7 @@ class InferenceManager:
         )
         port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
-        command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.7 --max_model_len 8192"
+        command = f"vllm serve {model} --port {port} --tokenizer {tokenizer_name} --gpu-memory-utilization 0.7 --max_model_len 8192"
         print(f"Running command: {command}")
 
         # We will manually stream & capture logs.
@@ -139,13 +140,17 @@ class InferenceManager:
         response = requests.post(url, json=request_json)
         return response.json()
 
-    def update_model(self, model, output_dir):
+    def update_model(self, model, tokenizer_name, output_dir):
         tik = time.time()
         self.kill()
         print("Killed server")
         model.save_pretrained(output_dir)
+        # Check that output directory exists and was created successfully
+        if not os.path.exists(output_dir):
+            raise RuntimeError(f"Failed to save model - output directory {output_dir} does not exist")
+
         print("Saved model")
-        self.launch(output_dir, self.launch_kwargs)
+        self.launch(output_dir, tokenizer_name,self.launch_kwargs)
         print("Launched server")
         tok = time.time()
         print(f"Time taken to update model: {tok - tik} seconds")

@@ -61,7 +61,7 @@ class GRPOManager:
     def initialize_config(self, request: GRPOConfigRequest, inference_manager: InferenceManager):
         self.train_kwargs = self.find_training_args(request)
         print("Launching inference server...")
-        inference_manager.launch(request.model)
+        inference_manager.launch(request.model, request.model)
         if self.train_kwargs.get("device", None) is None:
             self.train_kwargs["device"] = (
                 "cuda"
@@ -99,6 +99,9 @@ class GRPOManager:
         if "max_seq_length" not in self.train_kwargs or self.train_kwargs["max_seq_length"] is None:
             self.train_kwargs["max_seq_length"] = 4096
 
+        # TODO: Maybe there is a situation where the tokenizer name is not the same as the model name?
+        self.train_kwargs["tokenizer_name"] = request.model
+
         self.steps_count = 0
 
 
@@ -121,7 +124,7 @@ class GRPOManager:
             # TODO: This should be done every N steps or something like that
             if self.steps_count % 50 == 0 and self.steps_count > 0:
                 if request.update_inference_model:
-                    inference_manager.update_model(self.model, self.train_kwargs["output_dir"])
+                    inference_manager.update_model(self.model, self.train_kwargs["tokenizer_name"], self.train_kwargs["output_dir"])
 
             self.steps_count += 1
 
