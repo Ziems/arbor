@@ -129,7 +129,7 @@ class GRPOManager:
             return self.current_model
 
         except Exception as e:
-            raise
+            raise e
         finally:
             return self.current_model
 
