@@ -10,7 +10,9 @@ Train and deploy custom models using the same API you already know.
 Install Arbor via pip:
 
 ```bash
-pip install arbor-ai
+git clone https://github.com/Ziems/arbor
+cd arbor
+uv pip install -e .
 ```
 
 ---
@@ -22,7 +24,7 @@ pip install arbor-ai
 **CLI:**
 
 ```bash
-arbor serve
+uv run arbor serve
 ```
 
 **Python:**
