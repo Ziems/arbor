@@ -151,17 +151,15 @@ class InferenceManager:
         return response.json()
 
     def update_model(self, model, tokenizer_name, output_dir):
+        print("Restarting server with new model...")
         tik = time.time()
         self.kill()
-        print("Killed server")
         model.save_pretrained(output_dir)
         # Check that output directory exists and was created successfully
         if not os.path.exists(output_dir):
             raise RuntimeError(f"Failed to save model - output directory {output_dir} does not exist")
 
-        print("Saved model")
         self.launch(output_dir, tokenizer_name,self.launch_kwargs)
-        print("Launched server")
         tok = time.time()
         print(f"Time taken to update model: {tok - tik} seconds")
 
