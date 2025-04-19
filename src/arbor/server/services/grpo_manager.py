@@ -101,7 +101,6 @@ class GRPOManager:
             self.train_kwargs["max_seq_length"] = 4096
 
         # TODO: Maybe there is a situation where the tokenizer name is not the same as the model name?
-        self.train_kwargs["tokenizer_name"] = request.model
         self.current_model = request.model
         self.steps_count = 0
 
@@ -120,7 +119,7 @@ class GRPOManager:
 
             if self.steps_count % self.train_kwargs["update_interval"] == 0 and self.steps_count > 0:
                 if request.update_inference_model:
-                    inference_manager.update_model(self.model, self.train_kwargs["tokenizer_name"], self.train_kwargs["output_dir"])
+                    inference_manager.update_model(self.model, self.tokenizer, self.train_kwargs["output_dir"])
                     self.current_model = self.train_kwargs["output_dir"]
 
 
@@ -128,6 +127,7 @@ class GRPOManager:
             return self.current_model
 
         except Exception as e:
+            print(e)
             raise e
         finally:
             return self.current_model

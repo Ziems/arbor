@@ -30,7 +30,7 @@ class InferenceManager:
     def is_server_running(self):
         return self.process is not None
 
-    def launch(self, model: str, tokenizer_name: str,launch_kwargs: Optional[Dict[str, Any]] = None):
+    def launch(self, model: str,launch_kwargs: Optional[Dict[str, Any]] = None):
         if self.is_server_running():
             print("Server is already launched.")
             return
@@ -51,7 +51,9 @@ class InferenceManager:
         )
         port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
-        command = f"vllm serve {model} --port {port} --tokenizer {tokenizer_name} --gpu-memory-utilization 0.7 --max_model_len 8192"
+        # If vllm has trouble because a tokenizer is not found, make sure to save the tokenizer in the same directory as the model during training
+        # transformers.Trainer already does this when you save the model. In a pinch, you can manually set the tokenizer of the original model in vllm
+        command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.7 --max_model_len 8192"
         print(f"Running command: {command}")
 
         # We will manually stream & capture logs.
@@ -140,6 +142,14 @@ class InferenceManager:
         print("Server killed.")
 
     def run_inference(self, request_json: dict):
+        model = request_json["model"]
+        if model.startswith("openai/"):
+            model = model[7:]
+        if model.startswith("local:"):
+            model = model[6:]
+        if model.startswith("huggingface/"):
+            model = model[len("huggingface/"):]
+        print(f"Running inference for model {model}")
         # Update last_activity timestamp
         self.last_activity = datetime.now()
 
@@ -150,16 +160,17 @@ class InferenceManager:
         response = requests.post(url, json=request_json)
         return response.json()
 
-    def update_model(self, model, tokenizer_name, output_dir):
+    def update_model(self, model, tokenizer, output_dir):
         print("Restarting server with new model...")
         tik = time.time()
         self.kill()
         model.save_pretrained(output_dir)
+        tokenizer.save_pretrained(output_dir)
         # Check that output directory exists and was created successfully
         if not os.path.exists(output_dir):
             raise RuntimeError(f"Failed to save model - output directory {output_dir} does not exist")
 
-        self.launch(output_dir, tokenizer_name,self.launch_kwargs)
+        self.launch(output_dir, self.launch_kwargs)
         tok = time.time()
         print(f"Time taken to update model: {tok - tik} seconds")
 
