@@ -37,6 +37,13 @@ class InferenceManager:
 
         launch_kwargs = launch_kwargs or self.launch_kwargs
 
+        if model.startswith("openai/"):
+            model = model[7:]
+        if model.startswith("local:"):
+            model = model[6:]
+        if model.startswith("huggingface/"):
+            model = model[len("huggingface/"):]
+
         import os
         print(f"Grabbing a free port to launch an vLLM server for model {model}")
         print(
@@ -135,6 +142,14 @@ class InferenceManager:
         print("Server killed.")
 
     def run_inference(self, request_json: dict):
+        model = request_json["model"]
+        if model.startswith("openai/"):
+            model = model[7:]
+        if model.startswith("local:"):
+            model = model[6:]
+        if model.startswith("huggingface/"):
+            model = model[len("huggingface/"):]
+        print(f"Running inference for model {model}")
         # Update last_activity timestamp
         self.last_activity = datetime.now()
 
