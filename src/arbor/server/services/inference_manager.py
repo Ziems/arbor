@@ -51,7 +51,7 @@ class InferenceManager:
         )
         port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
-        command = f"vllm serve {model} --port {port} --tokenizer {tokenizer_name} --gpu-memory-utilization 0.7 --max_model_len 8192"
+        command = f"vllm serve {model} --port {port} --tokenizer {tokenizer_name} --gpu-memory-utilization 0.7 --max_model_len 31000"
         print(f"Running command: {command}")
 
         # We will manually stream & capture logs.
