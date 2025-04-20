@@ -2,18 +2,19 @@ from fastapi import APIRouter, Request, BackgroundTasks, HTTPException
 from typing import List
 import time
 
-from arbor.server.api.models.schemas import JobStatusModel, FineTuneRequest, JobStatus, PaginatedResponse, JobEventModel, JobCheckpointModel
+from arbor.server.api.models.schemas import JobStatusModel, DPORequest, JobStatus, PaginatedResponse, JobEventModel, JobCheckpointModel
 from arbor.server.services.job_manager import JobStatus
 
 router = APIRouter()
 
 # Create a fine-tune job
 @router.post("", response_model=JobStatusModel)
-def create_fine_tune_job(request: Request, fine_tune_request: FineTuneRequest, background_tasks: BackgroundTasks):
+def create_dpo_job(request: Request, dpo_request: DPORequest, background_tasks: BackgroundTasks):
     job_manager = request.app.state.job_manager
     file_manager = request.app.state.file_manager
-    training_manager = request.app.state.training_manager
-    inference_manager = request.app.state.inference_manager
+    dpo_manager = request.app.state.dpo_manager
+    
+    # inference_manager = request.app.state.inference_manager
 
     # TODO: Temporarily disabling this because kill isn't working properly.
     # if inference_manager.is_server_running():
@@ -23,7 +24,16 @@ def create_fine_tune_job(request: Request, fine_tune_request: FineTuneRequest, b
 
     # print(request, fine_tune_request, background_tasks, "!!!!!!!!!!!!!!!!!")
     job = job_manager.create_job()
-    background_tasks.add_task(training_manager.fine_tune, fine_tune_request, job, file_manager)
+    import multiprocessing as mp
+    mp.set_start_method("spawn", force=True)
+    p = mp.Process(target=dpo_manager.run_dpo, args=(dpo_request, job, file_manager))
+    p.start()
+    p.join()
+    # dpo_manager.run_dpo(dpo_request, job, file_manager)
+    # background_tasks.add_task(dpo_manager.run_dpo, dpo_request, job, file_manager)
+    
+    
+
     job.status = JobStatus.QUEUED
     return JobStatusModel(id=job.id, status=job.status.value)
 
