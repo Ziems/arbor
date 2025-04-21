@@ -13,6 +13,8 @@ from datasets import load_dataset, Dataset, IterableDataset
 from peft import PeftConfig # type: ignore
 import torch
 from torch import nn
+from torch.utils.data import Dataset
+from torch.utils.data import Sampler
 from transformers import (
     PreTrainedModel,
     PreTrainedTokenizerBase,
