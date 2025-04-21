@@ -50,16 +50,37 @@ async def run_inference(request: Request): # TODO: Ideally this should be ChatCo
     #     while active_job.status != JobStatus.PAUSED: # TODO: This should be improved incase the job does not pause...etc
     #         time.sleep(0.5)
 
+    prefixes = ["openai/", "huggingface/", "local:", "arbor:"]
+    for prefix in prefixes:
+        if raw_json["model"].startswith(prefix):
+            raw_json["model"] = raw_json["model"][len(prefix):]
+
     # if a server isnt running, launch one
     if not inference_manager.is_server_running():
+        print("No model is running, launching model...")
         inference_manager.launch(raw_json["model"])
 
     # forward the request to the inference server
     completion = inference_manager.run_inference(raw_json)
+    print(completion)
 
     # Resume Training if it was paused
     # if active_job is not None and active_job.status == JobStatus.PAUSED:
     #     active_job.status = JobStatus.PENDING_RESUME
 
     return completion
+
+@router.post('/launch')
+async def launch_inference(request: Request):
+    inference_manager = request.app.state.inference_manager
+    raw_json = await request.json()
+    inference_manager.launch(raw_json["model"], raw_json["launch_kwargs"]) # TODO: This should be done better
+    return {"message": "Inference server launched"}
+
+@router.post('/kill')
+async def kill_inference(request: Request):
+    inference_manager = request.app.state.inference_manager
+    inference_manager.kill()
+    return {"message": "Inference server killed"}
+
 
