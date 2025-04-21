@@ -5,7 +5,7 @@ import queue
 from torch.utils.data import Dataset
 import time
 import threading
-
+from functools import lru_cache
 tldr_dataset = load_dataset("trl-lib/tldr", split="train")
 
 data_queue = queue.Queue()
@@ -23,10 +23,10 @@ def data_producer():
 
 # Custom Dataset that blocks until new data arrives
 class BlockingDynamicDataset(Dataset):
-    def __init__(self, accelerator, size=1000):
+    def __init__(self, accelerator, size=1000, maxsize=100):
         self.size = size
-        self.current_data = None  # Will be updated with new data
         self.accelerator = accelerator
+        self.get_cached_data = lru_cache(maxsize=maxsize)(self._get_data)
 
         # Start producer in a background thread (main process only)
         if accelerator is not None and accelerator.is_main_process:
@@ -35,19 +35,23 @@ class BlockingDynamicDataset(Dataset):
     def __len__(self):
         return self.size
 
-    def __getitem__(self, idx):
+    def _get_data(self, idx):
+        print(f"Item not cached, getting new data")
         # Main process blocks until new data arrives
-        # Print accelerator process ID
-        print(f"Accelerator process ID: {self.accelerator.process_index}")
         if self.accelerator.is_main_process:
-            # Block until data is available (no timeout for true blocking)
-            import pdb; pdb.set_trace()
-            self.current_data = data_queue.get(block=True)
-            # Reset index for new data
-        # Broadcast data to all processes
+            print(f"Main process {self.accelerator.process_index} getting new data")
+            # Block until data is available
+            new_data = data_queue.get(block=True)
+            # Broadcast the data to all processes using broadcast_object_list
+            return self.accelerator.broadcast_object_list([new_data])[0]
+        else:
+            print(f"Other process {self.accelerator.process_index} waiting for data")
+            # Other processes wait to receive the broadcast data
+            return self.accelerator.broadcast_object_list([None])[0]
 
-        # Convert to tensor format expected by Trainer
-        return self.current_data
+    def __getitem__(self, idx):
+        print(f"Process {self.accelerator.process_index} getting item {idx}")
+        return self.get_cached_data(idx)
 
 dataset = BlockingDynamicDataset(None)
 
