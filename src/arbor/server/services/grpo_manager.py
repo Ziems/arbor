@@ -2,6 +2,8 @@ import random
 import string
 from datetime import datetime
 from pathlib import Path
+import os
+import subprocess
 
 import torch
 import torch.nn.functional as F
@@ -58,6 +60,29 @@ class GRPOManager:
         train_kwargs={**default_train_kwargs, **(train_kwargs or {})}
 
         return train_kwargs
+
+    def initialize(self, request: GRPOConfigRequest, inference_manager: InferenceManager):
+
+
+        # TODO: Initialize config
+
+
+        # Get the directory where grpo_training.py is located
+        script_dir = os.path.dirname(os.path.abspath(__file__), "scripts")
+        script_path = os.path.join(script_dir, "grpo_training.py")
+        print(script_path)
+
+        my_env = os.environ.copy()
+        my_env["CUDA_VISIBLE_DEVICES"] = "1,2"
+
+        # Start the accelerate process
+        process = subprocess.Popen(
+            ["python", "-m", "accelerate.commands.launch", script_path],
+            # stdout=subprocess.PIPE,
+            # stderr=subprocess.PIPE,
+            # text=True,
+            env=my_env  # Pass the modified environment
+        )
 
     def initialize_config(self, request: GRPOConfigRequest, inference_manager: InferenceManager):
         self.train_kwargs = self.find_training_args(request)
