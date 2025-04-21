@@ -46,7 +46,7 @@ def test_grpo(request: Request):
 
     # Start the accelerate process
     process = subprocess.Popen(
-        ["python", "-m", "accelerate.commands.launch", script_path],
+        ["CUDA_VISIBLE_DEVICES=1,2", "python", "-m", "accelerate.commands.launch", script_path],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True
