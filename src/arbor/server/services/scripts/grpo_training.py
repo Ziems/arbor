@@ -18,7 +18,8 @@ from transformers import (
     PreTrainedTokenizerBase,
     Trainer,
     TrainerCallback,
-    is_wandb_available
+    is_wandb_available,
+    RandomSampler
 )
 # from verifiers import RewardFunc
 # from verifiers.envs.environment import Environment
@@ -64,9 +65,8 @@ def dummy_writer(output_file="data_stream.jsonl"):
                 "completion": completion,
                 "reward": reward
             })
-
         with open(output_file, 'a') as f:
-            f.write(json.dumps(batch) + '\n')
+            f.write(json.dumps({'batch':batch}) + '\n')
         print(f"Wrote item {i} to {output_file}")
         time.sleep(5)  # Write a new item every 5 seconds
 
@@ -103,9 +103,9 @@ class ArborGRPOTrainer(GRPOTrainer):
             peft_config: Optional["PeftConfig"] = None,
             **kwargs,
     ):
-        self.vllm_client = None
-        if not args.use_vllm: # type: ignore
-            raise ValueError("vLLM must be enabled for GRPOEnvTrainer")
+        # self.vllm_client = None
+        # if not args.use_vllm: # type: ignore
+        #     raise ValueError("vLLM must be enabled for GRPOEnvTrainer")
 
         super().__init__(
             model=model,
@@ -129,11 +129,16 @@ class ArborGRPOTrainer(GRPOTrainer):
         #     repetition_penalty=self.repetition_penalty
         # )
 
+    def _get_train_sampler(self):
+        # Use the base Trainer's sampler to ensure we get the exact same sampling behavior
+        return Trainer._get_train_sampler(self)
+
     def _generate_and_score_completions(
-         self, batch: List[dict[str, Any]] #inputs: dict[str, Union[torch.Tensor, Any]]
+         self, batch: List[dict[str, Any]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
         device = self.accelerator.device
 
+        # Process prompts and completions
         prompt_completion_texts = []
         for example in batch:
             prompt_completion_texts.append(
@@ -146,11 +151,13 @@ class ArborGRPOTrainer(GRPOTrainer):
                 )
             )
 
+        # Tokenize prompts
         prompt_texts = [prompt_completion_text['prompt'] for prompt_completion_text in prompt_completion_texts]
         prompt_inputs = self.processing_class(prompt_texts, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False).to(device)
         prompt_ids = Trainer._prepare_inputs(self, prompt_inputs)
         prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
 
+        # Tokenize completions
         completion_texts = [prompt_completion_text['completion'] for prompt_completion_text in prompt_completion_texts]
         completion_ids = self.processing_class(completion_texts, return_tensors="pt", padding=True, add_special_tokens=False).to(device)
         completion_ids, completion_mask = completion_ids["input_ids"], completion_ids["attention_mask"]
@@ -168,9 +175,9 @@ class ArborGRPOTrainer(GRPOTrainer):
             prompt_ids = prompt_ids[:, -self.max_prompt_length :]
             prompt_mask = prompt_mask[:, -self.max_prompt_length :]
 
-        if self.state.global_step != self._last_loaded_step:
-            self._move_model_to_vllm()
-            self._last_loaded_step = self.state.global_step
+        # if self.state.global_step != self._last_loaded_step:
+        #     self._move_model_to_vllm()
+        #     self._last_loaded_step = self.state.global_step
 
         # Gather the original prompts in message dict form, not the text form
         # all_prompts = gather_object(prompts)
