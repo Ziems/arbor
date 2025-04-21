@@ -44,16 +44,15 @@ def test_grpo(request: Request):
     script_path = os.path.join(script_dir, "grpo_testing2.py")
     print(script_path)
 
-    # Set up environment variables
-    my_env = os.environ.copy()  # Start with current environment
-    my_env["CUDA_VISIBLE_DEVICES"] = "1,2"  # Add/modify environment variables
+    my_env = os.environ.copy()
+    my_env["CUDA_VISIBLE_DEVICES"] = "1,2"
 
     # Start the accelerate process
     process = subprocess.Popen(
         ["python", "-m", "accelerate.commands.launch", script_path],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
+        # stdout=subprocess.PIPE,
+        # stderr=subprocess.PIPE,
+        # text=True,
         env=my_env  # Pass the modified environment
     )
 
