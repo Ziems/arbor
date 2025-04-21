@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Request, BackgroundTasks
+import subprocess
+import os
 
 from arbor.server.api.models.schemas import GRPOStepResponse, GRPORequest, GRPOConfigRequest, GRPOConfigResponse, GRPOTerminateRequest, GRPOTerminateResponse
 
@@ -37,21 +39,17 @@ def terminate_grpo(request: Request, grpo_request: GRPOTerminateRequest):
 
 @router.post("/test")
 def test_grpo(request: Request):
-    from datasets import load_dataset
-    from trl import GRPOConfig, GRPOTrainer
+    # Get the directory where grpo_testing2.py is located
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    script_path = os.path.join(script_dir, "grpo_testing2.py")
+    print(script_path)
 
-    dataset = load_dataset("trl-lib/tldr", split="train")
-
-    # Define the reward function, which rewards completions that are close to 20 characters
-    def reward_len(completions, **kwargs):
-        return [-abs(20 - len(completion)) for completion in completions]
-
-    training_args = GRPOConfig(output_dir="Qwen2-0.5B-GRPO", logging_steps=10)
-    trainer = GRPOTrainer(
-        model="Qwen/Qwen2-0.5B-Instruct",
-        reward_funcs=reward_len,
-        args=training_args,
-        train_dataset=dataset,
+    # Start the accelerate process
+    process = subprocess.Popen(
+        ["python", "-m", "accelerate.commands.launch", script_path],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
     )
-    trainer.train()
-    return {"status": "success"}
+
+    return {"status": "success", "message": "Started GRPO test process"}
