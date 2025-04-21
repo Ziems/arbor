@@ -85,7 +85,7 @@ def trained_model_job(server, client):
     # 2. Start fine-tuning job
     dpo_response = client.post("/v1/fine_tuning/dpo", json={
         "training_file": file_id,
-        "model": "Qwen/Qwen2-0.5B-Instruct"
+        "model": "HuggingFaceTB/SmolLM2-135M-Instruct"
     })
     assert dpo_response.status_code == 200
     job_id = dpo_response.json()["id"]

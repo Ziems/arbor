@@ -29,7 +29,7 @@ class DPOManager:
         name, output_dir = self.make_output_dir(request)
 
         default_train_kwargs = {
-            "device": None,
+            "device": "cuda:2",
             "use_peft": False,
             "num_train_epochs": 5,
             "per_device_train_batch_size": 1,
@@ -50,7 +50,10 @@ class DPOManager:
 
         return train_kwargs
 
-    def run_dpo(self, request: DPORequest, job: Job, file_manager: FileManager):
+    def run_dpo(self, request: DPORequest, job: Job, file_manager: FileManager, gpu_ids="0"):
+        import os
+        os.environ["CUDA_VISIBLE_DEVICES"] = gpu_ids
+
         job.status = JobStatus.RUNNING
         job.add_event(JobEvent(level="info", message="Starting fine-tuning job", data={}))
 
@@ -72,7 +75,7 @@ class DPOManager:
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name_or_path=request.model,
             device_map='auto'
-        ).to(device)
+        )
         tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path=request.model)
 
         try:
@@ -102,33 +105,6 @@ class DPOManager:
                     target_modules="all-linear",
                     task_type="CAUSAL_LM",
             )
-
- 
-        # args = DPOConfig(
-        #     output_dir=train_kwargs["output_dir"],               # directory to save and repository id
-        #     num_train_epochs=train_kwargs["num_train_epochs"],                     # number of training epochs
-        #     per_device_train_batch_size=train_kwargs["per_device_train_batch_size"],         # batch size per device during training
-        #     per_device_eval_batch_size=4,           # batch size for evaluation
-        #     gradient_accumulation_steps=1,          # number of steps before performing a backward/update pass
-        #     gradient_checkpointing=True,            # use gradient checkpointing to save memory
-        #     optim="adamw_torch_fused",              # use fused adamw optimizer
-        #     learning_rate=train_kwargs["learning_rate"],                     # 10x higher LR than QLoRA paper
-        #     max_grad_norm=0.3,                      # max gradient norm based on QLoRA paper
-        #     warmup_ratio=0.1,                       # warmup ratio based on QLoRA paper
-        #     lr_scheduler_type="cosine",             # use cosine learning rate scheduler
-        #     logging_steps=25,                       # log every 25 steps
-        #     save_steps=500,                         # when to save checkpoint
-        #     save_total_limit=2,                     # limit the total amount of checkpoints
-        #     evaluation_strategy="steps",            # evaluate every 1000 steps
-        #     eval_steps=700,                         # when to evaluate
-        #     bf16=train_kwargs["bf16"],                              # use bfloat16 precision
-        #     tf32=True,                              # use tf32 precision
-        # )
-        
-        # dpo_args = {
-        #     "beta": 0.1,                            # The beta factor in DPO loss. Higher beta means less divergence
-        #     "loss_type": "sigmoid"                  # The loss type for DPO.
-        # }
 
         training_args = DPOConfig(
             output_dir=train_kwargs["output_dir"],

@@ -22,11 +22,11 @@ def create_dpo_job(request: Request, dpo_request: DPORequest, background_tasks: 
     #     while inference_manager.is_server_running(): # TODO: This should be done cleaner
     #         time.sleep(1)
 
-    # print(request, fine_tune_request, background_tasks, "!!!!!!!!!!!!!!!!!")
     job = job_manager.create_job()
     import multiprocessing as mp
     mp.set_start_method("spawn", force=True)
-    p = mp.Process(target=dpo_manager.run_dpo, args=(dpo_request, job, file_manager))
+    gpu_ids = "0,1"
+    p = mp.Process(target=dpo_manager.run_dpo, args=(dpo_request, job, file_manager, gpu_ids))
     p.start()
     p.join()
     # dpo_manager.run_dpo(dpo_request, job, file_manager)
