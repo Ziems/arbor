@@ -1,7 +1,7 @@
 # Borrowed from Will Brown's Verifiers Library
 
 import warnings
-from typing import Callable, Optional, Union, Any, List
+from typing import Callable, Optional, Union, Any, List, Sized, Sampler
 import json
 import os
 import time
@@ -19,7 +19,6 @@ from transformers import (
     Trainer,
     TrainerCallback,
     is_wandb_available,
-    RandomSampler
 )
 # from verifiers import RewardFunc
 # from verifiers.envs.environment import Environment
@@ -89,6 +88,56 @@ def nanstd(tensor: torch.Tensor) -> torch.Tensor:
     variance *= count / (count - 1)  # Bessel's correction
     return torch.sqrt(variance)
 
+class GroupedDataSampler(Sampler):
+    """
+    Sampler that transforms grouped data into the format expected by GRPOTrainer.
+    Each sample in the dataset is expected to be a dict containing:
+    - 'messages': List of message dicts (the prompt)
+    - 'completions': List of completion dicts
+    - 'rewards': List of rewards for each completion
+
+    Args:
+        data_source (`Sized`):
+            Dataset to sample from.
+        num_generations (`int`):
+            Number of generations per prompt (should match the number of completions in each sample).
+        seed (`int` or `None`, *optional*, defaults to `None`):
+            Random seed for reproducibility.
+    """
+
+    def __init__(
+        self,
+        data_source: Sized,
+        num_generations: int,
+        seed: Optional[int] = None,
+    ):
+        self.data_source = data_source
+        self.num_generations = num_generations
+        self.num_samples = len(data_source)
+        self.seed = seed
+        self.generator = torch.Generator()
+        if seed is not None:
+            self.generator.manual_seed(seed)
+
+    def __iter__(self):
+        # Get random permutation of indices
+        indexes = torch.randperm(self.num_samples, generator=self.generator).tolist()
+
+        for idx in indexes:
+            # Get the grouped sample
+            sample = self.data_source[idx]
+
+            # Transform the grouped data into individual examples
+            for i in range(self.num_generations):
+                yield {
+                    'messages': sample['messages'],
+                    'completion': sample['completions'][i],
+                    'reward': sample['rewards'][i]
+                }
+
+    def __len__(self) -> int:
+        return self.num_samples * self.num_generations
+
 class ArborGRPOTrainer(GRPOTrainer):
     def __init__(
             self,
@@ -129,9 +178,13 @@ class ArborGRPOTrainer(GRPOTrainer):
         #     repetition_penalty=self.repetition_penalty
         # )
 
-    def _get_train_sampler(self):
-        # Use the base Trainer's sampler to ensure we get the exact same sampling behavior
-        return Trainer._get_train_sampler(self)
+    def _get_train_sampler(self) -> Sampler:
+        # Use our custom sampler that transforms the grouped data format
+        return GroupedDataSampler(
+            data_source=self.train_dataset,
+            num_generations=self.num_generations,
+            seed=self.args.seed,
+        )
 
     def _generate_and_score_completions(
          self, batch: List[dict[str, Any]]
