@@ -6,6 +6,8 @@ from torch.utils.data import Dataset
 import time
 import threading
 from functools import lru_cache
+from accelerate.utils import broadcast_object_list, gather, gather_object
+
 tldr_dataset = load_dataset("trl-lib/tldr", split="train")
 
 data_queue = queue.Queue()
@@ -43,11 +45,11 @@ class BlockingDynamicDataset(Dataset):
             # Block until data is available
             new_data = data_queue.get(block=True)
             # Broadcast the data to all processes using broadcast_object_list
-            return self.accelerator.broadcast_object_list([new_data])[0]
+            return broadcast_object_list([new_data])[0]
         else:
             print(f"Other process {self.accelerator.process_index} waiting for data")
             # Other processes wait to receive the broadcast data
-            return self.accelerator.broadcast_object_list([None])[0]
+            return broadcast_object_list([None])[0]
 
     def __getitem__(self, idx):
         print(f"Process {self.accelerator.process_index} getting item {idx}")
