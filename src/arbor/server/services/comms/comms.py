@@ -3,13 +3,21 @@ import json
 import time
 from typing import Optional
 
+def get_free_port() -> int:
+    """
+    Return a free TCP port on localhost.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("localhost", 0))
+        return s.getsockname()[1]
+
 class ArborServerCommsHandler:
     """Handles socket communication between manager and training process"""
-    def __init__(self, host="localhost", command_port=5000, status_port=5001, data_port=5002):
+    def __init__(self, host="localhost", command_port=None, status_port=None, data_port=None):
         self.host = host
-        self.command_port = command_port
-        self.status_port = status_port
-        self.data_port = data_port
+        self.command_port = command_port or get_free_port()
+        self.status_port = status_port or get_free_port()
+        self.data_port = data_port or get_free_port()
 
         # Initialize sockets
         self.command_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

@@ -78,12 +78,7 @@ class GRPOManager:
         self.current_model = request.model
 
         # Initialize socket manager
-        self.socket_manager = ArborServerCommsHandler(
-            host="localhost",
-            command_port=5000,
-            status_port=5001,
-            data_port=5002
-        )
+        self.socket_manager = ArborServerCommsHandler()
 
         script_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
         script_path = os.path.join(script_dir, "grpo_training.py")
@@ -97,7 +92,7 @@ class GRPOManager:
                 "python", "-m", "accelerate.commands.launch",
                 script_path,
                 "--socket",  # Use socket communication
-                "--host", "localhost",
+                "--host", self.socket_manager.host,
                 "--command_port", str(self.socket_manager.command_port),
                 "--status_port", str(self.socket_manager.status_port),
                 "--data_port", str(self.socket_manager.data_port)
