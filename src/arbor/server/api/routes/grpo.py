@@ -36,24 +36,3 @@ def terminate_grpo(request: Request, grpo_request: GRPOTerminateRequest):
 
     grpo_manager.terminate(inference_manager)
     return GRPOTerminateResponse(status="success")
-
-@router.post("/test")
-def test_grpo(request: Request):
-    # Get the directory where grpo_testing2.py is located
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    script_path = os.path.join(script_dir, "grpo_testing2.py")
-    print(script_path)
-
-    my_env = os.environ.copy()
-    my_env["CUDA_VISIBLE_DEVICES"] = "1,2"
-
-    # Start the accelerate process
-    process = subprocess.Popen(
-        ["python", "-m", "accelerate.commands.launch", script_path],
-        # stdout=subprocess.PIPE,
-        # stderr=subprocess.PIPE,
-        # text=True,
-        env=my_env  # Pass the modified environment
-    )
-
-    return {"status": "success", "message": "Started GRPO test process"}

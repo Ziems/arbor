@@ -76,7 +76,7 @@ class GRPOManager:
         script_path = os.path.join(script_dir, "grpo_training.py")
 
         my_env = os.environ.copy()
-        my_env["CUDA_VISIBLE_DEVICES"] = "1,2"
+        my_env["CUDA_VISIBLE_DEVICES"] = "1"
 
         # Start the accelerate process
         process = subprocess.Popen(
