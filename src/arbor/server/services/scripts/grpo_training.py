@@ -22,6 +22,9 @@ from transformers import (
     TrainerCallback,
     is_wandb_available,
 )
+import argparse
+import multiprocessing
+
 # from verifiers import RewardFunc
 # from verifiers.envs.environment import Environment
 # from verifiers.utils.logging_utils import print_prompt_completions_sample
@@ -39,42 +42,6 @@ from trl.trainer.utils import pad
 
 # if is_wandb_available():
 #     import wandb
-
-# Clear data_stream.jsonl file by opening it in write mode
-with open("data_stream.jsonl", "w") as f:
-    pass
-
-
-tldr_dataset = load_dataset("trl-lib/tldr", split="train")
-
-# Dummy writer process to simulate real-time data
-def dummy_writer(output_file="data_stream.jsonl"):
-
-    def _reward_func(prompts, completions):
-        return [-abs(20 - len(completion)) if completion is not None else -300 for completion in completions]
-
-    print(f"Starting dummy writer, writing to {output_file}")
-    for i, item in enumerate(tldr_dataset):
-
-        input_messages = [{"role": "user", "content": item["prompt"]}]
-        # response = client.chat.completions.create(
-        completions = [{
-            "role": "assistant",
-            "content": "This is a test completion" + hex(random.randint(0, 0xFFFFFF))[2:]
-        } for _ in range(8)] # 8 generations
-
-        rewards = _reward_func(item["prompt"], [c["content"] for c in completions])
-        batch = []
-        for completion, reward in zip(completions, rewards):
-            batch.append({
-                "messages": input_messages,
-                "completion": completion,
-                "reward": reward
-            })
-        with open(output_file, 'a') as f:
-            f.write(json.dumps(batch) + '\n')
-        # print(f"Wrote item {i} to {output_file}")
-        time.sleep(5)  # Write a new item every 5 seconds
 
 
 # torch.nanstd doesn't exist, so we define it here
@@ -107,6 +74,9 @@ class ArborGRPOTrainer(GRPOTrainer):
             callbacks: Optional[list[TrainerCallback]] = None,
             optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
             peft_config: Optional["PeftConfig"] = None,
+
+            status_queue: Optional[multiprocessing.Queue] = None,
+
             **kwargs,
     ):
         # self.vllm_client = None
@@ -126,6 +96,8 @@ class ArborGRPOTrainer(GRPOTrainer):
             **kwargs,
         )
         self.scale_rewards = scale_rewards
+        self.status_queue = status_queue
+        self._last_loaded_step = 0
         # self.sampling_params = SamplingParams(
         #     max_tokens=self.max_completion_length,
         #     temperature=self.temperature,
@@ -167,7 +139,14 @@ class ArborGRPOTrainer(GRPOTrainer):
         # if self.max_prompt_length is not None:
         #     prompt_ids = prompt_ids[:, -self.max_prompt_length :]
         #     prompt_mask = prompt_mask[:, -self.max_prompt_length :]
-        
+
+        # Check if we need to update the inference model
+        if self.status_queue is not None and hasattr(self, '_last_loaded_step'):
+            if self.state.global_step - self._last_loaded_step > 25 - 1:
+                self.save_model()
+                self.status_queue.put({"status": "update_inference_model"})
+                self._last_loaded_step = self.state.global_step
+
         # if self.state.global_step != self._last_loaded_step:
         #     self._move_model_to_vllm()
         #     self._last_loaded_step = self.state.global_step
@@ -326,28 +305,22 @@ class DataProducer:
                 self.queue.put(entry)
             time.sleep(1)  # Configurable delay between checks
 
-class BlockingDynamicDataset(Dataset):
-    def __init__(self, accelerator, size=1000, maxsize=100, jsonl_file="data_stream.jsonl"):
+class BlockingQueueDataset(Dataset):
+    def __init__(self, accelerator, data_queue, size=1000, maxsize=100):
         self.size = size
         self.accelerator = accelerator
+        self.data_queue = data_queue
         self.get_cached_data = lru_cache(maxsize=maxsize)(self._get_data)
-        # Initialize completion counters for each group
         self.completion_counters = {}
-
-        # Create and start the producer in the main process only
-        if accelerator is not None and accelerator.is_main_process:
-            self.producer = DataProducer(jsonl_file)
-            self.producer.start()
 
     def __len__(self):
         return self.size
 
     def _get_data(self, idx):
-        print(f"Item not cached, getting new data")
         if self.accelerator.is_main_process:
             print(f"Main process {self.accelerator.process_index} getting new data")
-            new_data = self.producer.queue.get(block=True)
-            # Initialize counter for this group if it doesn't exist
+            new_data = self.data_queue.get(block=True)
+            # Initialize completion counters
             if idx not in self.completion_counters:
                 self.completion_counters[idx] = 0
             return broadcast_object_list([new_data])[0]
@@ -362,44 +335,160 @@ class BlockingDynamicDataset(Dataset):
         if data is None:
             return None
 
-        # Get the current counter for this group
         counter = self.completion_counters.get(idx, 0)
-
-        # Get the item at the current counter position
         item = data[counter]
-
-        # Increment the counter and wrap around if needed
         self.completion_counters[idx] = (counter + 1) % len(data)
 
         print(f"Process {self.accelerator.process_index} got item {item['completion']['content'][:50]}")
-
         return item
 
-    def __del__(self):
-        """Cleanup when the dataset is destroyed"""
-        if hasattr(self, 'producer'):
-            self.producer.stop()
+class CommandListener:
+    def __init__(self, command_queue, status_queue, trainer):
+        self.command_queue = command_queue
+        self.status_queue = status_queue
+        self.trainer = trainer
+        self.running = True
+        self.thread = None
 
-training_args = GRPOConfig(output_dir="Qwen2-0.5B-GRPO", logging_steps=10)
-trainer = ArborGRPOTrainer(
-    model="Qwen/Qwen2-0.5B-Instruct",
-    args=training_args,
-    train_dataset=BlockingDynamicDataset(None),
-)
+    def start(self):
+        self.thread = threading.Thread(target=self._listen, daemon=True)
+        self.thread.start()
 
-# Start the dummy writer only in the main process
-if trainer.accelerator.is_main_process:
-    dummy_writer_thread = threading.Thread(
-        target=dummy_writer,
-        args=("data_stream.jsonl",),
-        daemon=True
-    )
-    dummy_writer_thread.start()
-    # Give the writer a moment to start creating data
-    time.sleep(2)
+    def stop(self):
+        self.running = False
+        if self.thread:
+            self.thread.join()
 
-trainer.train_dataset = BlockingDynamicDataset(
-    trainer.accelerator,
-    jsonl_file="data_stream.jsonl"
-)
-trainer.train()
+    def _listen(self):
+        while self.running:
+            try:
+                command = self.command_queue.get_nowait()
+                if command["command"] == "terminate":
+                    self.status_queue.put({"status": "terminated"})
+                    self.running = False
+                    # Signal to the trainer to stop
+                    # self.trainer.control.should_training_stop = True
+                    break
+                # Handle other commands here...
+            except multiprocessing.queues.Empty:
+                time.sleep(0.1)  # Prevent busy waiting
+            except Exception as e:
+                self.status_queue.put({
+                    "status": "error",
+                    "error": str(e)
+                })
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--testing_mode", action="store_true")
+
+    queue_args = parser.add_argument_group("Queue arguments")
+    queue_args.add_argument("--command_queue", type=int)
+    queue_args.add_argument("--status_queue", type=int)
+    queue_args.add_argument("--data_queue", type=int)
+    args = parser.parse_args()
+
+    command_queue = None
+    status_queue = None
+    data_queue = None
+
+    if not args.testing_mode:
+        if not all([args.command_queue, args.status_queue, args.data_queue]):
+            raise ValueError("All queues must be provided if not in testing mode")
+        command_queue = multiprocessing.Queue(handle=args.command_queue)
+        status_queue = multiprocessing.Queue(handle=args.status_queue)
+        data_queue = multiprocessing.Queue(handle=args.data_queue)
+    else:
+        command_queue = multiprocessing.Queue()
+        status_queue = multiprocessing.Queue()
+        data_queue = multiprocessing.Queue()
+
+    try:
+        training_args = GRPOConfig(output_dir="Qwen2-0.5B-GRPO", logging_steps=10)
+        trainer = ArborGRPOTrainer(
+            model="Qwen/Qwen2-0.5B-Instruct",
+            args=training_args,
+            train_dataset=BlockingQueueDataset(None, data_queue),
+            status_queue=status_queue,
+        )
+
+        # Initialize the dataset with the actual accelerator
+        trainer.train_dataset = BlockingQueueDataset(
+            trainer.accelerator,
+            data_queue
+        )
+        # Set up and start the command listener
+        command_listener = CommandListener(command_queue, status_queue, trainer)
+        command_listener.start()
+
+        if args.testing_mode:
+            # Start a dummy writer
+            dummy_writer_thread = threading.Thread(
+                target=dummy_writer,
+                args=(data_queue,),
+                daemon=True
+            )
+            dummy_writer_thread.start()
+
+            status_reader_thread = threading.Thread(
+                target=status_reader,
+                args=(status_queue,),
+                daemon=True
+            )
+            status_reader_thread.start()
+        # Start training
+        try:
+            print("Training...")
+            trainer.train()
+
+        except Exception as e:
+            print(f"Error: {e}")
+            status_queue.put({
+                "status": "error",
+                "error": str(e)
+            })
+
+    finally:
+        command_queue.close()
+        status_queue.close()
+        data_queue.close()
+
+
+# Dummy writer process to simulate real-time data
+def dummy_writer(data_queue):
+    tldr_dataset = load_dataset("trl-lib/tldr", split="train")
+
+    def _reward_func(prompts, completions):
+        return [-abs(20 - len(completion)) if completion is not None else -300 for completion in completions]
+
+    print(f"Starting dummy writer")
+    for i, item in enumerate(tldr_dataset):
+
+        input_messages = [{"role": "user", "content": item["prompt"]}]
+        # response = client.chat.completions.create(
+        completions = [{
+            "role": "assistant",
+            "content": "This is a test completion" + hex(random.randint(0, 0xFFFFFF))[2:]
+        } for _ in range(8)] # 8 generations
+
+        rewards = _reward_func(item["prompt"], [c["content"] for c in completions])
+        batch = []
+        for completion, reward in zip(completions, rewards):
+            batch.append({
+                "messages": input_messages,
+                "completion": completion,
+                "reward": reward
+            })
+        data_queue.put(batch)
+        # print(f"Wrote item {i} to {output_file}")
+        time.sleep(5)  # Write a new item every 5 seconds
+
+def status_reader(status_queue):
+    while True:
+        status = status_queue.get(block=True)
+        print(f"status: {status}")
+        time.sleep(1)
+
+if __name__ == "__main__":
+    main()
