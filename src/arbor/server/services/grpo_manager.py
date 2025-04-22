@@ -72,7 +72,7 @@ class GRPOManager:
         status_queue = Queue()     # For status updates and results
         data_queue = Queue()       # For training data
 
-        script_dir = os.path.dirname(os.path.abspath(__file__), "scripts")
+        script_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
         script_path = os.path.join(script_dir, "grpo_training.py")
 
         my_env = os.environ.copy()
