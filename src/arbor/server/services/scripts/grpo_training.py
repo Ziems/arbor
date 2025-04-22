@@ -211,13 +211,6 @@ class ArborGRPOTrainer(GRPOTrainer):
         # completion_messages = completion_messages[process_slice]
         completion_mask = completion_mask[process_slice]
 
-        # Pad + mask after per-sequence EOS tokens
-        completion_ids = [torch.tensor(ids, device=device) for ids in completion_ids]
-        completion_ids = pad(completion_ids, padding_value=self.processing_class.pad_token_id) # type: ignore
-
-        completion_mask = [torch.tensor(mask, device=device) for mask in completion_mask]
-        completion_mask = pad(completion_mask, padding_value=0)
-
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1) # (B, P+C)
 
