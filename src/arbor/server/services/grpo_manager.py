@@ -4,40 +4,36 @@ from datetime import datetime
 from pathlib import Path
 import os
 import subprocess
-from multiprocessing import Queue
-import multiprocessing
-
-import torch
-import torch.nn.functional as F
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from trl import GRPOConfig, setup_chat_format
-from trl.data_utils import maybe_apply_chat_template
-from trl.models.modeling_base import create_reference_model
+import socket
+import threading
+from typing import Optional
 
 from arbor.server.api.models.schemas import GRPORequest, GRPOConfigRequest
 from arbor.server.core.config import Settings
-from arbor.server.services.job_manager import Job, JobEvent, JobStatus
 from arbor.server.services.inference_manager import InferenceManager
+from arbor.server.services.comms.comms import ArborServerCommsHandler
 
 
 class GRPOManager:
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.command_queue = None
-        self.status_queue = None
-        self.data_queue = None
         self.training_process = None
+        self.current_model = None
+        self.train_kwargs = None
+        self.socket_manager = None
+        self.status_thread = None
+        self._status_handler = None
 
-
-    def make_output_dir(self, model_name, run_suffix):
+    def make_output_dir(self, model_name: str, run_suffix: Optional[str] = None) -> tuple[str, str]:
+        """Create a unique output directory name for the training run."""
         model_name = model_name.split('/')[-1].lower()
-        suffix = run_suffix if run_suffix is not None else ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+        suffix = run_suffix if run_suffix else ''.join(random.choices(string.ascii_letters + string.digits, k=6))
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         name = f"grpo:{model_name}:{suffix}:{timestamp}"
         return name, str(Path(self.settings.STORAGE_PATH).resolve() / "models" / name)
 
-    def find_training_args(self, request: GRPOConfigRequest):
-
+    def find_training_args(self, request: GRPOConfigRequest) -> dict:
+        """Process the config request and return training arguments."""
         name, output_dir = self.make_output_dir(request.model, request.suffix)
 
         default_train_kwargs = {
@@ -51,7 +47,6 @@ class GRPOManager:
             "packing": False, # TODO: Turning this off for now
             "bf16": True,
             "output_dir": output_dir,
-            # Using the default TRL values here
             "beta": 0.04,
             "num_iterations": 1,
             "temperature": 0.9, # TODO: This should match vLLM
@@ -63,88 +58,103 @@ class GRPOManager:
         }
 
         train_kwargs = request.model_dump(exclude_unset=True)
-        train_kwargs={**default_train_kwargs, **(train_kwargs or {})}
+        return {**default_train_kwargs, **(train_kwargs or {})}
 
-        return train_kwargs
+    def _handle_status_updates(self, inference_manager: InferenceManager):
+        """Handle status updates from training process"""
+        for status in self.socket_manager.receive_status():
+            if status["status"] == "update_inference_model":
+                inference_manager.update_model(self.train_kwargs["output_dir"])
+                self.current_model = self.train_kwargs["output_dir"]
+            elif status["status"] == "error":
+                print(f"Training error: {status.get('error', 'Unknown error')}")
+            elif status["status"] == "terminated":
+                print("Training process terminated")
+                break
 
     def initialize(self, request: GRPOConfigRequest, inference_manager: InferenceManager):
-        # Create pipes instead of queues
-        command_recv, command_send = multiprocessing.Pipe()
-        status_recv, status_send = multiprocessing.Pipe()
-        data_recv, data_send = multiprocessing.Pipe()
+        """Initialize the training process with socket-based communication."""
+        self.train_kwargs = self.find_training_args(request)
+        self.current_model = request.model
+
+        # Initialize socket manager
+        self.socket_manager = ArborServerCommsHandler(
+            host="localhost",
+            command_port=5000,
+            status_port=5001,
+            data_port=5002
+        )
 
         script_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
         script_path = os.path.join(script_dir, "grpo_training.py")
 
+        # Start the training process
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = "1"
 
-        # Get file descriptors before passing them
-        command_fd = command_recv.fileno()
-        status_fd = status_send.fileno()
-        data_fd = data_recv.fileno()
-
-        # Pass the appropriate ends to the subprocess
-        process = subprocess.Popen(
+        self.training_process = subprocess.Popen(
             [
                 "python", "-m", "accelerate.commands.launch",
                 script_path,
-                "--command_recv", str(command_fd),
-                "--status_send", str(status_fd),
-                "--data_recv", str(data_fd)
+                "--socket",  # Use socket communication
+                "--host", "localhost",
+                "--command_port", str(self.socket_manager.command_port),
+                "--status_port", str(self.socket_manager.status_port),
+                "--data_port", str(self.socket_manager.data_port)
             ],
-            env=my_env,
-            pass_fds=(command_fd, status_fd, data_fd),
-            close_fds=False  # Important: don't close inherited FDs
+            env=my_env
         )
 
-        # Close the ends we passed to the subprocess
-        command_recv.close()
-        status_send.close()
-        data_recv.close()
+        # Accept connections from training process
+        self.connections_thread = threading.Thread(
+            target=self.socket_manager.accept_connections_loop,
+            daemon=True
+        )
+        self.connections_thread.start()
 
-        # Keep our ends of the pipes
-        self.command_send = command_send  # To send commands TO the training process
-        self.status_recv = status_recv    # To receive status FROM the training process
-        self.data_send = data_send        # To send data TO the training process
+        # Start status handling thread
+        self.status_thread = threading.Thread(
+            target=self._handle_status_updates,
+            args=(inference_manager,),
+            daemon=True
+        )
+        self.status_thread.start()
 
-        self.training_process = process
-
-    def initialize_config(self, request: GRPOConfigRequest, inference_manager: InferenceManager):
-        self.train_kwargs = self.find_training_args(request)
-        self.current_model = request.model
-
+        # Launch the inference server
         print("Launching inference server...")
         inference_manager.launch(self.current_model)
 
-
-    def grpo_step(self, request: GRPORequest, inference_manager: InferenceManager):
-        batch = request.batch
-
-        # First check the status queue to see if theres anything we need to handle
-        while not self.status_queue.empty():
-            status = self.status_queue.get()
-            if status["status"] == "update_inference_model":
-                inference_manager.update_model(self.train_kwargs["output_dir"])
-                self.current_model = self.train_kwargs["output_dir"]
-            else:
-                print("Unhandled status:")
-                print(status)
-
-        # This data queue is read by the training process
-        self.data_queue.put(batch)
+    def grpo_step(self, request: GRPORequest, inference_manager: InferenceManager) -> str:
+        """Process a training step using socket communication."""
+        try:
+            # Send the batch to the training process
+            self.socket_manager.send_data(request.batch)
+        except (ConnectionError, socket.error) as e:
+            print(f"Failed to send batch to training process: {e}")
 
         return self.current_model
 
     def terminate(self, inference_manager: InferenceManager):
-        if inference_manager.process is not None:
-            inference_manager.kill()
+        """Clean up resources and save the final model."""
+        try:
+            # Stop the inference server
+            if inference_manager.process is not None:
+                inference_manager.kill()
 
-        output_dir = self.train_kwargs.get("output_dir")
-        if output_dir is None:
-            print("No output directory specified in train_kwargs, skipping model save")
-            return
+            # Send termination command
+            self.socket_manager.send_command({"command": "terminate"})
 
-        print(f"Saving model to {output_dir}")
-        return self.model.save_pretrained(output_dir, from_pt=True)
+            # Wait for training process to finish
+            if self.training_process:
+                self.training_process.wait(timeout=30)
+
+        except Exception as e:
+            print(f"Error during termination: {e}")
+        finally:
+            # Clean up socket connections
+            if self.socket_manager:
+                self.socket_manager.close()
+
+            if self.train_kwargs and "output_dir" in self.train_kwargs:
+                print(f"Training completed. Model saved to {self.train_kwargs['output_dir']}")
 

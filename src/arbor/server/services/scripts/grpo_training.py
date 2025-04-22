@@ -7,6 +7,7 @@ import os
 import time
 import threading
 import queue
+from pathlib import Path
 from functools import lru_cache
 from accelerate.utils import broadcast_object_list, gather, gather_object
 from datasets import load_dataset, Dataset, IterableDataset
@@ -23,8 +24,7 @@ from transformers import (
     is_wandb_available,
 )
 import argparse
-import multiprocessing
-from multiprocessing import Pipe
+from arbor.server.services.comms.comms import ArborServerCommsHandler, ArborScriptCommsHandler
 # from verifiers import RewardFunc
 # from verifiers.envs.environment import Environment
 # from verifiers.utils.logging_utils import print_prompt_completions_sample
@@ -42,8 +42,6 @@ from trl.trainer.utils import pad
 
 # if is_wandb_available():
 #     import wandb
-
-
 # torch.nanstd doesn't exist, so we define it here
 def nanstd(tensor: torch.Tensor) -> torch.Tensor:
     """
@@ -75,7 +73,7 @@ class ArborGRPOTrainer(GRPOTrainer):
             optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
             peft_config: Optional["PeftConfig"] = None,
 
-            status_send: Optional[multiprocessing.Pipe] = None,
+            comms_handler: Optional[ArborScriptCommsHandler] = None,
 
             **kwargs,
     ):
@@ -96,7 +94,7 @@ class ArborGRPOTrainer(GRPOTrainer):
             **kwargs,
         )
         self.scale_rewards = scale_rewards
-        self.status_send = status_send
+        self.comms_handler = comms_handler
         self._last_loaded_step = 0
         # self.sampling_params = SamplingParams(
         #     max_tokens=self.max_completion_length,
@@ -141,10 +139,10 @@ class ArborGRPOTrainer(GRPOTrainer):
         #     prompt_mask = prompt_mask[:, -self.max_prompt_length :]
 
         # Check if we need to update the inference model
-        if self.status_send is not None and hasattr(self, '_last_loaded_step'):
+        if self.comms_handler is not None and hasattr(self, '_last_loaded_step'):
             if self.state.global_step - self._last_loaded_step > 25 - 1:
                 self.save_model()
-                self.status_send.send({"status": "update_inference_model"})
+                self.comms_handler.send_status({"status": "update_inference_model"})
                 self._last_loaded_step = self.state.global_step
 
         # if self.state.global_step != self._last_loaded_step:
@@ -252,47 +250,11 @@ class ArborGRPOTrainer(GRPOTrainer):
             "advantages": advantages,
         }
 
-class CommandListener:
-    def __init__(self, command_recv, status_send, trainer):
-        self.command_recv = command_recv
-        self.status_send = status_send
-        self.trainer = trainer
-        self.running = True
-        self.thread = None
-
-    def start(self):
-        self.thread = threading.Thread(target=self._listen, daemon=True)
-        self.thread.start()
-
-    def stop(self):
-        self.running = False
-        if self.thread:
-            self.thread.join()
-
-    def _listen(self):
-        while self.running:
-            try:
-                command = self.command_recv.recv()
-                if command["command"] == "terminate":
-                    self.status_send.send({"status": "terminated"})
-                    self.running = False
-                    break
-            except EOFError:
-                # The pipe was closed - we should exit gracefully
-                print("Command pipe was closed, stopping listener")
-                self.running = False
-                break
-            except Exception as e:
-                self.status_send.send({
-                    "status": "error",
-                    "error": str(e)
-                })
-
-class BlockingPipeDataset(Dataset):
-    def __init__(self, accelerator, data_recv, size=1000, maxsize=100):
+class BlockingQueueDataset(Dataset):
+    def __init__(self, accelerator, comms_handler, size=1000, maxsize=100):
         self.size = size
         self.accelerator = accelerator
-        self.data_recv = data_recv
+        self.comms_handler = comms_handler
         self.get_cached_data = lru_cache(maxsize=maxsize)(self._get_data)
         self.completion_counters = {}
 
@@ -302,7 +264,7 @@ class BlockingPipeDataset(Dataset):
     def _get_data(self, idx):
         if self.accelerator.is_main_process:
             print(f"Main process {self.accelerator.process_index} getting new data")
-            new_data = self.data_recv.recv()  # This blocks until data is available
+            new_data = self.comms_handler.receive_data()  # This blocks until data is available
             print(f"Main process {self.accelerator.process_index} got new data")
             if idx not in self.completion_counters:
                 self.completion_counters[idx] = 0
@@ -330,105 +292,90 @@ def main():
     parser.add_argument("--debug", action="store_true")
 
     pipe_args = parser.add_argument_group("Pipe arguments")
-    pipe_args.add_argument("--command_recv", type=int)
-    pipe_args.add_argument("--status_send", type=int)
-    pipe_args.add_argument("--data_recv", type=int)
+    pipe_args.add_argument("--host", default="localhost")
+    pipe_args.add_argument("--command_port", type=int, required=True)
+    pipe_args.add_argument("--status_port", type=int, required=True)
+    pipe_args.add_argument("--data_port", type=int, required=True)
     args = parser.parse_args()
 
-    if not args.debug:
-        if not all([args.command_recv, args.status_send, args.data_recv]):
-            raise ValueError("All pipes must be provided if not in debug mode")
-        # Reconstruct the pipe connections from file descriptors
-        command_recv = os.fdopen(args.command_recv, 'rb')
-        status_send = os.fdopen(args.status_send, 'wb')
-        data_recv = os.fdopen(args.data_recv, 'rb')
-    else:
-        # For debug mode, create new pipes
-        command_recv, command_send = multiprocessing.Pipe()
-        status_recv, status_send = multiprocessing.Pipe()
-        data_recv, data_send = multiprocessing.Pipe()
+
+    if args.debug:
+        server_comms_handler = ArborServerCommsHandler(
+            host=args.host,
+            command_port=args.command_port,
+            status_port=args.status_port,
+            data_port=args.data_port
+        )
+
+        # Start the connection acceptance loop in a separate thread
+        connection_thread = threading.Thread(
+            target=server_comms_handler.accept_connections_loop,
+            daemon=True
+        )
+        connection_thread.start()
+
+        def debug_data_generator():
+            tldr_dataset = load_dataset("trl-lib/tldr", split="train")
+            while True:
+                for item in tldr_dataset:
+                    input_messages = [{"role": "user", "content": item["prompt"]}]
+                    completions = [{
+                        "role": "assistant",
+                        "content": "This is a test completion" + hex(random.randint(0, 0xFFFFFF))[2:]
+                    } for _ in range(8)]
+
+                    rewards = [-abs(20 - len(c["content"])) for c in completions]
+                    batch = []
+                    for completion, reward in zip(completions, rewards):
+                        batch.append({
+                            "messages": input_messages,
+                            "completion": completion,
+                            "reward": reward
+                        })
+                    server_comms_handler.send_data(batch)
+                    time.sleep(5)
+
+        debug_thread = threading.Thread(target=debug_data_generator, daemon=True)
+        debug_thread.start()
+
+        def status_listener():
+            for status in server_comms_handler.receive_status():
+                print(f"Status: {status}")
+
+        status_listener_thread = threading.Thread(target=status_listener, daemon=True)
+        status_listener_thread.start()
+
+    comms_handler = ArborScriptCommsHandler(
+        host=args.host,
+        command_port=args.command_port,
+        status_port=args.status_port,
+        data_port=args.data_port
+    )
 
     try:
         training_args = GRPOConfig(output_dir="Qwen2-0.5B-GRPO", logging_steps=10)
         trainer = ArborGRPOTrainer(
             model="Qwen/Qwen2-0.5B-Instruct",
             args=training_args,
-            train_dataset=BlockingPipeDataset(None, data_recv),
-            status_send=status_send,
+            train_dataset=BlockingQueueDataset(None, comms_handler),
+            comms_handler=comms_handler
         )
 
         # Initialize the dataset with the actual accelerator
-        trainer.train_dataset = BlockingPipeDataset(
+        trainer.train_dataset = BlockingQueueDataset(
             trainer.accelerator,
-            data_recv
+            comms_handler
         )
 
-        # Set up and start the command listener
-        command_listener = CommandListener(command_recv, status_send, trainer)
-        command_listener.start()
+        print("Training...")
+        trainer.train()
 
-        if args.debug:
-            # Start a dummy writer
-            dummy_writer_thread = threading.Thread(
-                target=dummy_writer,
-                args=(data_send,),
-                daemon=True
-            )
-            dummy_writer_thread.start()
-
-            status_reader_thread = threading.Thread(
-                target=status_reader,
-                args=(status_recv,),
-                daemon=True
-            )
-            status_reader_thread.start()
-        # Start training
-        try:
-            print("Training...")
-            trainer.train()
-        except Exception as e:
-            status_send.send({"status": "error", "error": str(e)})
-
+    except KeyboardInterrupt:
+        print("\nReceived interrupt, shutting down...")
+    except Exception as e:
+        comms_handler.send_status({"status": "error", "error": str(e)})
     finally:
-        command_recv.close()
-        status_send.close()
-        data_recv.close()
-
-
-# Dummy writer process to simulate real-time data
-def dummy_writer(data_send):
-    tldr_dataset = load_dataset("trl-lib/tldr", split="train")
-
-    def _reward_func(prompts, completions):
-        return [-abs(20 - len(completion)) if completion is not None else -300 for completion in completions]
-
-    print(f"Starting dummy writer")
-    for i, item in enumerate(tldr_dataset):
-
-        input_messages = [{"role": "user", "content": item["prompt"]}]
-        # response = client.chat.completions.create(
-        completions = [{
-            "role": "assistant",
-            "content": "This is a test completion" + hex(random.randint(0, 0xFFFFFF))[2:]
-        } for _ in range(8)] # 8 generations
-
-        rewards = _reward_func(item["prompt"], [c["content"] for c in completions])
-        batch = []
-        for completion, reward in zip(completions, rewards):
-            batch.append({
-                "messages": input_messages,
-                "completion": completion,
-                "reward": reward
-            })
-        data_send.send(batch)
-        # print(f"Wrote item {i} to {output_file}")
-        time.sleep(5)  # Write a new item every 5 seconds
-
-def status_reader(status_pipe):
-    while True:
-        status = status_pipe.recv()
-        print(f"status: {status}")
-        time.sleep(1)
+        comms_handler.close()
 
 if __name__ == "__main__":
     main()
