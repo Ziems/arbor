@@ -279,6 +279,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         # std_grouped_rewards = rewards.view(-1, self.num_generations).std(dim=1) # type: ignore
         # std_grouped_rewards = std_grouped_rewards.repeat_interleave(self.num_generations, dim=0) # type: ignore
         rewards = torch.tensor([example['reward'] for example in batch], dtype=torch.float32).to(device)
+        rewards = gather(rewards)
         mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1)
         std_grouped_rewards = rewards.view(-1, self.num_generations).std(dim=1)
 
