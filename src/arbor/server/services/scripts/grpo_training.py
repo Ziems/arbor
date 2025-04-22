@@ -173,9 +173,9 @@ class ArborGRPOTrainer(GRPOTrainer):
         # prompt_inputs = Trainer._prepare_inputs(self, prompt_inputs) # type: ignore
         # prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
 
-        if self.max_prompt_length is not None:
-            prompt_ids = prompt_ids[:, -self.max_prompt_length :]
-            prompt_mask = prompt_mask[:, -self.max_prompt_length :]
+        # if self.max_prompt_length is not None:
+        #     prompt_ids = prompt_ids[:, -self.max_prompt_length :]
+        #     prompt_mask = prompt_mask[:, -self.max_prompt_length :]
 
         # if self.state.global_step != self._last_loaded_step:
         #     self._move_model_to_vllm()
@@ -198,9 +198,9 @@ class ArborGRPOTrainer(GRPOTrainer):
         #     completion_messages = [None] * len(all_prompts)
         #     completion_mask = [None] * len(all_prompts)
 
-        # completion_ids = broadcast_object_list(completion_ids, from_process=0)
+        completion_ids = broadcast_object_list(completion_ids, from_process=0)
         # completion_messages = broadcast_object_list(completion_messages, from_process=0)
-        # completion_mask = broadcast_object_list(completion_mask, from_process=0)
+        completion_mask = broadcast_object_list(completion_mask, from_process=0)
 
         process_slice = slice(
             self.accelerator.process_index * len(batch),
@@ -210,9 +210,11 @@ class ArborGRPOTrainer(GRPOTrainer):
         completion_ids = completion_ids[process_slice]
         # completion_messages = completion_messages[process_slice]
         completion_mask = completion_mask[process_slice]
+        print(f"prompt_ids.shape: {prompt_ids.shape}, completion_ids.shape: {completion_ids.shape}")
 
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1) # (B, P+C)
+        print(f"prompt_completion_ids.shape: {prompt_completion_ids.shape}, attention_mask.shape: {attention_mask.shape}")
 
         logits_to_keep = completion_ids.size(1)
 
