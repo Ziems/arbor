@@ -24,7 +24,7 @@ from transformers import (
 )
 import argparse
 import multiprocessing
-
+from multiprocessing import Pipe
 # from verifiers import RewardFunc
 # from verifiers.envs.environment import Environment
 # from verifiers.utils.logging_utils import print_prompt_completions_sample
@@ -75,7 +75,7 @@ class ArborGRPOTrainer(GRPOTrainer):
             optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
             peft_config: Optional["PeftConfig"] = None,
 
-            status_queue: Optional[multiprocessing.Queue] = None,
+            status_send: Optional[multiprocessing.Pipe] = None,
 
             **kwargs,
     ):
@@ -96,7 +96,7 @@ class ArborGRPOTrainer(GRPOTrainer):
             **kwargs,
         )
         self.scale_rewards = scale_rewards
-        self.status_queue = status_queue
+        self.status_send = status_send
         self._last_loaded_step = 0
         # self.sampling_params = SamplingParams(
         #     max_tokens=self.max_completion_length,
@@ -141,10 +141,10 @@ class ArborGRPOTrainer(GRPOTrainer):
         #     prompt_mask = prompt_mask[:, -self.max_prompt_length :]
 
         # Check if we need to update the inference model
-        if self.status_queue is not None and hasattr(self, '_last_loaded_step'):
+        if self.status_send is not None and hasattr(self, '_last_loaded_step'):
             if self.state.global_step - self._last_loaded_step > 25 - 1:
                 self.save_model()
-                self.status_queue.put({"status": "update_inference_model"})
+                self.status_send.send({"status": "update_inference_model"})
                 self._last_loaded_step = self.state.global_step
 
         # if self.state.global_step != self._last_loaded_step:
@@ -252,64 +252,47 @@ class ArborGRPOTrainer(GRPOTrainer):
             "advantages": advantages,
         }
 
-class JSONLStreamReader:
-    def __init__(self, jsonl_file):
-        self.jsonl_file = jsonl_file
-        self.last_position = 0
-
-    def read_new_entries(self):
-        """Read any new entries from the file"""
-        if not os.path.exists(self.jsonl_file):
-            return []
-
-        new_entries = []
-        with open(self.jsonl_file, 'r') as f:
-            f.seek(self.last_position)
-            new_lines = f.readlines()
-
-            if new_lines:
-                self.last_position = f.tell()
-                for line in new_lines:
-                    try:
-                        new_entries.append(json.loads(line.strip()))
-                    except json.JSONDecodeError:
-                        print(f"Warning: Skipping invalid JSON line: {line.strip()}")
-
-        return new_entries
-
-class DataProducer:
-    def __init__(self, jsonl_file="data_stream.jsonl"):
-        self.reader = JSONLStreamReader(jsonl_file)
-        self.queue = queue.Queue()
-        self.running = False
+class CommandListener:
+    def __init__(self, command_recv, status_send, trainer):
+        self.command_recv = command_recv
+        self.status_send = status_send
+        self.trainer = trainer
+        self.running = True
         self.thread = None
 
     def start(self):
-        """Start the producer thread"""
-        if not self.running:
-            self.running = True
-            self.thread = threading.Thread(target=self._produce, daemon=True)
-            self.thread.start()
+        self.thread = threading.Thread(target=self._listen, daemon=True)
+        self.thread.start()
 
     def stop(self):
-        """Stop the producer thread"""
         self.running = False
         if self.thread:
             self.thread.join()
 
-    def _produce(self):
-        """Main production loop"""
+    def _listen(self):
         while self.running:
-            new_entries = self.reader.read_new_entries()
-            for entry in new_entries:
-                self.queue.put(entry)
-            time.sleep(1)  # Configurable delay between checks
+            try:
+                command = self.command_recv.recv()
+                if command["command"] == "terminate":
+                    self.status_send.send({"status": "terminated"})
+                    self.running = False
+                    break
+            except EOFError:
+                # The pipe was closed - we should exit gracefully
+                print("Command pipe was closed, stopping listener")
+                self.running = False
+                break
+            except Exception as e:
+                self.status_send.send({
+                    "status": "error",
+                    "error": str(e)
+                })
 
-class BlockingQueueDataset(Dataset):
-    def __init__(self, accelerator, data_queue, size=1000, maxsize=100):
+class BlockingPipeDataset(Dataset):
+    def __init__(self, accelerator, data_recv, size=1000, maxsize=100):
         self.size = size
         self.accelerator = accelerator
-        self.data_queue = data_queue
+        self.data_recv = data_recv
         self.get_cached_data = lru_cache(maxsize=maxsize)(self._get_data)
         self.completion_counters = {}
 
@@ -319,8 +302,8 @@ class BlockingQueueDataset(Dataset):
     def _get_data(self, idx):
         if self.accelerator.is_main_process:
             print(f"Main process {self.accelerator.process_index} getting new data")
-            new_data = self.data_queue.get(block=True)
-            # Initialize completion counters
+            new_data = self.data_recv.recv()  # This blocks until data is available
+            print(f"Main process {self.accelerator.process_index} got new data")
             if idx not in self.completion_counters:
                 self.completion_counters[idx] = 0
             return broadcast_object_list([new_data])[0]
@@ -342,98 +325,60 @@ class BlockingQueueDataset(Dataset):
         print(f"Process {self.accelerator.process_index} got item {item['completion']['content'][:50]}")
         return item
 
-class CommandListener:
-    def __init__(self, command_queue, status_queue, trainer):
-        self.command_queue = command_queue
-        self.status_queue = status_queue
-        self.trainer = trainer
-        self.running = True
-        self.thread = None
-
-    def start(self):
-        self.thread = threading.Thread(target=self._listen, daemon=True)
-        self.thread.start()
-
-    def stop(self):
-        self.running = False
-        if self.thread:
-            self.thread.join()
-
-    def _listen(self):
-        while self.running:
-            try:
-                command = self.command_queue.get_nowait()
-                if command["command"] == "terminate":
-                    self.status_queue.put({"status": "terminated"})
-                    self.running = False
-                    # Signal to the trainer to stop
-                    # self.trainer.control.should_training_stop = True
-                    break
-                # Handle other commands here...
-            except multiprocessing.queues.Empty:
-                time.sleep(0.1)  # Prevent busy waiting
-            except Exception as e:
-                self.status_queue.put({
-                    "status": "error",
-                    "error": str(e)
-                })
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--debug", action="store_true")
 
-    queue_args = parser.add_argument_group("Queue arguments")
-    queue_args.add_argument("--command_queue", type=int)
-    queue_args.add_argument("--status_queue", type=int)
-    queue_args.add_argument("--data_queue", type=int)
+    pipe_args = parser.add_argument_group("Pipe arguments")
+    pipe_args.add_argument("--command_recv", type=int)
+    pipe_args.add_argument("--status_send", type=int)
+    pipe_args.add_argument("--data_recv", type=int)
     args = parser.parse_args()
 
-    command_queue = None
-    status_queue = None
-    data_queue = None
-
     if not args.debug:
-        if not all([args.command_queue, args.status_queue, args.data_queue]):
-            raise ValueError("All queues must be provided if not in debug mode")
-        command_queue = multiprocessing.Queue(handle=args.command_queue)
-        status_queue = multiprocessing.Queue(handle=args.status_queue)
-        data_queue = multiprocessing.Queue(handle=args.data_queue)
+        if not all([args.command_recv, args.status_send, args.data_recv]):
+            raise ValueError("All pipes must be provided if not in debug mode")
+        # Reconstruct the pipe connections from file descriptors
+        command_recv = os.fdopen(args.command_recv, 'rb')
+        status_send = os.fdopen(args.status_send, 'wb')
+        data_recv = os.fdopen(args.data_recv, 'rb')
     else:
-        command_queue = multiprocessing.Queue()
-        status_queue = multiprocessing.Queue()
-        data_queue = multiprocessing.Queue()
+        # For debug mode, create new pipes
+        command_recv, command_send = multiprocessing.Pipe()
+        status_recv, status_send = multiprocessing.Pipe()
+        data_recv, data_send = multiprocessing.Pipe()
 
     try:
         training_args = GRPOConfig(output_dir="Qwen2-0.5B-GRPO", logging_steps=10)
         trainer = ArborGRPOTrainer(
             model="Qwen/Qwen2-0.5B-Instruct",
             args=training_args,
-            train_dataset=BlockingQueueDataset(None, data_queue),
-            status_queue=status_queue,
+            train_dataset=BlockingPipeDataset(None, data_recv),
+            status_send=status_send,
         )
 
         # Initialize the dataset with the actual accelerator
-        trainer.train_dataset = BlockingQueueDataset(
+        trainer.train_dataset = BlockingPipeDataset(
             trainer.accelerator,
-            data_queue
+            data_recv
         )
+
         # Set up and start the command listener
-        command_listener = CommandListener(command_queue, status_queue, trainer)
+        command_listener = CommandListener(command_recv, status_send, trainer)
         command_listener.start()
 
         if args.debug:
             # Start a dummy writer
             dummy_writer_thread = threading.Thread(
                 target=dummy_writer,
-                args=(data_queue,),
+                args=(data_send,),
                 daemon=True
             )
             dummy_writer_thread.start()
 
             status_reader_thread = threading.Thread(
                 target=status_reader,
-                args=(status_queue,),
+                args=(status_recv,),
                 daemon=True
             )
             status_reader_thread.start()
@@ -441,22 +386,17 @@ def main():
         try:
             print("Training...")
             trainer.train()
-
         except Exception as e:
-            print(f"Error: {e}")
-            status_queue.put({
-                "status": "error",
-                "error": str(e)
-            })
+            status_send.send({"status": "error", "error": str(e)})
 
     finally:
-        command_queue.close()
-        status_queue.close()
-        data_queue.close()
+        command_recv.close()
+        status_send.close()
+        data_recv.close()
 
 
 # Dummy writer process to simulate real-time data
-def dummy_writer(data_queue):
+def dummy_writer(data_send):
     tldr_dataset = load_dataset("trl-lib/tldr", split="train")
 
     def _reward_func(prompts, completions):
@@ -480,13 +420,13 @@ def dummy_writer(data_queue):
                 "completion": completion,
                 "reward": reward
             })
-        data_queue.put(batch)
+        data_send.send(batch)
         # print(f"Wrote item {i} to {output_file}")
         time.sleep(5)  # Write a new item every 5 seconds
 
-def status_reader(status_queue):
+def status_reader(status_pipe):
     while True:
-        status = status_queue.get(block=True)
+        status = status_pipe.recv()
         print(f"status: {status}")
         time.sleep(1)
 

@@ -5,6 +5,7 @@ from pathlib import Path
 import os
 import subprocess
 from multiprocessing import Queue
+import multiprocessing
 
 import torch
 import torch.nn.functional as F
@@ -67,10 +68,10 @@ class GRPOManager:
         return train_kwargs
 
     def initialize(self, request: GRPOConfigRequest, inference_manager: InferenceManager):
-        # Create communication queues
-        command_queue = Queue()    # For control commands
-        status_queue = Queue()     # For status updates and results
-        data_queue = Queue()       # For training data
+        # Create pipes instead of queues
+        command_recv, command_send = multiprocessing.Pipe()
+        status_recv, status_send = multiprocessing.Pipe()
+        data_recv, data_send = multiprocessing.Pipe()
 
         script_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
         script_path = os.path.join(script_dir, "grpo_training.py")
@@ -78,22 +79,29 @@ class GRPOManager:
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = "1"
 
-        # Start the accelerate process
+        # Pass the appropriate ends to the subprocess
         process = subprocess.Popen(
             [
                 "python", "-m", "accelerate.commands.launch",
                 script_path,
-                "--command_queue", str(command_queue._handle),
-                "--status_queue", str(status_queue._handle),
-                "--data_queue", str(data_queue._handle)
+                "--command_recv", str(command_recv.fileno()),
+                "--status_send", str(status_send.fileno()),
+                "--data_recv", str(data_recv.fileno())
             ],
-            env=my_env
+            env=my_env,
+            pass_fds=[command_recv.fileno(), status_send.fileno(), data_recv.fileno()]
         )
 
-        # Store the queues and process in the instance
-        self.command_queue = command_queue
-        self.status_queue = status_queue
-        self.data_queue = data_queue
+        # Close the ends we passed to the subprocess
+        command_recv.close()
+        status_send.close()
+        data_recv.close()
+
+        # Keep our ends of the pipes
+        self.command_send = command_send  # To send commands TO the training process
+        self.status_recv = status_recv    # To receive status FROM the training process
+        self.data_send = data_send        # To send data TO the training process
+
         self.training_process = process
 
     def initialize_config(self, request: GRPOConfigRequest, inference_manager: InferenceManager):
