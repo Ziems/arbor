@@ -381,7 +381,7 @@ class CommandListener:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--testing_mode", action="store_true")
+    parser.add_argument("--debug", action="store_true")
 
     queue_args = parser.add_argument_group("Queue arguments")
     queue_args.add_argument("--command_queue", type=int)
@@ -393,9 +393,9 @@ def main():
     status_queue = None
     data_queue = None
 
-    if not args.testing_mode:
+    if not args.debug:
         if not all([args.command_queue, args.status_queue, args.data_queue]):
-            raise ValueError("All queues must be provided if not in testing mode")
+            raise ValueError("All queues must be provided if not in debug mode")
         command_queue = multiprocessing.Queue(handle=args.command_queue)
         status_queue = multiprocessing.Queue(handle=args.status_queue)
         data_queue = multiprocessing.Queue(handle=args.data_queue)
@@ -422,7 +422,7 @@ def main():
         command_listener = CommandListener(command_queue, status_queue, trainer)
         command_listener.start()
 
-        if args.testing_mode:
+        if args.debug:
             # Start a dummy writer
             dummy_writer_thread = threading.Thread(
                 target=dummy_writer,
