@@ -198,18 +198,18 @@ class ArborGRPOTrainer(GRPOTrainer):
         #     completion_messages = [None] * len(all_prompts)
         #     completion_mask = [None] * len(all_prompts)
 
-        completion_ids = broadcast_object_list(completion_ids, from_process=0)
-        # completion_messages = broadcast_object_list(completion_messages, from_process=0)
-        completion_mask = broadcast_object_list(completion_mask, from_process=0)
+        # completion_ids = broadcast_object_list(completion_ids, from_process=0)
+        # # completion_messages = broadcast_object_list(completion_messages, from_process=0)
+        # completion_mask = broadcast_object_list(completion_mask, from_process=0)
 
-        process_slice = slice(
-            self.accelerator.process_index * len(batch),
-            (self.accelerator.process_index + 1) * len(batch),
-        )
+        # process_slice = slice(
+        #     self.accelerator.process_index * len(batch),
+        #     (self.accelerator.process_index + 1) * len(batch),
+        # )
 
-        completion_ids = completion_ids[process_slice]
+        # completion_ids = completion_ids[process_slice]
         # completion_messages = completion_messages[process_slice]
-        completion_mask = completion_mask[process_slice]
+        # completion_mask = completion_mask[process_slice]
         print(f"prompt_ids.shape: {prompt_ids.shape}, completion_ids.shape: {completion_ids.shape}")
 
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
