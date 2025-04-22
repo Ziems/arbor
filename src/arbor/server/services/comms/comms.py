@@ -30,9 +30,9 @@ class ArborServerCommsHandler:
         self.data_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
         # Bind sockets
-        self.command_socket.bind((host, command_port))
-        self.status_socket.bind((host, status_port))
-        self.data_socket.bind((host, data_port))
+        self.command_socket.bind((self.host, self.command_port))
+        self.status_socket.bind((self.host, self.status_port))
+        self.data_socket.bind((self.host, self.data_port))
 
         # Listen for connections
         self.command_socket.listen(1)
