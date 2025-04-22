@@ -1,7 +1,7 @@
 # Borrowed from Will Brown's Verifiers Library
 
-import warnings
-from typing import Callable, Optional, Union, Any, List, Sized, Sampler
+import random
+from typing import Callable, Optional, Union, Any, List, Sized
 import json
 import os
 import time
@@ -40,6 +40,11 @@ from trl.trainer.utils import pad
 # if is_wandb_available():
 #     import wandb
 
+# Clear data_stream.jsonl file by opening it in write mode
+with open("data_stream.jsonl", "w") as f:
+    pass
+
+
 tldr_dataset = load_dataset("trl-lib/tldr", split="train")
 
 # Dummy writer process to simulate real-time data
@@ -55,8 +60,8 @@ def dummy_writer(output_file="data_stream.jsonl"):
         # response = client.chat.completions.create(
         completions = [{
             "role": "assistant",
-            "content": "This is a test completion"
-        } for _ in range(2)] # 2 generations
+            "content": "This is a test completion" + hex(random.randint(0, 0xFFFFFF))[2:]
+        } for _ in range(8)] # 8 generations
 
         rewards = _reward_func(item["prompt"], [c["content"] for c in completions])
         batch = []
@@ -67,8 +72,8 @@ def dummy_writer(output_file="data_stream.jsonl"):
                 "reward": reward
             })
         with open(output_file, 'a') as f:
-            f.write(json.dumps({'batch':batch}) + '\n')
-        print(f"Wrote item {i} to {output_file}")
+            f.write(json.dumps(batch) + '\n')
+        # print(f"Wrote item {i} to {output_file}")
         time.sleep(5)  # Write a new item every 5 seconds
 
 
@@ -89,56 +94,6 @@ def nanstd(tensor: torch.Tensor) -> torch.Tensor:
     count = torch.sum(~torch.isnan(tensor))  # Count of non-NaN values
     variance *= count / (count - 1)  # Bessel's correction
     return torch.sqrt(variance)
-
-class GroupedDataSampler(Sampler):
-    """
-    Sampler that transforms grouped data into the format expected by GRPOTrainer.
-    Each sample in the dataset is expected to be a dict containing:
-    - 'messages': List of message dicts (the prompt)
-    - 'completions': List of completion dicts
-    - 'rewards': List of rewards for each completion
-
-    Args:
-        data_source (`Sized`):
-            Dataset to sample from.
-        num_generations (`int`):
-            Number of generations per prompt (should match the number of completions in each sample).
-        seed (`int` or `None`, *optional*, defaults to `None`):
-            Random seed for reproducibility.
-    """
-
-    def __init__(
-        self,
-        data_source: Sized,
-        num_generations: int,
-        seed: Optional[int] = None,
-    ):
-        self.data_source = data_source
-        self.num_generations = num_generations
-        self.num_samples = len(data_source)
-        self.seed = seed
-        self.generator = torch.Generator()
-        if seed is not None:
-            self.generator.manual_seed(seed)
-
-    def __iter__(self):
-        # Get random permutation of indices
-        indexes = torch.randperm(self.num_samples, generator=self.generator).tolist()
-
-        for idx in indexes:
-            # Get the grouped sample
-            sample = self.data_source[idx]
-
-            # Transform the grouped data into individual examples
-            for i in range(self.num_generations):
-                yield {
-                    'messages': sample['messages'],
-                    'completion': sample['completions'][i],
-                    'reward': sample['rewards'][i]
-                }
-
-    def __len__(self) -> int:
-        return self.num_samples * self.num_generations
 
 class ArborGRPOTrainer(GRPOTrainer):
     def __init__(
@@ -180,14 +135,6 @@ class ArborGRPOTrainer(GRPOTrainer):
         #     repetition_penalty=self.repetition_penalty
         # )
 
-    def _get_train_sampler(self) -> Sampler:
-        # Use our custom sampler that transforms the grouped data format
-        return GroupedDataSampler(
-            data_source=self.train_dataset,
-            num_generations=self.num_generations,
-            seed=self.args.seed,
-        )
-
     def _generate_and_score_completions(
          self, batch: List[dict[str, Any]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
@@ -202,7 +149,7 @@ class ArborGRPOTrainer(GRPOTrainer):
                         'prompt': example['messages'],
                         'completion': [example['completion']]
                     },
-                    self.tokenizer
+                    self.processing_class
                 )
             )
 
@@ -261,7 +208,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         )
 
         completion_ids = completion_ids[process_slice]
-        completion_messages = completion_messages[process_slice]
+        # completion_messages = completion_messages[process_slice]
         completion_mask = completion_mask[process_slice]
 
         # Pad + mask after per-sequence EOS tokens
@@ -466,6 +413,8 @@ class BlockingDynamicDataset(Dataset):
         self.size = size
         self.accelerator = accelerator
         self.get_cached_data = lru_cache(maxsize=maxsize)(self._get_data)
+        # Initialize completion counters for each group
+        self.completion_counters = {}
 
         # Create and start the producer in the main process only
         if accelerator is not None and accelerator.is_main_process:
@@ -480,6 +429,9 @@ class BlockingDynamicDataset(Dataset):
         if self.accelerator.is_main_process:
             print(f"Main process {self.accelerator.process_index} getting new data")
             new_data = self.producer.queue.get(block=True)
+            # Initialize counter for this group if it doesn't exist
+            if idx not in self.completion_counters:
+                self.completion_counters[idx] = 0
             return broadcast_object_list([new_data])[0]
         else:
             print(f"Other process {self.accelerator.process_index} waiting for data")
@@ -487,7 +439,23 @@ class BlockingDynamicDataset(Dataset):
 
     def __getitem__(self, idx):
         print(f"Process {self.accelerator.process_index} getting item {idx}")
-        return self.get_cached_data(idx)
+        data = self.get_cached_data(idx)
+
+        if data is None:
+            return None
+
+        # Get the current counter for this group
+        counter = self.completion_counters.get(idx, 0)
+
+        # Get the item at the current counter position
+        item = data[counter]
+
+        # Increment the counter and wrap around if needed
+        self.completion_counters[idx] = (counter + 1) % len(data)
+
+        print(f"Process {self.accelerator.process_index} got item {item['completion']['content'][:50]}")
+
+        return item
 
     def __del__(self):
         """Cleanup when the dataset is destroyed"""
