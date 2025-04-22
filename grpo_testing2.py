@@ -11,6 +11,9 @@ import json
 import os
 from pathlib import Path
 
+with open("data_stream.jsonl", "w") as f:
+    pass
+
 tldr_dataset = load_dataset("trl-lib/tldr", split="train")
 
 # Dummy writer process to simulate real-time data
@@ -19,7 +22,7 @@ def dummy_writer(output_file="data_stream.jsonl"):
     for i, item in enumerate(tldr_dataset):
         with open(output_file, 'a') as f:
             f.write(json.dumps(item) + '\n')
-        print(f"Wrote item {i} to {output_file}")
+        # print(f"Wrote item {i} to {output_file}")
         time.sleep(5)  # Write a new item every 5 seconds
 
 class JSONLStreamReader:

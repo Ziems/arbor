@@ -164,57 +164,17 @@ class ArborGRPOTrainer(GRPOTrainer):
         completion_ids = self.processing_class(completion_texts, return_tensors="pt", padding=True, add_special_tokens=False).to(device)
         completion_ids, completion_mask = completion_ids["input_ids"], completion_ids["attention_mask"]
 
-
-        # prompts = [x["prompt"] for x in inputs] # type: ignore
-        # prompts_text = [maybe_apply_chat_template(example, self.processing_class)["prompt"] for example in inputs] # type: ignore
-        # prompt_inputs = self.processing_class(
-        #     prompts_text, return_tensors="pt", padding=True, padding_side="left", add_special_tokens=False # type: ignore
-        # ) # type: ignore
-        # prompt_inputs = Trainer._prepare_inputs(self, prompt_inputs) # type: ignore
-        # prompt_ids, prompt_mask = prompt_inputs["input_ids"], prompt_inputs["attention_mask"]
-
         # if self.max_prompt_length is not None:
         #     prompt_ids = prompt_ids[:, -self.max_prompt_length :]
         #     prompt_mask = prompt_mask[:, -self.max_prompt_length :]
-
+        
         # if self.state.global_step != self._last_loaded_step:
         #     self._move_model_to_vllm()
         #     self._last_loaded_step = self.state.global_step
 
-        # Gather the original prompts in message dict form, not the text form
-        # all_prompts = gather_object(prompts)
-        # if self.accelerator.is_main_process:
-        #     env_result = self.env.generate(
-        #         prompts=all_prompts,
-        #         llm=self.vllm_client, # type: ignore
-        #         sampling_params=self.sampling_params,
-        #     )
-        #     completion_ids = env_result['ids']
-        #     completion_messages = env_result['messages']
-        #     completion_mask = env_result['mask']
-
-        # else:
-        #     completion_ids = [None] * len(all_prompts)
-        #     completion_messages = [None] * len(all_prompts)
-        #     completion_mask = [None] * len(all_prompts)
-
-        # completion_ids = broadcast_object_list(completion_ids, from_process=0)
-        # # completion_messages = broadcast_object_list(completion_messages, from_process=0)
-        # completion_mask = broadcast_object_list(completion_mask, from_process=0)
-
-        # process_slice = slice(
-        #     self.accelerator.process_index * len(batch),
-        #     (self.accelerator.process_index + 1) * len(batch),
-        # )
-
-        # completion_ids = completion_ids[process_slice]
-        # completion_messages = completion_messages[process_slice]
-        # completion_mask = completion_mask[process_slice]
-        print(f"prompt_ids.shape: {prompt_ids.shape}, completion_ids.shape: {completion_ids.shape}")
 
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1) # (B, P+C)
-        print(f"prompt_completion_ids.shape: {prompt_completion_ids.shape}, attention_mask.shape: {attention_mask.shape}")
 
         logits_to_keep = completion_ids.size(1)
 
@@ -240,44 +200,6 @@ class ArborGRPOTrainer(GRPOTrainer):
                         self.model, prompt_completion_ids, attention_mask, logits_to_keep
                     )
 
-        # use message dicts for reward function inputs
-        # completions = completion_messages
-        # rewards_per_func = torch.zeros(len(batch), len(self.reward_funcs), device=device)
-        # for i, reward_func in enumerate(self.reward_funcs):
-        #     # Repeat all input columns (but "prompt" and "completion") to match the number of generations
-        #     keys = [key for key in inputs[0] if key not in ["prompt", "completion"]] # type: ignore
-        #     reward_kwargs = {key: [example[key] for example in inputs] for key in keys} # type: ignore
-        #     output_reward_func = reward_func(prompts=prompts, completions=completions, **reward_kwargs) # type: ignore
-
-        #     output_reward_func = [reward if reward is not None else torch.nan for reward in output_reward_func]
-        #     rewards_per_func[:, i] = torch.tensor(output_reward_func, dtype=torch.float32, device=device)
-
-        # # If all reward functions return None for a given row, issue a detailed warning
-        # if torch.isnan(rewards_per_func).all(dim=1).any():
-        #     nan_row_idx = torch.isnan(rewards_per_func).all(dim=1).nonzero(as_tuple=True)[0][0]
-        #     row_reward_kwargs = {key: value[nan_row_idx] for key, value in reward_kwargs.items()} # type: ignore
-        #     row_reward_kwargs["prompt"] = prompts[nan_row_idx]
-        #     row_reward_kwargs["completion"] = completions[nan_row_idx] # type: ignore
-        #     warnings.warn(
-        #         f"All reward functions returned None for the following kwargs: {row_reward_kwargs}. "
-        #         "Please ensure that at least one reward function returns a valid reward."
-        #     )
-
-
-        # rewards_per_func = gather(rewards_per_func)
-
-        # # Apply weights to each reward function's output and sum
-        # rewards = (rewards_per_func * self.reward_weights.to(device).unsqueeze(0)).nansum(dim=1)
-
-        # # Compute grouped-wise rewards
-        # mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1) # type: ignore
-
-        # # Normalize the rewards to compute the advantages
-        # mean_grouped_rewards = mean_grouped_rewards.repeat_interleave(self.num_generations, dim=0) # type: ignore
-        # advantages = (rewards - mean_grouped_rewards)
-
-        # std_grouped_rewards = rewards.view(-1, self.num_generations).std(dim=1) # type: ignore
-        # std_grouped_rewards = std_grouped_rewards.repeat_interleave(self.num_generations, dim=0) # type: ignore
         rewards = torch.tensor([example['reward'] for example in batch], dtype=torch.float32).to(device)
         rewards = gather(rewards)
         mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1)
