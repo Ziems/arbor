@@ -79,17 +79,23 @@ class GRPOManager:
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = "1"
 
+        # Get file descriptors before passing them
+        command_fd = command_recv.fileno()
+        status_fd = status_send.fileno()
+        data_fd = data_recv.fileno()
+
         # Pass the appropriate ends to the subprocess
         process = subprocess.Popen(
             [
                 "python", "-m", "accelerate.commands.launch",
                 script_path,
-                "--command_recv", str(command_recv.fileno()),
-                "--status_send", str(status_send.fileno()),
-                "--data_recv", str(data_recv.fileno())
+                "--command_recv", str(command_fd),
+                "--status_send", str(status_fd),
+                "--data_recv", str(data_fd)
             ],
             env=my_env,
-            pass_fds=[command_recv.fileno(), status_send.fileno(), data_recv.fileno()]
+            pass_fds=(command_fd, status_fd, data_fd),
+            close_fds=False  # Important: don't close inherited FDs
         )
 
         # Close the ends we passed to the subprocess
