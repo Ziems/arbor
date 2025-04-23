@@ -302,10 +302,11 @@ def main():
     if args.debug:
         server_comms_handler = ArborServerCommsHandler(
             host=args.host,
-            command_port=args.command_port,
-            status_port=args.status_port,
-            data_port=args.data_port
         )
+
+        args.command_port = server_comms_handler.command_port
+        args.status_port = server_comms_handler.status_port
+        args.data_port = server_comms_handler.data_port
 
         # Start the connection acceptance loop in a separate thread
         connection_thread = threading.Thread(
