@@ -1,5 +1,6 @@
 import random
 import string
+import json
 from datetime import datetime
 from pathlib import Path
 import os
@@ -36,33 +37,48 @@ class GRPOManager:
         """Process the config request and return training arguments."""
         name, output_dir = self.make_output_dir(request.model, request.suffix)
 
+        # TODO: Here are defaults for training. We can adjust them if we disagree w the huggingface defaults
         default_train_kwargs = {
-            "device": None,
-            "use_peft": False,
-            "num_train_epochs": 5,
-            "per_device_train_batch_size": 1,
-            "gradient_accumulation_steps": 8,
-            "learning_rate": 1e-5,
-            "max_seq_length": None,
-            "packing": False, # TODO: Turning this off for now
-            "bf16": True,
+            # "use_peft": False,
+            # "num_train_epochs": 5,
+            # "per_device_train_batch_size": 1,
+            # "gradient_accumulation_steps": 8,
+            # "learning_rate": 1e-5,
+            # "max_seq_length": None,
+            # "packing": False, # TODO: Turning this off for now
+            # "bf16": True,
             "output_dir": output_dir,
-            "beta": 0.04,
-            "num_iterations": 1,
-            "temperature": 0.9, # TODO: This should match vLLM
-            "num_generations": 8,
-            "scale_rewards": True,
-            "epsilon_low": 0.2,
-            "epsilon_high": 0.2,
-            "update_interval": 25
+            # "beta": 0.04,
+            # "num_iterations": 1,
+            # "temperature": 0.9, # TODO: This should match vLLM
+            # "num_generations": 8,
+            # "scale_rewards": True,
+            # "epsilon_low": 0.2,
+            # "epsilon_high": 0.2,
+            # "update_interval": 25
         }
 
         train_kwargs = request.model_dump(exclude_unset=True)
         return {**default_train_kwargs, **(train_kwargs or {})}
 
+    def process_training_args(self, train_kwargs: dict) -> tuple[dict, dict]:
+        trl_keys = ["output_dir", "temperature", "beta", "num_iterations", "num_generations"]
+        trl_train_kwargs = {
+            key: train_kwargs[key] for key in trl_keys if key in train_kwargs
+        }
+
+        arbor_keys = ["update_interval"]
+        arbor_train_kwargs = {
+            key: train_kwargs[key] for key in arbor_keys if key in train_kwargs
+        }
+
+        return trl_train_kwargs, arbor_train_kwargs
+
     def initialize(self, request: GRPOConfigRequest, inference_manager: InferenceManager):
         """Initialize the training process with ZMQ-based communication."""
         self.train_kwargs = self.find_training_args(request)
+        trl_train_kwargs, arbor_train_kwargs = self.process_training_args(self.train_kwargs)
+
         self.current_model = request.model
 
         # Initialize ZMQ socket manager - no need for connection acceptance thread anymore
@@ -81,10 +97,16 @@ class GRPOManager:
                 # "--config_file", "training_config.yaml",
                 "--num_processes", str(self.settings.arbor_config.training.num_processes),
                 script_path,
+
+                # Comms args
                 "--host", self.socket_manager.host,
                 "--command_port", str(self.socket_manager.command_port),
                 "--status_port", str(self.socket_manager.status_port),
-                "--data_port", str(self.socket_manager.data_port)
+                "--data_port", str(self.socket_manager.data_port),
+
+                # Training args
+                "--trl_train_kwargs", json.dumps(trl_train_kwargs),
+                "--arbor_train_kwargs", json.dumps(arbor_train_kwargs),
             ],
             env=my_env
         )

@@ -75,6 +75,7 @@ class ArborGRPOTrainer(GRPOTrainer):
             peft_config: Optional["PeftConfig"] = None,
 
             comms_handler: Optional[ArborScriptCommsHandler] = None,
+            update_interval: Optional[int] = 25,
 
             **kwargs,
     ):
@@ -97,6 +98,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
         self._last_loaded_step = 0
+        self.update_interval = update_interval
         # self.sampling_params = SamplingParams(
         #     max_tokens=self.max_completion_length,
         #     temperature=self.temperature,
@@ -141,7 +143,7 @@ class ArborGRPOTrainer(GRPOTrainer):
 
         # Check if we need to update the inference model
         if self.comms_handler is not None and hasattr(self, '_last_loaded_step'):
-            if self.state.global_step - self._last_loaded_step > 25 - 1:
+            if self.state.global_step - self._last_loaded_step > self.update_interval - 1:
                 if self.accelerator.is_main_process:
                     # SO I think this works if I make sure the saved model is
                     self.comms_handler.send_status({"status": f"saving model to {self.args.output_dir}"})
@@ -300,6 +302,11 @@ def main():
     pipe_args.add_argument("--command_port", type=int, required=True)
     pipe_args.add_argument("--status_port", type=int, required=True)
     pipe_args.add_argument("--data_port", type=int, required=True)
+
+    training_args = parser.add_argument_group("Training arguments")
+    training_args.add_argument("--trl_train_kwargs", type=json.loads, help="Training arguments as a JSON string")
+    training_args.add_argument("--arbor_train_kwargs", type=json.loads, help="Training arguments as a JSON string")
+
     args = parser.parse_args()
 
 
@@ -354,16 +361,22 @@ def main():
     )
 
     try:
-        training_args = GRPOConfig(output_dir="Qwen2-0.5B-GRPO", logging_steps=10)
+        trl_train_args = {**(args.trl_train_kwargs or {})}
+        arbor_train_args = {**(args.arbor_train_kwargs or {})}
+
+        # TODO: These assertions should be done in some better way
+        assert "output_dir" in trl_train_args, "output_dir is required"
+
+
+        import pdb; pdb.set_trace()
+        training_args = GRPOConfig(**trl_train_args)
         trainer = ArborGRPOTrainer(
             model="Qwen/Qwen2-0.5B-Instruct",
             args=training_args,
             train_dataset=BlockingQueueDataset(None, comms_handler),
-            comms_handler=comms_handler
+            comms_handler=comms_handler,
+            **arbor_train_args
         )
-
-        # After trainer initialization, we can also print device info from the model
-        print(f"Model device: {next(trainer.model.parameters()).device}")
 
         # Initialize the dataset with the actual accelerator
         trainer.train_dataset = BlockingQueueDataset(
@@ -377,7 +390,9 @@ def main():
     except KeyboardInterrupt:
         print("\nReceived interrupt, shutting down...")
     except Exception as e:
+        print(f"Error: {e}")
         comms_handler.send_status({"status": "error", "error": str(e)})
+        raise e
     finally:
         comms_handler.close()
 
