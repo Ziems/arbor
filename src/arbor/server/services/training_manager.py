@@ -66,6 +66,8 @@ class TrainingManager:
         job.status = JobStatus.RUNNING
         job.add_event(JobEvent(level="info", message="Starting fine-tuning job", data={}))
 
+        print(">>>>>>>>", request.method)
+
         try:
             train_kwargs = self.find_train_args(request, file_manager)
 
