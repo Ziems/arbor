@@ -26,11 +26,16 @@ class Settings(BaseModel):
         if not Path(yaml_path).exists():
             raise ValueError(f"Config file {yaml_path} does not exist")
 
-        settings = cls()
-        with open(yaml_path, "r") as f:
+        try:
+            with open(yaml_path, "r") as f:
                 config = yaml.safe_load(f)
-        settings.inference.gpu_ids = config["inference"]["gpu_ids"]
-        settings.training.gpu_ids = config["training"]["gpu_ids"]
-        settings.training.num_processes = config["training"]["num_processes"]
 
-        return settings
+            settings = cls(
+                arbor_config=ArborConfig(
+                    inference=InferenceConfig(**config["inference"]),
+                    training=TrainingConfig(**config["training"]),
+                )
+            )
+            return settings
+        except Exception as e:
+            raise ValueError(f"Error loading config file {yaml_path}: {e}")
