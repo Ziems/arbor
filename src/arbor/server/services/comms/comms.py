@@ -4,6 +4,7 @@ import zmq
 class ArborServerCommsHandler:
     """Handles socket communication between manager and training process"""
     def __init__(self, host="localhost"):
+        self.host = host
         self.context = zmq.Context()
 
         # Command socket (REQ/REP pattern)
