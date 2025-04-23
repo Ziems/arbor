@@ -190,7 +190,7 @@ class InferenceManager:
         try:
             response = requests.post(url, json=request_json)
             return response.json()
-        except http.client.RemoteDisconnected:
+        except requests.exceptions.ConnectionError:
             print("Server disconnected...ignoring")
             return None
         except Exception as e:
