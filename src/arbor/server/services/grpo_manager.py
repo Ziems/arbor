@@ -85,7 +85,7 @@ class GRPOManager:
                 "--status_port", str(self.socket_manager.status_port),
                 "--data_port", str(self.socket_manager.data_port)
             ],
-            env=my_env
+            # env=my_env
         )
 
         # Start status handling thread
