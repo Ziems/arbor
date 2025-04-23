@@ -146,6 +146,7 @@ class GRPOManager:
 
     def grpo_step(self, request: GRPORequest, inference_manager: InferenceManager) -> str:
         """Process a training step using ZMQ PUSH socket."""
+        if inference_mange
         try:
             # Send the batch to the training process
             self.socket_manager.send_data(request.batch)

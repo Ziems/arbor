@@ -17,13 +17,19 @@ class InferenceManager:
         self.process = None
         self.launch_kwargs = {}
         self.last_activity = None
+        self._shutting_down = False
 
         # Set up signal handler for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
     def _signal_handler(self, signum, frame):
+        if self._shutting_down:
+            print("\nForced exit during cleanup...")
+            os._exit(1)
+
         print("\nReceived signal to terminate. Cleaning up...")
+        self._shutting_down = True
         self.kill()
         sys.exit(0)
 
@@ -128,38 +134,36 @@ class InferenceManager:
             print("No running server to kill.")
             return
 
-        # Store a reference to process and thread before clearing
         process = self.process
         thread = self.thread
 
-        # Clear the references first
+        # Clear references first
         self.process = None
         self.thread = None
         self.get_logs = None
         self.last_activity = None
 
         try:
-            # First try SIGTERM
-            process.terminate()
+            # Handle nested signal case
+            if self._shutting_down:
+                process.kill()  # Go straight to SIGKILL if we're shutting down
+            else:
+                process.terminate()  # Try SIGTERM first
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    print("Process did not terminate after 10 seconds, forcing with SIGKILL...")
+                    process.kill()
 
-            # Wait up to 10 seconds for process to terminate
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                print("Process did not terminate after 10 seconds, forcing with SIGKILL...")
-                process.kill()  # Send SIGKILL
-                process.wait(timeout=5)  # Give it 5 more seconds to die
+            process.wait(timeout=5)
 
-            # Give the thread a short time to exit
-            thread.join(timeout=5)
-            if thread.is_alive():
-                print("Warning: Background thread did not exit cleanly")
+            if thread and thread.is_alive():
+                thread.join(timeout=5)
 
         except Exception as e:
             print(f"Error during cleanup: {e}")
-            # Ensure we try to kill the process even if other errors occur
             try:
-                process.kill()
+                process.kill()  # Final attempt to kill
             except:
                 pass
 
