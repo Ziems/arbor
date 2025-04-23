@@ -12,7 +12,7 @@ from arbor.server.services.grpo_manager import GRPOManager
 def cli():
     pass
 
-def create_app(storage_path='./storage'):
+def create_app(arbor_config_path: str):
     """Create and configure the Arbor API application
 
     Args:
@@ -22,9 +22,7 @@ def create_app(storage_path='./storage'):
         FastAPI: Configured FastAPI application
     """
     # Create new settings instance with overrides
-    settings = Settings(
-        STORAGE_PATH=storage_path,
-    )
+    settings = Settings.load_from_yaml(arbor_config_path)
 
     # Initialize services with settings
     file_manager = FileManager(settings=settings)
@@ -86,10 +84,10 @@ def stop_server(server):
 @cli.command()
 @click.option('--host', default='0.0.0.0', help='Host to bind to')
 @click.option('--port', default=8000, help='Port to bind to')
-@click.option('--storage-path', default='./storage', help='Path to store models and uploaded training files')
-def serve(host, port, storage_path):
+@click.option('--arbor-config', help='Path to the Arbor config file')
+def serve(host, port, arbor_config):
     """Start the Arbor API server"""
-    app = create_app(storage_path)
+    app = create_app(arbor_config)
     uvicorn.run(app, host=host, port=port)
 
 if __name__ == '__main__':

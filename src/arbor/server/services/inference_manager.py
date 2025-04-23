@@ -52,7 +52,7 @@ class InferenceManager:
         port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
         my_env = os.environ.copy()
-        my_env["CUDA_VISIBLE_DEVICES"] = "1"
+        my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
         # If vllm has trouble because a tokenizer is not found, make sure to save the tokenizer in the same directory as the model during training
         # transformers.Trainer already does this when you save the model. In a pinch, you can manually set the tokenizer of the original model in vllm
         command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.7 --max_model_len 8192"

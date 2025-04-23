@@ -73,13 +73,13 @@ class GRPOManager:
 
         # Start the training process with ZMQ ports
         my_env = os.environ.copy()
-        my_env["CUDA_VISIBLE_DEVICES"] = "2"
+        my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.training.gpu_ids
 
         self.training_process = subprocess.Popen(
             [
                 "python", "-m", "accelerate.commands.launch",
                 # "--config_file", "training_config.yaml",
-                "--num_processes", "1",
+                "--num_processes", str(self.settings.arbor_config.training.num_processes),
                 script_path,
                 "--host", self.socket_manager.host,
                 "--command_port", str(self.socket_manager.command_port),

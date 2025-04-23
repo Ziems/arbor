@@ -21,6 +21,7 @@ dependencies = [
     "setuptools (>=76.0.0,<77.0.0)",
     "vllm==0.8.1",
     "pyzmq>=26.4.0",
+    "pyyaml>=6.0.2",
 ]
 
 [project.scripts]

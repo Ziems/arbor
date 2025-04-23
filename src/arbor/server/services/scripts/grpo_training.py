@@ -354,18 +354,6 @@ def main():
     )
 
     try:
-        # Print CUDA device information
-        if torch.cuda.is_available():
-            print(f"Number of CUDA devices: {torch.cuda.device_count()}")
-            print(f"CUDA_VISIBLE_DEVICES env var: {os.environ.get('CUDA_VISIBLE_DEVICES', 'not set')}")
-            for i in range(torch.cuda.device_count()):
-                print(f"CUDA Device {i}: {torch.cuda.get_device_name(i)}")
-                print(f"Device {i} capabilities: {torch.cuda.get_device_capability(i)}")
-                print(f"Device {i} properties: {torch.cuda.get_device_properties(i)}")
-            print(f"Current CUDA device: {torch.cuda.current_device()}")
-        else:
-            print("CUDA is not available")
-
         training_args = GRPOConfig(output_dir="Qwen2-0.5B-GRPO", logging_steps=10)
         trainer = ArborGRPOTrainer(
             model="Qwen/Qwen2-0.5B-Instruct",
