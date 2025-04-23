@@ -39,6 +39,7 @@ from trl import GRPOTrainer, GRPOConfig
 from trl.data_utils import maybe_apply_chat_template
 from trl.import_utils import is_rich_available
 from trl.trainer.utils import pad
+import zmq
 
 # if is_wandb_available():
 #     import wandb
@@ -333,12 +334,15 @@ def main():
         debug_thread.start()
 
         def status_listener():
+            # Need to set subscription for PUB/SUB pattern
+            server_comms_handler.status_socket.setsockopt_string(zmq.SUBSCRIBE, "")
             for status in server_comms_handler.receive_status():
                 print(f"Status: {status}")
 
         status_listener_thread = threading.Thread(target=status_listener, daemon=True)
         status_listener_thread.start()
 
+    # Create client handler
     comms_handler = ArborScriptCommsHandler(
         host=args.host,
         command_port=args.command_port,

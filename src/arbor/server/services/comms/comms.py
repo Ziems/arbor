@@ -15,7 +15,7 @@ class ArborServerCommsHandler:
         self.status_port = self.status_socket.bind_to_random_port(f"tcp://{host}")
 
         # Data socket (PUSH/PULL pattern)
-        self.data_socket = self.context.socket(zmq.PULL)
+        self.data_socket = self.context.socket(zmq.PUSH)
         self.data_port = self.data_socket.bind_to_random_port(f"tcp://{host}")
 
     def receive_status(self):
@@ -27,8 +27,8 @@ class ArborServerCommsHandler:
         self.command_socket.send_json(command)
         return self.command_socket.recv_json()  # Wait for acknowledgment
 
-    def receive_data(self):
-        return self.data_socket.recv_json()
+    def send_data(self, data):
+        self.data_socket.send_json(data)
 
     def close(self):
         self.command_socket.close()
@@ -49,7 +49,7 @@ class ArborScriptCommsHandler:
         self.status_socket.connect(f"tcp://{host}:{status_port}")
 
         # Data socket
-        self.data_socket = self.context.socket(zmq.PUSH)
+        self.data_socket = self.context.socket(zmq.PULL)
         self.data_socket.connect(f"tcp://{host}:{data_port}")
 
     def send_status(self, status):
@@ -62,8 +62,8 @@ class ArborScriptCommsHandler:
             self.command_socket.send_json({"status": "received"})
             yield command
 
-    def send_data(self, data):
-        self.data_socket.send_json(data)
+    def receive_data(self):
+        return self.data_socket.recv_json()
 
     def close(self):
         self.command_socket.close()
