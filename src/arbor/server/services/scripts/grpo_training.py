@@ -142,9 +142,12 @@ class ArborGRPOTrainer(GRPOTrainer):
         # Check if we need to update the inference model
         if self.comms_handler is not None and hasattr(self, '_last_loaded_step'):
             if self.state.global_step - self._last_loaded_step > 25 - 1:
-                self.save_model()
-                self.comms_handler.send_status({"status": "update_inference_model"})
-                self._last_loaded_step = self.state.global_step
+                if self.accelerator.is_main_process:
+                    # SO I think this works if I make sure the saved model is
+                    self.comms_handler.send_status({"status": f"saving model to {self.args.output_dir}"})
+                    self.save_model()
+                    self.comms_handler.send_status({"status": "update_inference_model"})
+                    self._last_loaded_step = self.state.global_step
 
         # if self.state.global_step != self._last_loaded_step:
         #     self._move_model_to_vllm()
