@@ -28,6 +28,7 @@ class GRPOManager:
         self.status_thread = None
         # Set up signal handler
         signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
 
     def _signal_handler(self, signum, frame):
         """Handle keyboard interrupt (SIGINT) gracefully."""
@@ -181,7 +182,7 @@ class GRPOManager:
 
             # Wait for training process to finish
             if self.training_process:
-                self.training_process.wait(timeout=30)
+                self.training_process.wait(timeout=10)
 
         except Exception as e:
             print(f"Error during termination: {e}")

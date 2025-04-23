@@ -8,6 +8,7 @@ import signal
 import sys
 from typing import Optional, Dict, Any
 from datetime import datetime
+import http.client
 from arbor.server.core.config import Settings
 
 
@@ -55,9 +56,6 @@ class InferenceManager:
 
 
         print(f"Grabbing a free port to launch an vLLM server for model {model}")
-        print(
-            f"We see that CUDA_VISIBLE_DEVICES is {os.environ.get('CUDA_VISIBLE_DEVICES', 'unset')}"
-        )
         port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
         my_env = os.environ.copy()
@@ -132,6 +130,7 @@ class InferenceManager:
         self.thread = thread
         self.restarting = False
         self.current_model = model
+
     def kill(self):
         if self.process is None:
             print("No running server to kill.")
@@ -191,6 +190,9 @@ class InferenceManager:
         try:
             response = requests.post(url, json=request_json)
             return response.json()
+        except http.client.RemoteDisconnected:
+            print("Server disconnected...ignoring")
+            return None
         except Exception as e:
             print(f"Error during inference: {e}")
             raise
