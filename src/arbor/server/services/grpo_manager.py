@@ -78,7 +78,9 @@ class GRPOManager:
         self.training_process = subprocess.Popen(
             [
                 "python", "-m", "accelerate.commands.launch",
-                "--config_file", "training_config.yaml",
+                # "--config_file", "training_config.yaml",
+                "--multi_gpu", "false",
+                "--gpu_ids", "2",
                 script_path,
                 "--host", self.socket_manager.host,
                 "--command_port", str(self.socket_manager.command_port),
