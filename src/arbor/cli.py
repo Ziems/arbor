@@ -84,7 +84,7 @@ def stop_server(server):
 @cli.command()
 @click.option('--host', default='0.0.0.0', help='Host to bind to')
 @click.option('--port', default=8000, help='Port to bind to')
-@click.option('--arbor-config', help='Path to the Arbor config file')
+@click.option('--arbor-config', required=True, help='Path to the Arbor config file')
 def serve(host, port, arbor_config):
     """Start the Arbor API server"""
     app = create_app(arbor_config)
