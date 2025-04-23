@@ -17,6 +17,7 @@ class InferenceManager:
         self.process = None
         self.launch_kwargs = {}
         self.last_activity = None
+        self.restarting = False
         self._shutting_down = False
 
         # Set up signal handler for graceful shutdown
@@ -35,6 +36,9 @@ class InferenceManager:
 
     def is_server_running(self):
         return self.process is not None
+
+    def is_server_restarting(self):
+        return self.restarting
 
     def launch(self, model: str, launch_kwargs: Optional[Dict[str, Any]] = None):
         if self.is_server_running():
@@ -127,7 +131,7 @@ class InferenceManager:
         self.get_logs = get_logs
         self.process = process
         self.thread = thread
-
+        self.restarting = False
 
     def kill(self):
         if self.process is None:
@@ -190,6 +194,7 @@ class InferenceManager:
 
     def update_model(self, output_dir):
         print("Restarting server with new model...")
+        self.restarting = True
         tik = time.time()
         self.kill()
         print("Just killed server")
