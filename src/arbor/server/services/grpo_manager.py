@@ -79,15 +79,14 @@ class GRPOManager:
             [
                 "python", "-m", "accelerate.commands.launch",
                 # "--config_file", "training_config.yaml",
-                "--multi_gpu", "false",
-                "--gpu_ids", "2",
+                "--num_processes", "1",
                 script_path,
                 "--host", self.socket_manager.host,
                 "--command_port", str(self.socket_manager.command_port),
                 "--status_port", str(self.socket_manager.status_port),
                 "--data_port", str(self.socket_manager.data_port)
             ],
-            # env=my_env
+            env=my_env
         )
 
         # Start status handling thread
