@@ -30,7 +30,7 @@ class InferenceManager:
     def is_server_running(self):
         return self.process is not None
 
-    def launch(self, model: str,launch_kwargs: Optional[Dict[str, Any]] = None):
+    def launch(self, model: str, launch_kwargs: Optional[Dict[str, Any]] = None):
         if self.is_server_running():
             print("Server is already launched.")
             return
@@ -167,11 +167,13 @@ class InferenceManager:
         print("Restarting server with new model...")
         tik = time.time()
         self.kill()
+        print("Just killed server")
         # Check that output directory exists and was created successfully
         print(f"Checking that output directory {output_dir} exists")
         if not os.path.exists(output_dir):
             raise RuntimeError(f"Failed to save model - output directory {output_dir} does not exist")
 
+        print("Launching new server")
         self.launch(output_dir, self.launch_kwargs)
         tok = time.time()
         print(f"Time taken to update model: {tok - tik} seconds")
