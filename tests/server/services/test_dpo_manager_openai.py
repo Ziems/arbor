@@ -84,7 +84,6 @@ def trained_model_job_openai():
     file_id = upload_response.id
 
     import pdb
-    pdb.set_trace()
     dpo_response = openai_client.fine_tuning.jobs.create(
         training_file=file_id,
         model="HuggingFaceTB/SmolLM2-135M-Instruct",

@@ -9,10 +9,11 @@ router = APIRouter()
 
 # Create a fine-tune job
 @router.post("", response_model=JobStatusModel)
-def create_fine_tune_job(request: Request, fine_tune_request: FineTuneRequest, background_tasks: BackgroundTasks):
+async def create_fine_tune_job(request: Request, fine_tune_request: FineTuneRequest, background_tasks: BackgroundTasks):
     job_manager = request.app.state.job_manager
     file_manager = request.app.state.file_manager
     training_manager = request.app.state.training_manager
+    raw_json = await request.json()
     # inference_manager = request.app.state.inference_manager
 
     # TODO: Temporarily disabling this because kill isn't working properly.
@@ -21,8 +22,8 @@ def create_fine_tune_job(request: Request, fine_tune_request: FineTuneRequest, b
     #     while inference_manager.is_server_running(): # TODO: This should be done cleaner
     #         time.sleep(1)
 
-    import pdb
-    pdb.set_trace()
+
+    fine_tune_request.method = raw_json['method']
     
     job = job_manager.create_job()
     background_tasks.add_task(training_manager.fine_tune, fine_tune_request, job, file_manager)

@@ -33,7 +33,7 @@ def create_app(storage_path='./storage'):
     training_manager = TrainingManager(settings=settings)
     inference_manager = InferenceManager(settings=settings)
     grpo_manager = GRPOManager(settings=settings)
-    dpo_manager = DPOManager(settings=settingss)
+    dpo_manager = DPOManager(settings=settings)
     # Inject settings into app state
     app.state.settings = settings
     app.state.file_manager = file_manager

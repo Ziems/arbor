@@ -66,7 +66,22 @@ class TrainingManager:
         job.status = JobStatus.RUNNING
         job.add_event(JobEvent(level="info", message="Starting fine-tuning job", data={}))
 
-        print(">>>>>>>>", request.method)
+        import pdb
+        pdb.set_trace()
+        
+        fine_tune_type = request.method['type']
+        if fine_tune_type == "dpo":
+            self.dpo_fine_tune(request, job, file_manager)
+        else:
+            self.sft_fine_tune(request, job, file_manager)
+
+
+
+    def dpo_fine_tune(self, request: FineTuneRequest, job: Job, file_manager: FileManager):
+
+        return
+
+    def sft_fine_tune(self, request: FineTuneRequest, job: Job, file_manager: FileManager):
 
         try:
             train_kwargs = self.find_train_args(request, file_manager)

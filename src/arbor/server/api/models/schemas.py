@@ -31,11 +31,13 @@ class IntegrationModel(BaseModel):
 class FineTuneRequest(BaseModel):
     model: str
     training_file: str  # id of uploaded jsonl file
+    method: dict
     suffix: Optional[str] = None
     # UNUSED
     validation_file: Optional[str] = None
     integrations: Optional[List[IntegrationModel]] = []
     seed: Optional[int] = None
+    
 
 class DPORequest(BaseModel):
     model: str
