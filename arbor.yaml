@@ -1,0 +1,6 @@
+inference:
+  gpu_ids: '0'
+
+training:
+  gpu_ids: '1, 2'
+  num_processes: 2
