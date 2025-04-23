@@ -368,7 +368,6 @@ def main():
         assert "output_dir" in trl_train_args, "output_dir is required"
 
 
-        import pdb; pdb.set_trace()
         training_args = GRPOConfig(**trl_train_args)
         trainer = ArborGRPOTrainer(
             model="Qwen/Qwen2-0.5B-Instruct",
