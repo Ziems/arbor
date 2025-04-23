@@ -85,7 +85,7 @@ class GRPOManager:
 
         # Start the training process
         my_env = os.environ.copy()
-        my_env["CUDA_VISIBLE_DEVICES"] = "1"
+        my_env["CUDA_VISIBLE_DEVICES"] = "2"
 
         self.training_process = subprocess.Popen(
             [

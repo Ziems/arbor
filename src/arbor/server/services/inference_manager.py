@@ -51,6 +51,8 @@ class InferenceManager:
         )
         port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
+        my_env = os.environ.copy()
+        my_env["CUDA_VISIBLE_DEVICES"] = "2"
         # If vllm has trouble because a tokenizer is not found, make sure to save the tokenizer in the same directory as the model during training
         # transformers.Trainer already does this when you save the model. In a pinch, you can manually set the tokenizer of the original model in vllm
         command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.7 --max_model_len 8192"
@@ -62,6 +64,7 @@ class InferenceManager:
             text=True,
             stdout=subprocess.PIPE,  # We'll read from pipe
             stderr=subprocess.STDOUT,  # Merge stderr into stdout
+            env=my_env
         )
 
         # A threading.Event to control printing after the server is ready.
