@@ -308,13 +308,6 @@ def main():
         args.status_port = server_comms_handler.status_port
         args.data_port = server_comms_handler.data_port
 
-        # Start the connection acceptance loop in a separate thread
-        connection_thread = threading.Thread(
-            target=server_comms_handler.accept_connections_loop,
-            daemon=True
-        )
-        connection_thread.start()
-
         def debug_data_generator():
             tldr_dataset = load_dataset("trl-lib/tldr", split="train")
             while True:
