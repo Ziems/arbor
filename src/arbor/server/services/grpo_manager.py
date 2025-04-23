@@ -4,9 +4,9 @@ from datetime import datetime
 from pathlib import Path
 import os
 import subprocess
-import socket
 import threading
 from typing import Optional
+import zmq
 
 from arbor.server.api.models.schemas import GRPORequest, GRPOConfigRequest
 from arbor.server.core.config import Settings
@@ -22,7 +22,6 @@ class GRPOManager:
         self.train_kwargs = None
         self.socket_manager = None
         self.status_thread = None
-        self._status_handler = None
 
     def make_output_dir(self, model_name: str, run_suffix: Optional[str] = None) -> tuple[str, str]:
         """Create a unique output directory name for the training run."""
@@ -60,30 +59,18 @@ class GRPOManager:
         train_kwargs = request.model_dump(exclude_unset=True)
         return {**default_train_kwargs, **(train_kwargs or {})}
 
-    def _handle_status_updates(self, inference_manager: InferenceManager):
-        """Handle status updates from training process"""
-        for status in self.socket_manager.receive_status():
-            if status["status"] == "update_inference_model":
-                inference_manager.update_model(self.train_kwargs["output_dir"])
-                self.current_model = self.train_kwargs["output_dir"]
-            elif status["status"] == "error":
-                print(f"Training error: {status.get('error', 'Unknown error')}")
-            elif status["status"] == "terminated":
-                print("Training process terminated")
-                break
-
     def initialize(self, request: GRPOConfigRequest, inference_manager: InferenceManager):
-        """Initialize the training process with socket-based communication."""
+        """Initialize the training process with ZMQ-based communication."""
         self.train_kwargs = self.find_training_args(request)
         self.current_model = request.model
 
-        # Initialize socket manager
+        # Initialize ZMQ socket manager - no need for connection acceptance thread anymore
         self.socket_manager = ArborServerCommsHandler()
 
         script_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
         script_path = os.path.join(script_dir, "grpo_training.py")
 
-        # Start the training process
+        # Start the training process with ZMQ ports
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = "2"
 
@@ -99,13 +86,6 @@ class GRPOManager:
             env=my_env
         )
 
-        # Accept connections from training process
-        self.connections_thread = threading.Thread(
-            target=self.socket_manager.accept_connections_loop,
-            daemon=True
-        )
-        self.connections_thread.start()
-
         # Start status handling thread
         self.status_thread = threading.Thread(
             target=self._handle_status_updates,
@@ -118,12 +98,34 @@ class GRPOManager:
         print("Launching inference server...")
         inference_manager.launch(self.current_model)
 
+    def _handle_status_updates(self, inference_manager: InferenceManager):
+        """Handle status updates from training process using ZMQ SUB socket"""
+        print("Starting status update handler...")
+        try:
+            # Subscribe to all messages (empty string means all topics)
+            self.socket_manager.status_socket.setsockopt_string(zmq.SUBSCRIBE, "")
+
+            for status in self.socket_manager.receive_status():
+                print(f"Received status update: {status}")
+                if status["status"] == "update_inference_model":
+                    print("Updating inference model...")
+                    inference_manager.update_model(self.train_kwargs["output_dir"])
+                    self.current_model = self.train_kwargs["output_dir"]
+                    print("Model update complete")
+                elif status["status"] == "error":
+                    print(f"Training error: {status.get('error', 'Unknown error')}")
+                elif status["status"] == "terminated":
+                    print("Training process terminated")
+                    break
+        except Exception as e:
+            print(f"Error in status update handler: {e}")
+
     def grpo_step(self, request: GRPORequest, inference_manager: InferenceManager) -> str:
-        """Process a training step using socket communication."""
+        """Process a training step using ZMQ PUSH socket."""
         try:
             # Send the batch to the training process
             self.socket_manager.send_data(request.batch)
-        except (ConnectionError, socket.error) as e:
+        except Exception as e:
             print(f"Failed to send batch to training process: {e}")
 
         return self.current_model
@@ -135,7 +137,7 @@ class GRPOManager:
             if inference_manager.process is not None:
                 inference_manager.kill()
 
-            # Send termination command
+            # Send termination command through REQ socket
             self.socket_manager.send_command({"command": "terminate"})
 
             # Wait for training process to finish
@@ -145,7 +147,7 @@ class GRPOManager:
         except Exception as e:
             print(f"Error during termination: {e}")
         finally:
-            # Clean up socket connections
+            # Clean up ZMQ connections
             if self.socket_manager:
                 self.socket_manager.close()
 
