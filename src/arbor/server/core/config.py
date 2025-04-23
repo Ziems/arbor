@@ -17,17 +17,20 @@ class Settings(BaseModel):
 
     STORAGE_PATH: str = "./storage"
     INACTIVITY_TIMEOUT: int = 30 # 5 seconds
-    arbor_config: ArborConfig = ArborConfig()
+    arbor_config: ArborConfig
 
     @classmethod
     def load_from_yaml(cls, yaml_path: str) -> "Settings":
+        if not yaml_path:
+            raise ValueError("Config file path is required")
+        if not Path(yaml_path).exists():
+            raise ValueError(f"Config file {yaml_path} does not exist")
 
         settings = cls()
-        if Path(yaml_path).exists():
-            with open(yaml_path, "r") as f:
+        with open(yaml_path, "r") as f:
                 config = yaml.safe_load(f)
-            settings.inference.gpu_ids = config["inference"]["gpu_ids"]
-            settings.training.gpu_ids = config["training"]["gpu_ids"]
-            settings.training.num_processes = config["training"]["num_processes"]
+        settings.inference.gpu_ids = config["inference"]["gpu_ids"]
+        settings.training.gpu_ids = config["training"]["gpu_ids"]
+        settings.training.num_processes = config["training"]["num_processes"]
 
         return settings
