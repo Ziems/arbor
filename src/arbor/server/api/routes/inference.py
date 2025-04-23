@@ -56,9 +56,13 @@ async def run_inference(request: Request): # TODO: Ideally this should be ChatCo
             raw_json["model"] = raw_json["model"][len(prefix):]
 
     # if a server isnt running, launch one
-    if not inference_manager.is_server_running():
+    if not inference_manager.is_server_running() and not inference_manager.is_server_restarting():
         print("No model is running, launching model...")
         inference_manager.launch(raw_json["model"])
+
+    while inference_manager.is_server_restarting():
+        print("Waiting for server to finish restarting...")
+        time.sleep(5)
 
     # forward the request to the inference server
     completion = inference_manager.run_inference(raw_json)
