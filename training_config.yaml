@@ -1,6 +1,0 @@
-compute_environment: LOCAL_MACHINE
-distributed_type: NO
-gpu_ids: 2
-mixed_precision: no
-num_processes: 1
-use_cpu: false
