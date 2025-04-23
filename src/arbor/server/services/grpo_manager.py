@@ -91,7 +91,6 @@ class GRPOManager:
             [
                 "python", "-m", "accelerate.commands.launch",
                 script_path,
-                "--socket",  # Use socket communication
                 "--host", self.socket_manager.host,
                 "--command_port", str(self.socket_manager.command_port),
                 "--status_port", str(self.socket_manager.status_port),
