@@ -20,7 +20,7 @@ class Settings(BaseModel):
     arbor_config: ArborConfig = ArborConfig()
 
     @classmethod
-    def load_from_yaml(cls, yaml_path: str = "arbor.yaml") -> "Settings":
+    def load_from_yaml(cls, yaml_path: str) -> "Settings":
 
         settings = cls()
         if Path(yaml_path).exists():
