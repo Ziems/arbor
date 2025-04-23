@@ -157,6 +157,10 @@ class GRPOManager:
 
     def grpo_step(self, request: GRPORequest, inference_manager: InferenceManager) -> str:
         """Process a training step using ZMQ PUSH socket."""
+        if inference_manager.is_server_restarting():
+            print("Inferece manager restarting, ignoring GRPO step")
+            return self.current_model
+
         try:
             # Send the batch to the training process
             self.socket_manager.send_data(request.batch)

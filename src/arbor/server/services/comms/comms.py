@@ -1,4 +1,6 @@
 import zmq
+import queue
+import threading
 
 
 class ArborServerCommsHandler:
@@ -53,6 +55,22 @@ class ArborScriptCommsHandler:
         self.data_socket = self.context.socket(zmq.PULL)
         self.data_socket.connect(f"tcp://{host}:{data_port}")
 
+    #     self.data_queue = queue.Queue()
+    #     self._start_data_receiver()
+
+    # def _start_data_receiver(self):
+    #     def receiver():
+    #         while True:
+    #             try:
+    #                 data = self.data_socket.recv_json()
+    #                 self.data_queue.put(data)
+    #             except Exception as e:
+    #                 print(f"Error receiving data: {e}")
+    #                 break
+
+    #     self.receiver_thread = threading.Thread(target=receiver, daemon=True)
+    #     self.receiver_thread.start()
+
     def send_status(self, status):
         self.status_socket.send_json(status)
 
@@ -64,7 +82,11 @@ class ArborScriptCommsHandler:
             yield command
 
     def receive_data(self):
+        # return self.data_queue.get()
         return self.data_socket.recv_json()
+
+    # def has_data(self):
+    #     return not self.data_queue.empty()
 
     def close(self):
         self.command_socket.close()

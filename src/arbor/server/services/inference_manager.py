@@ -188,8 +188,12 @@ class InferenceManager:
             raise RuntimeError("Server is not running. Please launch it first.")
 
         url = f"{self.launch_kwargs['api_base']}/chat/completions"
-        response = requests.post(url, json=request_json)
-        return response.json()
+        try:
+            response = requests.post(url, json=request_json)
+            return response.json()
+        except Exception as e:
+            print(f"Error during inference: {e}")
+            raise
 
     def update_model(self, output_dir):
         print("Restarting server with new model...")
