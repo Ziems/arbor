@@ -9,6 +9,8 @@ import subprocess
 import threading
 from typing import Optional
 import zmq
+import signal
+import sys
 
 from arbor.server.api.models.schemas import GRPORequest, GRPOConfigRequest
 from arbor.server.core.config import Settings
@@ -24,6 +26,14 @@ class GRPOManager:
         self.train_kwargs = None
         self.socket_manager = None
         self.status_thread = None
+        # Set up signal handler
+        signal.signal(signal.SIGINT, self._signal_handler)
+
+    def _signal_handler(self, signum, frame):
+        """Handle keyboard interrupt (SIGINT) gracefully."""
+        print("\nReceived keyboard interrupt. Shutting down gracefully...")
+        self.terminate(None)
+        sys.exit(0)
 
     def make_output_dir(self, model_name: str, run_suffix: Optional[str] = None) -> tuple[str, str]:
         """Create a unique output directory name for the training run."""
