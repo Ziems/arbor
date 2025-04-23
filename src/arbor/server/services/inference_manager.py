@@ -19,6 +19,7 @@ class InferenceManager:
         self.last_activity = None
         self.restarting = False
         self._shutting_down = False
+        self.current_model = None
 
         # Set up signal handler for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -47,14 +48,12 @@ class InferenceManager:
 
         launch_kwargs = launch_kwargs or self.launch_kwargs
 
-        if model.startswith("openai/"):
-            model = model[7:]
-        if model.startswith("local:"):
-            model = model[6:]
-        if model.startswith("huggingface/"):
-            model = model[len("huggingface/"):]
+        prefixes = ["openai/", "huggingface/", "local:", "arbor:"]
+        for prefix in prefixes:
+            if model.startswith(prefix):
+                model = model[len(prefix):]
 
-        import os
+
         print(f"Grabbing a free port to launch an vLLM server for model {model}")
         print(
             f"We see that CUDA_VISIBLE_DEVICES is {os.environ.get('CUDA_VISIBLE_DEVICES', 'unset')}"
@@ -132,7 +131,7 @@ class InferenceManager:
         self.process = process
         self.thread = thread
         self.restarting = False
-
+        self.current_model = model
     def kill(self):
         if self.process is None:
             print("No running server to kill.")
