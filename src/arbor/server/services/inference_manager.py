@@ -138,10 +138,31 @@ class InferenceManager:
         self.get_logs = None
         self.last_activity = None
 
-        # Then terminate the process and join thread
-        process.terminate()  # Send SIGTERM signal
-        process.wait()  # Wait for process to finish
-        thread.join()
+        try:
+            # First try SIGTERM
+            process.terminate()
+
+            # Wait up to 10 seconds for process to terminate
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                print("Process did not terminate after 10 seconds, forcing with SIGKILL...")
+                process.kill()  # Send SIGKILL
+                process.wait(timeout=5)  # Give it 5 more seconds to die
+
+            # Give the thread a short time to exit
+            thread.join(timeout=5)
+            if thread.is_alive():
+                print("Warning: Background thread did not exit cleanly")
+
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
+            # Ensure we try to kill the process even if other errors occur
+            try:
+                process.kill()
+            except:
+                pass
+
         print("Server killed.")
 
     def run_inference(self, request_json: dict):

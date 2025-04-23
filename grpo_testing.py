@@ -10,8 +10,8 @@ def initialize_grpo(model, url='http://127.0.0.1:8000/v1/fine_tuning/grpo/initia
     headers = {'Content-Type': 'application/json'}
     data = {
         'model': model,
-        'suffix': 'test',
-        'num_generations': 8
+        'num_generations': 8,
+        'update_interval': 5
     }
     response = requests.post(url, headers=headers, json=data)
     return response
