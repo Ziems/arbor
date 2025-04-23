@@ -7,6 +7,7 @@ import subprocess
 import threading
 from typing import Optional
 import zmq
+import torch
 
 from arbor.server.api.models.schemas import GRPORequest, GRPOConfigRequest
 from arbor.server.core.config import Settings

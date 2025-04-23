@@ -62,7 +62,7 @@ async def run_inference(request: Request): # TODO: Ideally this should be ChatCo
 
     # forward the request to the inference server
     completion = inference_manager.run_inference(raw_json)
-    print(completion)
+    # print(completion)
 
     # Resume Training if it was paused
     # if active_job is not None and active_job.status == JobStatus.PAUSED:

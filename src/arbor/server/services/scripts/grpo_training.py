@@ -266,16 +266,16 @@ class BlockingQueueDataset(Dataset):
         if self.accelerator.is_main_process:
             print(f"Main process {self.accelerator.process_index} getting new data")
             new_data = self.comms_handler.receive_data()  # This blocks until data is available
-            print(f"Main process {self.accelerator.process_index} got new data")
+            # print(f"Main process {self.accelerator.process_index} got new data")
             if idx not in self.completion_counters:
                 self.completion_counters[idx] = 0
             return broadcast_object_list([new_data])[0]
         else:
-            print(f"Other process {self.accelerator.process_index} waiting for data")
+            # print(f"Other process {self.accelerator.process_index} waiting for data")
             return broadcast_object_list([None])[0]
 
     def __getitem__(self, idx):
-        print(f"Process {self.accelerator.process_index} getting item {idx}")
+        # print(f"Process {self.accelerator.process_index} getting item {idx}")
         data = self.get_cached_data(idx)
 
         if data is None:
@@ -285,7 +285,7 @@ class BlockingQueueDataset(Dataset):
         item = data[counter]
         self.completion_counters[idx] = (counter + 1) % len(data)
 
-        print(f"Process {self.accelerator.process_index} got item {item['completion']['content'][:50]}")
+        # print(f"Process {self.accelerator.process_index} got item {item['completion']['content'][:50]}")
         return item
 
 def main():
@@ -351,6 +351,15 @@ def main():
     )
 
     try:
+        # Print CUDA device information
+        if torch.cuda.is_available():
+            print(f"Number of CUDA devices: {torch.cuda.device_count()}")
+            for i in range(torch.cuda.device_count()):
+                print(f"CUDA Device {i}: {torch.cuda.get_device_name(i)}")
+            print(f"Current CUDA device: {torch.cuda.current_device()}")
+        else:
+            print("CUDA is not available")
+
         training_args = GRPOConfig(output_dir="Qwen2-0.5B-GRPO", logging_steps=10)
         trainer = ArborGRPOTrainer(
             model="Qwen/Qwen2-0.5B-Instruct",
@@ -358,6 +367,9 @@ def main():
             train_dataset=BlockingQueueDataset(None, comms_handler),
             comms_handler=comms_handler
         )
+
+        # After trainer initialization, we can also print device info from the model
+        print(f"Model device: {next(trainer.model.parameters()).device}")
 
         # Initialize the dataset with the actual accelerator
         trainer.train_dataset = BlockingQueueDataset(
