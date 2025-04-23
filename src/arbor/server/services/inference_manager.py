@@ -8,6 +8,7 @@ import signal
 import sys
 from typing import Optional, Dict, Any
 from datetime import datetime
+import http.client
 from arbor.server.core.config import Settings
 
 
@@ -17,40 +18,48 @@ class InferenceManager:
         self.process = None
         self.launch_kwargs = {}
         self.last_activity = None
+        self.restarting = False
+        self._shutting_down = False
+        self.current_model = None
 
         # Set up signal handler for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
     def _signal_handler(self, signum, frame):
+        if self._shutting_down:
+            print("\nForced exit during cleanup...")
+            os._exit(1)
+
         print("\nReceived signal to terminate. Cleaning up...")
+        self._shutting_down = True
         self.kill()
         sys.exit(0)
 
     def is_server_running(self):
         return self.process is not None
 
-    def launch(self, model: str,launch_kwargs: Optional[Dict[str, Any]] = None):
+    def is_server_restarting(self):
+        return self.restarting
+
+    def launch(self, model: str, launch_kwargs: Optional[Dict[str, Any]] = None):
         if self.is_server_running():
             print("Server is already launched.")
             return
 
         launch_kwargs = launch_kwargs or self.launch_kwargs
 
-        if model.startswith("openai/"):
-            model = model[7:]
-        if model.startswith("local:"):
-            model = model[6:]
-        if model.startswith("huggingface/"):
-            model = model[len("huggingface/"):]
+        prefixes = ["openai/", "huggingface/", "local:", "arbor:"]
+        for prefix in prefixes:
+            if model.startswith(prefix):
+                model = model[len(prefix):]
 
-        import os
+
         print(f"Grabbing a free port to launch an vLLM server for model {model}")
-        print(
-            f"We see that CUDA_VISIBLE_DEVICES is {os.environ.get('CUDA_VISIBLE_DEVICES', 'unset')}"
-        )
         port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
+        my_env = os.environ.copy()
+        my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
         # If vllm has trouble because a tokenizer is not found, make sure to save the tokenizer in the same directory as the model during training
         # transformers.Trainer already does this when you save the model. In a pinch, you can manually set the tokenizer of the original model in vllm
         command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.7 --max_model_len 8192"
@@ -62,6 +71,7 @@ class InferenceManager:
             text=True,
             stdout=subprocess.PIPE,  # We'll read from pipe
             stderr=subprocess.STDOUT,  # Merge stderr into stdout
+            env=my_env
         )
 
         # A threading.Event to control printing after the server is ready.
@@ -118,27 +128,47 @@ class InferenceManager:
         self.get_logs = get_logs
         self.process = process
         self.thread = thread
-
+        self.restarting = False
+        self.current_model = model
 
     def kill(self):
         if self.process is None:
             print("No running server to kill.")
             return
 
-        # Store a reference to process and thread before clearing
         process = self.process
         thread = self.thread
 
-        # Clear the references first
+        # Clear references first
         self.process = None
         self.thread = None
         self.get_logs = None
         self.last_activity = None
 
-        # Then terminate the process and join thread
-        process.terminate()  # Send SIGTERM signal
-        process.wait()  # Wait for process to finish
-        thread.join()
+        try:
+            # Handle nested signal case
+            if self._shutting_down:
+                process.kill()  # Go straight to SIGKILL if we're shutting down
+            else:
+                process.terminate()  # Try SIGTERM first
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    print("Process did not terminate after 10 seconds, forcing with SIGKILL...")
+                    process.kill()
+
+            process.wait(timeout=5)
+
+            if thread and thread.is_alive():
+                thread.join(timeout=5)
+
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
+            try:
+                process.kill()  # Final attempt to kill
+            except:
+                pass
+
         print("Server killed.")
 
     def run_inference(self, request_json: dict):
@@ -157,19 +187,28 @@ class InferenceManager:
             raise RuntimeError("Server is not running. Please launch it first.")
 
         url = f"{self.launch_kwargs['api_base']}/chat/completions"
-        response = requests.post(url, json=request_json)
-        return response.json()
+        try:
+            response = requests.post(url, json=request_json)
+            return response.json()
+        except requests.exceptions.ConnectionError:
+            print("Server disconnected...ignoring")
+            return None
+        except Exception as e:
+            print(f"Error during inference: {e}")
+            raise
 
-    def update_model(self, model, tokenizer, output_dir):
+    def update_model(self, output_dir):
         print("Restarting server with new model...")
+        self.restarting = True
         tik = time.time()
         self.kill()
-        model.save_pretrained(output_dir)
-        tokenizer.save_pretrained(output_dir)
+        print("Just killed server")
         # Check that output directory exists and was created successfully
+        print(f"Checking that output directory {output_dir} exists")
         if not os.path.exists(output_dir):
             raise RuntimeError(f"Failed to save model - output directory {output_dir} does not exist")
 
+        print("Launching new server")
         self.launch(output_dir, self.launch_kwargs)
         tok = time.time()
         print(f"Time taken to update model: {tok - tik} seconds")

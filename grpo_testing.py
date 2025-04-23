@@ -10,8 +10,8 @@ def initialize_grpo(model, url='http://127.0.0.1:8000/v1/fine_tuning/grpo/initia
     headers = {'Content-Type': 'application/json'}
     data = {
         'model': model,
-        'suffix': 'test',
-        'num_generations': 2
+        'num_generations': 8,
+        'update_interval': 5
     }
     response = requests.post(url, headers=headers, json=data)
     return response
@@ -55,7 +55,7 @@ for i in range(len(dataset)):
         model=current_model,
         messages=input_messages,
         temperature=0.7,
-        n=2
+        n=8
     )
     completions = [{'content': choice.message.content, 'role': choice.message.role} for choice in response.choices]
     rewards = reward_func(inputs["prompt"], [c["content"] for c in completions])
