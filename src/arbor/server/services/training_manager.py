@@ -108,120 +108,122 @@ class TrainingManager:
 
     def dpo_fine_tune(self, request: FineTuneRequest, job: Job, file_manager: FileManager):
 
-        job.status = JobStatus.RUNNING
-        job.add_event(JobEvent(level="info", message="Starting fine-tuning job", data={}))
-
-        train_kwargs = self.find_train_args_dpo(request, file_manager)
-        import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
-        from trl import setup_chat_format, DPOConfig, DPOTrainer
-
-        device = train_kwargs.get("device", None)
-        if device is None:
-            device = (
-                "cuda"
-                if torch.cuda.is_available()
-                else "mps" if torch.backends.mps.is_available() else "cpu"
-            )
-
-        job.add_event(JobEvent(level="info", message=f"Using device: {device}", data={}))
-
-
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name_or_path=request.model,
-            device_map='auto'
-        )
-        tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path=request.model)
-
         try:
-            model, tokenizer = setup_chat_format(model=model, tokenizer=tokenizer)
-        except Exception:
-            pass
 
-        if tokenizer.pad_token_id is None:
-            job.add_event(JobEvent(level="info", message="Adding pad token to tokenizer", data={}))
-            tokenizer.add_special_tokens({"pad_token": "[!#PAD#!]"})
+            job.status = JobStatus.RUNNING
+            job.add_event(JobEvent(level="info", message="Starting fine-tuning job", data={}))
+
+            train_kwargs = self.find_train_args_dpo(request, file_manager)
+            import torch
+            from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
+            from trl import setup_chat_format, DPOConfig, DPOTrainer
+
+            device = train_kwargs.get("device", None)
+            if device is None:
+                device = (
+                    "cuda"
+                    if torch.cuda.is_available()
+                    else "mps" if torch.backends.mps.is_available() else "cpu"
+                )
+
+            job.add_event(JobEvent(level="info", message=f"Using device: {device}", data={}))
+
+
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name_or_path=request.model,
+                device_map='auto'
+            )
+            tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path=request.model)
+
+            try:
+                model, tokenizer = setup_chat_format(model=model, tokenizer=tokenizer)
+            except Exception:
+                pass
+
+            if tokenizer.pad_token_id is None:
+                job.add_event(JobEvent(level="info", message="Adding pad token to tokenizer", data={}))
+                tokenizer.add_special_tokens({"pad_token": "[!#PAD#!]"})
+            
+
+            hf_dataset = dataset_from_file(train_kwargs["train_data_path"])
+            train_dataset = hf_dataset
+
+            use_peft = train_kwargs.get("use_peft", False)
+            peft_config = None
+
+            if use_peft:
+                from peft import LoraConfig
         
+                peft_config = LoraConfig(
+                        lora_alpha=128,
+                        lora_dropout=0.05,
+                        r=256,
+                        bias="none",
+                        target_modules="all-linear",
+                        task_type="CAUSAL_LM",
+                )
 
-        hf_dataset = dataset_from_file(train_kwargs["train_data_path"])
-        train_dataset = hf_dataset
-
-        use_peft = train_kwargs.get("use_peft", False)
-        peft_config = None
-
-        if use_peft:
-            from peft import LoraConfig
-    
-            peft_config = LoraConfig(
-                    lora_alpha=128,
-                    lora_dropout=0.05,
-                    r=256,
-                    bias="none",
-                    target_modules="all-linear",
-                    task_type="CAUSAL_LM",
+            dpo_args = DPOConfig(
+                output_dir=train_kwargs["output_dir"],
+                num_train_epochs=train_kwargs["num_train_epochs"],
             )
 
-        dpo_args = DPOConfig(
-            output_dir=train_kwargs["output_dir"],
-            num_train_epochs=train_kwargs["num_train_epochs"],
-        )
+            # TODO: set these training parameters
+            # f_divergence_type: str = "reverse_kl"
+            # label_pad_token_id: int = -100
+            # max_length: Optional[int] = None
+            # beta: float = 0.1
+            # padding_value: Optional[int] = None
+            # label_smoothing: float = 0.0
+            # reference_free: bool = False
+            # max_length: Optional[int] = None
+            # truncation_mode: str = "keep_end"
 
-        # TODO: set these training parameters
-        # f_divergence_type: str = "reverse_kl"
-        # label_pad_token_id: int = -100
-        # max_length: Optional[int] = None
-        # beta: float = 0.1
-        # padding_value: Optional[int] = None
-        # label_smoothing: float = 0.0
-        # reference_free: bool = False
-        # max_length: Optional[int] = None
-        # truncation_mode: str = "keep_end"
+            trainer = DPOTrainer(
+                model=model,
+                args=dpo_args,
+                train_dataset=train_dataset,
+                processing_class=tokenizer,
+                peft_config=peft_config,
+            )
 
-        trainer = DPOTrainer(
-            model=model,
-            args=dpo_args,
-            train_dataset=train_dataset,
-            processing_class=tokenizer,
-            peft_config=peft_config,
-        )
+            trainer.train()
 
-        trainer.train()
+            if job.status == JobStatus.PENDING_PAUSE:
+                    trainer.accelerator.save_state(output_dir=dpo_args.output_dir)
+                    current_step = trainer.state.global_step
+                    job.status = JobStatus.PAUSED
+                    job.add_event(JobEvent(level="info", message="Training paused", data={"step": current_step}))
 
-        if job.status == JobStatus.PENDING_PAUSE:
-                trainer.accelerator.save_state(output_dir=dpo_args.output_dir)
-                current_step = trainer.state.global_step
-                job.status = JobStatus.PAUSED
-                job.add_event(JobEvent(level="info", message="Training paused", data={"step": current_step}))
+            while job.status == JobStatus.PAUSED:
+                time.sleep(1)  # Sleep to avoid busy waiting
+                if job.status == JobStatus.PENDING_RESUME:
+                    job.status = JobStatus.RUNNING
+                    job.add_event(JobEvent(level="info", message="Resuming training"))
+                    trainer.accelerator.load_state(input_dir=dpo_args.output_dir)
+                    trainer.train(resume_from_checkpoint=True)
+            
+            if job.status == JobStatus.PENDING_CANCEL:
+                job.status = JobStatus.CANCELLED
+                job.add_event(JobEvent(level="info", message="Training cancelled"))
+                import gc
+                del model
+                del tokenizer
+                del trainer
+                gc.collect()
+                torch.cuda.empty_cache()
+                raise Exception("Training cancelled") # not sure if this should be raised or just return None
 
-        while job.status == JobStatus.PAUSED:
-            time.sleep(1)  # Sleep to avoid busy waiting
-            if job.status == JobStatus.PENDING_RESUME:
-                job.status = JobStatus.RUNNING
-                job.add_event(JobEvent(level="info", message="Resuming training"))
-                trainer.accelerator.load_state(input_dir=dpo_args.output_dir)
-                trainer.train(resume_from_checkpoint=True)
-        
-        if job.status == JobStatus.PENDING_CANCEL:
-            job.status = JobStatus.CANCELLED
-            job.add_event(JobEvent(level="info", message="Training cancelled"))
-            import gc
-            del model
-            del tokenizer
-            del trainer
-            gc.collect()
-            torch.cuda.empty_cache()
-            raise Exception("Training cancelled") # not sure if this should be raised or just return None
+            job.add_event(JobEvent(level="info", message="Training completed successfully"))
 
-        job.add_event(JobEvent(level="info", message="Training completed successfully"))
-
-        job.add_event(JobEvent(level="info", message="Saving model", data={}))
-        # Save the model!
-        trainer.save_model()
-        job.add_event(JobEvent(level="info", message="Model saved", data={'location': dpo_args.output_dir}))
+            job.add_event(JobEvent(level="info", message="Saving model", data={}))
+            # Save the model!
+            trainer.save_model()
+            job.add_event(JobEvent(level="info", message="Model saved", data={'location': dpo_args.output_dir}))
 
 
-        MERGE = True
-            if USE_PEFT and MERGE:
+            MERGE = True
+            if use_peft and MERGE:
                 from peft import AutoPeftModelForCausalLM
 
                 # Load PEFT model on CPU
@@ -246,7 +248,7 @@ class TrainingManager:
             torch.cuda.empty_cache()
 
             job.status = JobStatus.SUCCEEDED
-            job.fine_tuned_model = sft_config.output_dir
+            job.fine_tuned_model = dpo_args.output_dir
         except Exception as e:
             job.add_event(JobEvent(level="error", message=f"Training failed: {str(e)}", data={}))
             job.status = JobStatus.FAILED

@@ -8,7 +8,6 @@ from arbor.server.services.job_manager import JobManager
 from arbor.server.services.training_manager import TrainingManager
 from arbor.server.services.inference_manager import InferenceManager
 from arbor.server.services.grpo_manager import GRPOManager
-from arbor.server.services.dpo_manager import DPOManager
 @click.group()
 def cli():
     pass
@@ -31,7 +30,6 @@ def create_app(arbor_config_path: str):
     training_manager = TrainingManager(settings=settings)
     inference_manager = InferenceManager(settings=settings)
     grpo_manager = GRPOManager(settings=settings)
-    dpo_manager = DPOManager(settings=settings)
     # Inject settings into app state
     app.state.settings = settings
     app.state.file_manager = file_manager
@@ -39,7 +37,6 @@ def create_app(arbor_config_path: str):
     app.state.training_manager = training_manager
     app.state.inference_manager = inference_manager
     app.state.grpo_manager = grpo_manager
-    app.state.dpo_manager = dpo_manager
 
     return app
 

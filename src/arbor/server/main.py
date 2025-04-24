@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from arbor.server.api.routes import files, jobs, inference, grpo, dpo
+from arbor.server.api.routes import files, jobs, inference, grpo
 
 app = FastAPI(title="Arbor API")
 
@@ -7,5 +7,4 @@ app = FastAPI(title="Arbor API")
 app.include_router(files.router, prefix="/v1/files")
 app.include_router(jobs.router, prefix="/v1/fine_tuning/jobs")
 app.include_router(grpo.router, prefix="/v1/fine_tuning/grpo")
-app.include_router(dpo.router, prefix="/v1/fine_tuning/dpo")
 app.include_router(inference.router, prefix="/v1/chat")

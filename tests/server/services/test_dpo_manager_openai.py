@@ -121,13 +121,3 @@ def trained_model_job_openai():
 
 
 trained_model_job_openai()
-
-# config_server()
-# proc = start()
-# run_server()
-# try:
-#     trained_model_job_openai()
-# except Exception as e:
-#     print(f"An error occurred: {e}")
-
-# end(proc)
