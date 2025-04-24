@@ -83,7 +83,6 @@ def trained_model_job_openai():
     # assert upload_response.status_code == 200   #Openai doesn't have the "status_code" return
     file_id = upload_response.id
 
-    import pdb
     dpo_response = openai_client.fine_tuning.jobs.create(
         training_file=file_id,
         model="HuggingFaceTB/SmolLM2-135M-Instruct",
@@ -95,14 +94,7 @@ def trained_model_job_openai():
         },
     )
 
-    print("????????????", dpo_response)
-
-    # dpo_response = openai_client.post("/v1/fine_tuning/dpo", json={
-    #     "training_file": file_id,
-    #     "model": "HuggingFaceTB/SmolLM2-135M-Instruct"
-    # })
-    assert dpo_response.status_code == 200
-    job_id = dpo_response.json()["id"]
+    job_id = dpo_response.id
 
     # 3. Poll job status until completion
     max_attempts = 30
@@ -111,10 +103,9 @@ def trained_model_job_openai():
     time.sleep(2)
 
     for _ in range(max_attempts):
-        status_response = openai_client.get(f"/v1/fine_tuning/jobs/{job_id}")
-        assert status_response.status_code == 200
+        status_response = openai_client.fine_tuning.jobs.retrieve(job_id)
 
-        status = status_response.json()["status"]
+        status = status_response.status
         if status == "succeeded":
             break
         elif status in ["failed", "cancelled"]:

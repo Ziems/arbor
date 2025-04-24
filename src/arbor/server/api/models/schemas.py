@@ -37,23 +37,6 @@ class FineTuneRequest(BaseModel):
     validation_file: Optional[str] = None
     integrations: Optional[List[IntegrationModel]] = []
     seed: Optional[int] = None
-    
-
-class DPORequest(BaseModel):
-    model: str
-    training_file: str
-    f_divergence_type: str = "reverse_kl"
-    label_pad_token_id: int = -100
-    max_length: Optional[int] = None
-    beta: float = 0.1
-    padding_value: Optional[int] = None
-    label_smoothing: float = 0.0
-    reference_free: bool = False
-    max_length: Optional[int] = None
-    truncation_mode: str = "keep_end"
-
-    # To name the run
-    suffix: Optional[str] = None
 
 
 class ErrorModel(BaseModel):
