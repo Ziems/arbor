@@ -96,13 +96,8 @@ class FileManager:
 
     del self.files[file_id]
 
-  def validate_file_format_sft(self, file_content: bytes) -> None:
-    """
-    Validates that the file content is properly formatted JSONL with expected structure.
-    Raises FileValidationError if validation fails.
-    """
 
-    def validate_file_format_sft(self, file_path: str) -> None:
+  def validate_file_format_sft(self, file_path: str) -> None:
     """
     Validates that the file at file_path is properly formatted JSONL with expected structure.
     Raises FileValidationError if validation fails.
