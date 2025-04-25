@@ -384,7 +384,6 @@ def main():
         status_port=args.status_port,
         data_port=args.data_port
     )
-    comms_handler.wait_for_all_sockets()
 
     try:
         trl_train_args = {**(args.trl_train_kwargs or {})}

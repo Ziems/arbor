@@ -39,22 +39,6 @@ class ArborServerCommsHandler:
         self.data_socket.close()
         self.context.term()
 
-    def check_all_sockets(self):
-        """Check if all sockets are in a valid state."""
-        try:
-            # Check command socket
-            cmd_state = self.command_socket.getsockopt(zmq.STATE)
-            # Check status socket
-            status_state = self.status_socket.getsockopt(zmq.STATE)
-            # Check data socket
-            data_state = self.data_socket.getsockopt(zmq.STATE)
-
-            # All sockets should be in READY state
-            return (cmd_state == zmq.STATE_READY and 
-                   status_state == zmq.STATE_READY and 
-                   data_state == zmq.STATE_READY)
-        except zmq.ZMQError:
-            return False
 
 class ArborScriptCommsHandler:
     def __init__(self, host, command_port, status_port, data_port):
@@ -101,33 +85,6 @@ class ArborScriptCommsHandler:
     def receive_data(self):
         # return self.data_queue.get()
         return self.data_socket.recv_json()
-
-    def check_all_sockets(self):
-        """Check if all sockets are in a valid state."""
-        try:
-            # Check command socket
-            cmd_state = self.command_socket.getsockopt(zmq.STATE)
-            # Check status socket
-            status_state = self.status_socket.getsockopt(zmq.STATE)
-            # Check data socket
-            data_state = self.data_socket.getsockopt(zmq.STATE)
-
-            # All sockets should be in READY state
-            return (cmd_state == zmq.STATE_READY and 
-                   status_state == zmq.STATE_READY and 
-                   data_state == zmq.STATE_READY)
-        except zmq.ZMQError:
-            return False
-
-    def wait_for_all_sockets(self):
-        for i in range(5):
-            if not self.check_all_sockets():
-                time.sleep(1)
-            else:
-                print(f"All sockets are in a valid state after {i+1} seconds")
-                break
-        if not self.check_all_sockets():
-            raise RuntimeError("All sockets are not in a valid state")
 
     # def has_data(self):
     #     return not self.data_queue.empty()
