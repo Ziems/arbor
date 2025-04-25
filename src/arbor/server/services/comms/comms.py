@@ -124,6 +124,7 @@ class ArborScriptCommsHandler:
             if not self.check_all_sockets():
                 time.sleep(1)
             else:
+                print(f"All sockets are in a valid state after {i+1} seconds")
                 break
         if not self.check_all_sockets():
             raise RuntimeError("All sockets are not in a valid state")
