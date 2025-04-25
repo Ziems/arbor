@@ -267,7 +267,6 @@ class ArborTerminateTrainingCallback(TrainerCallback):
         """Background thread that monitors for commands from the server."""
         if not self.comms_handler:
             return
-            
         try:
             for command in self.comms_handler.receive_command():
                 if command.get("command") == "terminate" and self.accelerator.is_main_process:
@@ -385,6 +384,7 @@ def main():
         status_port=args.status_port,
         data_port=args.data_port
     )
+    comms_handler.wait_for_all_sockets()
 
     try:
         trl_train_args = {**(args.trl_train_kwargs or {})}
