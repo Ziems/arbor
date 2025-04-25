@@ -56,6 +56,10 @@ class ArborScriptCommsHandler:
         self.data_socket = self.context.socket(zmq.PULL)
         self.data_socket.connect(f"tcp://{host}:{data_port}")
 
+        # TODO: Hacky...
+        time.sleep(1)  # Give sockets time to connect
+        
+
     #     self.data_queue = queue.Queue()
     #     self._start_data_receiver()
 
