@@ -176,7 +176,7 @@ class GRPOConfigResponse(BaseModel):
     status: str
 
 class GRPOTerminateRequest(BaseModel):
-    status: str
+    status: Optional[str] = 'success'
 
 class GRPOTerminateResponse(BaseModel):
     status: str
