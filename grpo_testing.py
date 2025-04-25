@@ -31,9 +31,6 @@ def run_grpo_step(model_name, batch, url='http://127.0.0.1:8000/v1/fine_tuning/g
 
 def terminate_grpo(url='http://127.0.0.1:8000/v1/fine_tuning/grpo/terminate'):
     headers = {'Content-Type': 'application/json'}
-    data = {
-        'status': 'success'
-    }
     response = requests.post(url, headers=headers, json=data)
     return response
 
@@ -71,4 +68,7 @@ for i in range(len(dataset)):
     step_response = run_grpo_step(model_name=current_model, batch=batch)
     current_model = step_response.json()["current_model"]
 
-terminate_response = terminate_grpo()
+    if i > 100:
+        terminate_response = terminate_grpo()
+        print(terminate_response.json())
+        break
