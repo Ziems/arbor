@@ -96,43 +96,77 @@ class FileManager:
 
     del self.files[file_id]
 
-  def validate_file_format(self, file_content: bytes) -> None:
+  def validate_file_format_sft(self, file_content: bytes) -> None:
     """
     Validates that the file content is properly formatted JSONL with expected structure.
     Raises FileValidationError if validation fails.
     """
-    if not file_content:
-      raise FileValidationError("File is empty")
 
+    def validate_file_format_sft(self, file_path: str) -> None:
+    """
+    Validates that the file at file_path is properly formatted JSONL with expected structure.
+    Raises FileValidationError if validation fails.
+    """
     try:
-      lines = file_content.decode('utf-8').strip().split('\n')
-      if not lines:
-        raise FileValidationError("File contains no valid data")
+        with open(file_path, "r", encoding="utf-8") as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue  # skip empty lines
+                try:
+                    data = json.loads(line)
 
-      for line_num, line in enumerate(lines, 1):
+                    if not isinstance(data, dict):
+                        raise FileValidationError(f"Line {line_num}: Each line must be a JSON object")
+
+                    if "messages" not in data:
+                        raise FileValidationError(f"Line {line_num}: Missing 'messages' field")
+
+                    if not isinstance(data["messages"], list):
+                        raise FileValidationError(f"Line {line_num}: 'messages' must be an array")
+
+                    for msg in data["messages"]:
+                        if not isinstance(msg, dict):
+                            raise FileValidationError(f"Line {line_num}: Each message must be an object")
+                        if "role" not in msg or "content" not in msg:
+                            raise FileValidationError(f"Line {line_num}: Messages must have 'role' and 'content' fields")
+                        if not isinstance(msg["role"], str) or not isinstance(msg["content"], str):
+                            raise FileValidationError(f"Line {line_num}: Message 'role' and 'content' must be strings")
+
+                except json.JSONDecodeError:
+                    raise FileValidationError(f"Invalid JSON on line {line_num}")
+
+    except Exception as e:
+        raise FileValidationError(f"Failed to read or validate file: {e}")
+
+
+  def validate_file_format_dpo(self, file_path: str) -> None:
+    """
+    Validates that the file at file_path is properly formatted JSONL with expected structure.
+    Raises FileValidationError if validation fails.
+    """
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            lines = f.read().strip().split('\n')
+    except Exception as e:
+        raise FileValidationError(f"Failed to read file: {e}")
+
+    if not lines:
+        raise FileValidationError("File is empty or contains no valid data")
+
+    for line_num, line in enumerate(lines, 1):
         try:
-          data = json.loads(line)
+            data = json.loads(line)
 
-          # Validate required structure
-          if not isinstance(data, dict):
-            raise FileValidationError(f"Line {line_num}: Each line must be a JSON object")
+            if not isinstance(data, dict):
+                raise FileValidationError(f"Line {line_num}: Each line must be a JSON object")
 
-          if "messages" not in data:
-            raise FileValidationError(f"Line {line_num}: Missing 'messages' field")
+            if "chosen" not in data:
+                raise FileValidationError(f"Line {line_num}: Missing 'chosen' field")
+            if "rejected" not in data:
+                raise FileValidationError(f"Line {line_num}: Missing 'rejected' field")
 
-          if not isinstance(data["messages"], list):
-            raise FileValidationError(f"Line {line_num}: 'messages' must be an array")
-
-          for msg in data["messages"]:
-            if not isinstance(msg, dict):
-              raise FileValidationError(f"Line {line_num}: Each message must be an object")
-            if "role" not in msg or "content" not in msg:
-              raise FileValidationError(f"Line {line_num}: Messages must have 'role' and 'content' fields")
-            if not isinstance(msg["role"], str) or not isinstance(msg["content"], str):
-              raise FileValidationError(f"Line {line_num}: Message 'role' and 'content' must be strings")
+            # https://github.com/huggingface/trl/blob/29c5e05e3a5f1f8a369aaef78fc9f36878db9194/trl/data_utils.py#L349
 
         except json.JSONDecodeError:
-          raise FileValidationError(f"Invalid JSON on line {line_num}")
-
-    except UnicodeDecodeError:
-      raise FileValidationError("File must be valid UTF-8 encoded text")
+            raise FileValidationError(f"Invalid JSON on line {line_num}")

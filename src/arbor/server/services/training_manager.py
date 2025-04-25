@@ -39,6 +39,7 @@ class TrainingManager:
             raise ValueError(f"Training file {request.training_file} not found")
 
         data_path = file["path"]
+        file_manager.validate_file_format_sft(data_path)
 
         name, output_dir = self.make_output_dir(request)
 
@@ -64,8 +65,9 @@ class TrainingManager:
         file = file_manager.get_file(request.training_file)
         if file is None:
             raise ValueError(f"Training file {request.training_file} not found")
-
+        
         data_path = file["path"]
+        file_manager.validate_file_format_dpo(data_path)
 
         name, output_dir = self.make_output_dir(request)
 
@@ -107,7 +109,6 @@ class TrainingManager:
 
 
     def dpo_fine_tune(self, request: FineTuneRequest, job: Job, file_manager: FileManager):
-
         try:
 
             job.status = JobStatus.RUNNING
@@ -187,6 +188,7 @@ class TrainingManager:
                 peft_config=peft_config,
             )
 
+            
             trainer.train()
 
             if job.status == JobStatus.PENDING_PAUSE:
