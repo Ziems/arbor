@@ -66,9 +66,5 @@ for i in range(len(dataset)):
             "reward": reward
         })
     step_response = run_grpo_step(model_name=current_model, batch=batch)
-    current_model = step_response.json()["current_model"]
 
-    if i > 10:
-        terminate_response = terminate_grpo()
-        print(terminate_response.json())
-        break
+terminate_response = terminate_grpo()
