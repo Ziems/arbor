@@ -193,4 +193,10 @@ class GRPOManager:
 
             if self.train_kwargs and "output_dir" in self.train_kwargs:
                 print(f"Training completed. Model saved to {self.train_kwargs['output_dir']}")
+                if not os.path.exists(self.train_kwargs["output_dir"]):
+                    print(f"Warning: Output directory {self.train_kwargs['output_dir']} does not exist")
+                return self.train_kwargs["output_dir"]
+            else:
+                print("Training terminated, no output directory specified")
+                return None
 

@@ -1,4 +1,5 @@
 # Borrowed from Will Brown's Verifiers Library
+# TODO: Need proper attribution before release
 
 import random
 from typing import Callable, Optional, Union, Any, List, Sized
@@ -6,14 +7,12 @@ import json
 import os
 import time
 import threading
-import queue
-from pathlib import Path
 from functools import lru_cache
 from accelerate.utils import broadcast_object_list, gather, gather_object
+from accelerate import Accelerator
 from datasets import load_dataset, Dataset, IterableDataset
 from peft import PeftConfig # type: ignore
 import torch
-from torch import nn
 from torch.utils.data import Dataset
 from torch.utils.data import Sampler
 from transformers import (
@@ -25,15 +24,6 @@ from transformers import (
 )
 import argparse
 from arbor.server.services.comms.comms import ArborServerCommsHandler, ArborScriptCommsHandler
-# from verifiers import RewardFunc
-# from verifiers.envs.environment import Environment
-# from verifiers.utils.logging_utils import print_prompt_completions_sample
-# from verifiers.imports import LLM, SamplingParams
-# from verifiers.inference.vllm_client import VLLMClient
-
-# monkey patch vllm client
-# import trl.extras.vllm_client
-# trl.extras.vllm_client.VLLMClient = VLLMClient
 
 from trl import GRPOTrainer, GRPOConfig
 from trl.data_utils import maybe_apply_chat_template
@@ -107,6 +97,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         #     min_p=0.0 if self.min_p is None else self.min_p,
         #     repetition_penalty=self.repetition_penalty
         # )
+
 
     def _generate_and_score_completions(
          self, batch: List[dict[str, Any]]
@@ -256,8 +247,40 @@ class ArborGRPOTrainer(GRPOTrainer):
             "advantages": advantages,
         }
 
+# TODO: This should be in a separate file probably. It will be used by other training scripts as well.
+class ArborTerminateTrainingCallback(TrainerCallback):
+    """
+    A [`TrainerCallback`] that handles termination requests.
+    """
+
+    def __init__(self, comms_handler: ArborScriptCommsHandler, accelerator: Accelerator):
+        self.comms_handler = comms_handler
+        self.terminate_requested = False
+        self.accelerator = accelerator
+
+        if self.comms_handler is not None:
+            self._command_thread = threading.Thread(target=self._monitor_commands, daemon=True)
+            self._command_thread.start()
+
+
+    def _monitor_commands(self):
+        """Background thread that monitors for commands from the server."""
+        if not self.comms_handler:
+            return
+        try:
+            for command in self.comms_handler.receive_command():
+                if command.get("command") == "terminate" and self.accelerator.is_main_process:
+                    self.terminate_requested = True
+                    self.comms_handler.send_status({"status": "Terminate requested. Training will stop at next step."})
+        except Exception as e:
+            self.comms_handler.send_status({"status": "error", "error": str(e)})
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if self.terminate_requested:
+            control.should_training_stop = True
+
 class BlockingQueueDataset(Dataset):
-    def __init__(self, accelerator, comms_handler, size=1000, maxsize=100):
+    def __init__(self, accelerator: Accelerator, comms_handler: ArborScriptCommsHandler, size=1000, maxsize=100):
         self.size = size
         self.accelerator = accelerator
         self.comms_handler = comms_handler
@@ -381,6 +404,13 @@ def main():
         trainer.train_dataset = BlockingQueueDataset(
             trainer.accelerator,
             comms_handler
+        )
+        # Add a callback to handle termination requests
+        trainer.add_callback(
+            ArborTerminateTrainingCallback(
+                comms_handler,
+                trainer.accelerator
+            )
         )
 
         print("Training...")
