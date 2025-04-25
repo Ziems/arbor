@@ -409,7 +409,7 @@ def main():
             comms_handler
         )
         # Add a callback to handle termination requests
-        trainer.callbacks.append(
+        trainer.add_callback(
             ArborTerminateTrainingCallback(
                 comms_handler,
                 trainer.accelerator
