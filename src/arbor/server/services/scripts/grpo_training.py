@@ -272,10 +272,7 @@ class ArborTerminateTrainingCallback(TrainerCallback):
                 if command.get("command") == "terminate" and self.accelerator.is_main_process:
                     self.terminate_requested = True
                     self.comms_handler.send_status({"status": "Terminate requested. Training will stop at next step."})
-
         except Exception as e:
-            print(e)
-            print(f"Error in command monitor: {e}")
             self.comms_handler.send_status({"status": "error", "error": str(e)})
 
     def on_step_end(self, args, state, control, **kwargs):
