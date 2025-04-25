@@ -278,7 +278,7 @@ class ArborTerminateTrainingCallback(TrainerCallback):
             print(f"Error in command monitor: {e}")
             self.comms_handler.send_status({"status": "error", "error": str(e)})
 
-    def on_step_end(self, args, state, control, metrics, **kwargs):
+    def on_step_end(self, args, state, control, **kwargs):
         if self.terminate_requested:
             control.should_training_stop = True
 
