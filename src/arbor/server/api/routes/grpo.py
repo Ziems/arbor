@@ -30,9 +30,10 @@ def run_grpo_step(request: Request, grpo_request: GRPORequest, background_tasks:
     return GRPOStepResponse(status="success", current_model=current_model)
 
 @router.post("/terminate", response_model=GRPOTerminateResponse)
-def terminate_grpo(request: Request, grpo_request: GRPOTerminateRequest):
+def terminate_grpo(request: Request):
+    # No body needed for this request at this moment
     grpo_manager = request.app.state.grpo_manager
     inference_manager = request.app.state.inference_manager
 
     grpo_manager.terminate(inference_manager)
-    return GRPOTerminateResponse(status="success")
+    return GRPOTerminateResponse(status="success", current_model=grpo_manager.current_model)
