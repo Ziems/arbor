@@ -18,7 +18,7 @@ class ArborServerCommsHandler:
         # Status socket (PUB/SUB pattern)
         self.status_socket = self.context.socket(zmq.SUB)
         self.status_port = self.status_socket.bind_to_random_port(f"tcp://{host}")
-
+        self.status_socket.setsockopt_string(zmq.SUBSCRIBE, "")
         # Data socket (PUSH/PULL pattern)
         self.data_socket = self.context.socket(zmq.PUSH)
         self.data_port = self.data_socket.bind_to_random_port(f"tcp://{host}")

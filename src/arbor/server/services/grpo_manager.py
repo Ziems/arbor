@@ -163,8 +163,6 @@ class GRPOManager:
         """Handle status updates from training process using ZMQ SUB socket"""
         print("Starting status update handler...")
         try:
-            # Subscribe to all messages (empty string means all topics)
-            self.server_comms_handler.status_socket.setsockopt_string(zmq.SUBSCRIBE, "")
 
             for status in self.server_comms_handler.receive_status():
                 print(f"Received status update: {status}")
