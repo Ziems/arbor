@@ -8,7 +8,6 @@ import signal
 import sys
 from typing import Optional, Dict, Any
 from datetime import datetime
-import http.client
 from arbor.server.core.config import Settings
 
 
@@ -52,8 +51,7 @@ class InferenceManager:
         prefixes = ["openai/", "huggingface/", "local:", "arbor:"]
         for prefix in prefixes:
             if model.startswith(prefix):
-                model = model[len(prefix):]
-
+                model = model[len(prefix) :]
 
         print(f"Grabbing a free port to launch an vLLM server for model {model}")
         port = get_free_port()
@@ -71,7 +69,7 @@ class InferenceManager:
             text=True,
             stdout=subprocess.PIPE,  # We'll read from pipe
             stderr=subprocess.STDOUT,  # Merge stderr into stdout
-            env=my_env
+            env=my_env,
         )
 
         # A threading.Event to control printing after the server is ready.
@@ -109,7 +107,6 @@ class InferenceManager:
             process.kill()
             raise
 
-
         # Once server is ready, we tell the thread to stop printing further lines.
         stop_printing_event.set()
 
@@ -119,9 +116,7 @@ class InferenceManager:
             return "".join(logs_buffer)
 
         # Let the user know server is up
-        print(
-            f"Server ready on random port {port}!"
-        )
+        print(f"Server ready on random port {port}!")
 
         self.launch_kwargs["api_base"] = f"http://localhost:{port}/v1"
         self.launch_kwargs["api_key"] = "local"
@@ -153,7 +148,9 @@ class InferenceManager:
                 try:
                     process.wait(timeout=10)
                 except subprocess.TimeoutExpired:
-                    print("Process did not terminate after 10 seconds, forcing with SIGKILL...")
+                    print(
+                        "Process did not terminate after 10 seconds, forcing with SIGKILL..."
+                    )
                     process.kill()
 
             process.wait(timeout=5)
@@ -175,12 +172,12 @@ class InferenceManager:
         prefixes = ["openai/", "huggingface/", "local:", "arbor:"]
         for prefix in prefixes:
             if model.startswith(prefix):
-                model = model[len(prefix):]
+                model = model[len(prefix) :]
         print(f"Running inference for model {model}")
         # Update last_activity timestamp
         self.last_activity = datetime.now()
 
-        if self.process is None or self.launch_kwargs.get('api_base') is None:
+        if self.process is None or self.launch_kwargs.get("api_base") is None:
             raise RuntimeError("Server is not running. Please launch it first.")
 
         while self.restarting:
@@ -206,7 +203,9 @@ class InferenceManager:
         self.restarting = True
 
         while self.inference_count > 0:
-            print(f"Waiting for inference requests to finish... {self.inference_count} remaining")
+            print(
+                f"Waiting for inference requests to finish... {self.inference_count} remaining"
+            )
             time.sleep(5)
 
         tik = time.time()
@@ -215,15 +214,15 @@ class InferenceManager:
         # Check that output directory exists and was created successfully
         print(f"Checking that output directory {output_dir} exists")
         if not os.path.exists(output_dir):
-            raise RuntimeError(f"Failed to save model - output directory {output_dir} does not exist")
+            raise RuntimeError(
+                f"Failed to save model - output directory {output_dir} does not exist"
+            )
 
         print("Launching new server")
         self.launch(output_dir, self.launch_kwargs)
         tok = time.time()
         self.restarting = False
         print(f"Time taken to update model: {tok - tik} seconds")
-
-
 
 
 def get_free_port() -> int:
@@ -233,6 +232,7 @@ def get_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("localhost", 0))
         return s.getsockname()[1]
+
 
 def wait_for_server(base_url: str, timeout: int = None) -> None:
     """

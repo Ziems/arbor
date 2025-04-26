@@ -6,13 +6,15 @@ from typing import Literal
 # https://platform.openai.com/docs/api-reference/files/list
 router = APIRouter()
 
+
 @router.post("", response_model=FileModel)
-async def upload_file(request: Request,
+async def upload_file(
+    request: Request,
     file: UploadFile = File(...),
     purpose: Literal["assistants", "vision", "fine-tune", "batch"] = Body("fine-tune"),
 ):
     file_manager = request.app.state.file_manager
-    if not file.filename.endswith('.jsonl'):
+    if not file.filename.endswith(".jsonl"):
         raise HTTPException(status_code=400, detail="Only .jsonl files are allowed")
 
     try:
@@ -23,6 +25,7 @@ async def upload_file(request: Request,
     except FileValidationError as e:
         raise HTTPException(status_code=400, detail=f"Invalid file format: {str(e)}")
 
+
 @router.get("", response_model=PaginatedResponse[FileModel])
 def list_files(request: Request):
     file_manager = request.app.state.file_manager
@@ -30,12 +33,15 @@ def list_files(request: Request):
         items=file_manager.get_files(),
         total=len(file_manager.get_files()),
         page=1,
-        page_size=10)
+        page_size=10,
+    )
+
 
 @router.get("/{file_id}", response_model=FileModel)
 def get_file(request: Request, file_id: str):
     file_manager = request.app.state.file_manager
     return file_manager.get_file(file_id)
+
 
 @router.delete("/{file_id}")
 def delete_file(request: Request, file_id: str):

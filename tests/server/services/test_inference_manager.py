@@ -8,6 +8,7 @@ from arbor.server.services.file_manager import FileManager
 from pathlib import Path
 from openai import OpenAI
 
+
 @pytest.fixture(scope="module")
 def server(tmp_path_factory):
     """Set up a test server with configured dependencies"""
@@ -20,14 +21,11 @@ def server(tmp_path_factory):
     test_storage = tmp_path_factory.mktemp("test_storage")
 
     # Create test settings
-    settings = Settings(
-        STORAGE_PATH=str(test_storage)
-    )
+    settings = Settings(STORAGE_PATH=str(test_storage))
 
     # Initialize services with test settings
     inference_manager = InferenceManager(settings=settings)
     job_manager = JobManager(settings=settings)
-    
 
     # Inject dependencies into app state
     app.state.settings = settings
@@ -43,10 +41,12 @@ class CarType(str, Enum):
     truck = "Truck"
     coupe = "Coupe"
 
+
 class CarDescription(BaseModel):
     brand: str
     model: str
     car_type: CarType
+
 
 # @pytest.fixture
 def test_simple_inference_openai(server):
@@ -56,10 +56,10 @@ def test_simple_inference_openai(server):
     base_url = f"http://{host}:{port}/v1"
 
     assert server.state.inference_manager.launch_kwargs["api_base"] == base_url
-    
+
     client = OpenAI(
         base_url=base_url,  # Using Arbor server
-        api_key="not-needed"  # If you're using a local server, you dont need an API key
+        api_key="not-needed",  # If you're using a local server, you dont need an API key
     )
 
     response = client.chat.completions.create(
@@ -67,7 +67,7 @@ def test_simple_inference_openai(server):
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": "Hi! What is the capital of the moon?"},
-        ]
+        ],
     )
 
     print("Inference response:", response.json())
@@ -89,22 +89,27 @@ def test_structured_inference_openai(server):
 
     client = OpenAI(
         base_url=base_url,  # Using Arbor server
-        api_key="not-needed"  # If you're using a local server, you dont need an API key
+        api_key="not-needed",  # If you're using a local server, you dont need an API key
     )
-    prompt = ("Generate a JSON with the brand, model and car_type of"
-          "the most iconic car from the 90's")
+    prompt = (
+        "Generate a JSON with the brand, model and car_type of"
+        "the most iconic car from the 90's"
+    )
     response = client.chat.completions.create(
         model="Qwen/Qwen2.5-1.5B-Instruct",
-        messages=[{
-            "role": "user",
-            "content": prompt,
-        }],
+        messages=[
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ],
         extra_body={"guided_json": json_schema},
     )
-    
+
     content = response.choices[0].message.content
 
     import json
+
     try:
         structured_output = json.loads(content)
     except json.JSONDecodeError:
@@ -114,12 +119,10 @@ def test_structured_inference_openai(server):
         assert field in structured_output, f"{field} missing in response"
 
     print("Inference response:", response.json())
-    
 
     server.state.inference_manager.kill()
     assert server.state.inference_manager.process is None
     print("Successfully killed inference manager")
-
 
 
 @pytest.fixture
@@ -129,17 +132,14 @@ def client(server):
 
 def test_simple_inference(client):
     request_json = {
-        "headers": {
-            "Content-Type": "application/json"
-        },
-
+        "headers": {"Content-Type": "application/json"},
         "pload": {
             "model": "Qwen/Qwen2.5-1.5B-Instruct",
             "messages": [
                 {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": "Hi! What is the capital of the moon?"}
-            ]
-        }
+                {"role": "user", "content": "Hi! What is the capital of the moon?"},
+            ],
+        },
     }
 
     response = client.post("/v1/chat/completions", json=request_json)
@@ -155,33 +155,32 @@ def test_simple_inference(client):
     assert client.app.state.inference_manager.process is None
 
 
-
 def test_structured_inference(client):
     json_schema = CarDescription.model_json_schema()
     request_json = {
-        "headers": {
-            "Content-Type": "application/json"
-        },
-
+        "headers": {"Content-Type": "application/json"},
         "pload": {
             "model": "Qwen/Qwen2.5-1.5B-Instruct",
             "messages": [
                 {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": "Generate a JSON with the brand, model and car_type of the most iconic car from the 90's"}
+                {
+                    "role": "user",
+                    "content": "Generate a JSON with the brand, model and car_type of the most iconic car from the 90's",
+                },
             ],
-            "guided_json": json_schema
-        }
+            "guided_json": json_schema,
+        },
     }
-    
 
     response = client.post("/v1/chat/completions", json=request_json)
     assert response.status_code == 200
     response = response.json()
     print("Inference response:", response)
 
-    content = response['choices'][0]['message']['content']
+    content = response["choices"][0]["message"]["content"]
 
     import json
+
     try:
         structured_output = json.loads(content)
     except json.JSONDecodeError:

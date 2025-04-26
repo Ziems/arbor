@@ -3,8 +3,10 @@ import queue
 import threading
 import time
 
+
 class ArborServerCommsHandler:
     """Handles socket communication between manager and training process"""
+
     def __init__(self, host="localhost"):
         self.host = host
         self.context = zmq.Context()
@@ -58,7 +60,6 @@ class ArborScriptCommsHandler:
 
         # TODO: Hacky...
         time.sleep(1)  # Give sockets time to connect
-        
 
     #     self.data_queue = queue.Queue()
     #     self._start_data_receiver()
@@ -98,4 +99,3 @@ class ArborScriptCommsHandler:
         self.status_socket.close()
         self.data_socket.close()
         self.context.term()
-

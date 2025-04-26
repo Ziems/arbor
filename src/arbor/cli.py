@@ -8,9 +8,12 @@ from arbor.server.services.job_manager import JobManager
 from arbor.server.services.training_manager import TrainingManager
 from arbor.server.services.inference_manager import InferenceManager
 from arbor.server.services.grpo_manager import GRPOManager
+
+
 @click.group()
 def cli():
     pass
+
 
 def create_app(arbor_config_path: str):
     """Create and configure the Arbor API application
@@ -40,7 +43,8 @@ def create_app(arbor_config_path: str):
 
     return app
 
-def start_server(host='0.0.0.0', port=8000, storage_path='./storage', timeout=10):
+
+def start_server(host="0.0.0.0", port=8000, storage_path="./storage", timeout=10):
     """Start the Arbor API server with a single function call"""
     import threading
     import time
@@ -49,7 +53,7 @@ def start_server(host='0.0.0.0', port=8000, storage_path='./storage', timeout=10
 
     def is_port_in_use(port):
         with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
-            return sock.connect_ex(('localhost', port)) == 0
+            return sock.connect_ex(("localhost", port)) == 0
 
     # First ensure the port is free
     if is_port_in_use(port):
@@ -77,18 +81,21 @@ def start_server(host='0.0.0.0', port=8000, storage_path='./storage', timeout=10
 
     return server
 
+
 def stop_server(server):
     """Stop the Arbor API server"""
     server.should_exit = True
 
+
 @cli.command()
-@click.option('--host', default='0.0.0.0', help='Host to bind to')
-@click.option('--port', default=8000, help='Port to bind to')
-@click.option('--arbor-config', required=True, help='Path to the Arbor config file')
+@click.option("--host", default="0.0.0.0", help="Host to bind to")
+@click.option("--port", default=8000, help="Port to bind to")
+@click.option("--arbor-config", required=True, help="Path to the Arbor config file")
 def serve(host, port, arbor_config):
     """Start the Arbor API server"""
     app = create_app(arbor_config)
     uvicorn.run(app, host=host, port=port)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     cli()

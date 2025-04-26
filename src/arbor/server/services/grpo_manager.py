@@ -36,10 +36,16 @@ class GRPOManager:
         self.terminate(None)
         sys.exit(0)
 
-    def make_output_dir(self, model_name: str, run_suffix: Optional[str] = None) -> tuple[str, str]:
+    def make_output_dir(
+        self, model_name: str, run_suffix: Optional[str] = None
+    ) -> tuple[str, str]:
         """Create a unique output directory name for the training run."""
-        model_name = model_name.split('/')[-1].lower()
-        suffix = run_suffix if run_suffix else ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+        model_name = model_name.split("/")[-1].lower()
+        suffix = (
+            run_suffix
+            if run_suffix
+            else "".join(random.choices(string.ascii_letters + string.digits, k=6))
+        )
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         name = f"grpo:{model_name}:{suffix}:{timestamp}"
         return name, str(Path(self.settings.STORAGE_PATH).resolve() / "models" / name)
@@ -73,7 +79,13 @@ class GRPOManager:
         return {**default_train_kwargs, **(train_kwargs or {})}
 
     def process_training_args(self, train_kwargs: dict) -> tuple[dict, dict]:
-        trl_keys = ["output_dir", "temperature", "beta", "num_iterations", "num_generations"]
+        trl_keys = [
+            "output_dir",
+            "temperature",
+            "beta",
+            "num_iterations",
+            "num_generations",
+        ]
         trl_train_kwargs = {
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
         }
@@ -85,10 +97,14 @@ class GRPOManager:
 
         return trl_train_kwargs, arbor_train_kwargs
 
-    def initialize(self, request: GRPOConfigRequest, inference_manager: InferenceManager):
+    def initialize(
+        self, request: GRPOConfigRequest, inference_manager: InferenceManager
+    ):
         """Initialize the training process with ZMQ-based communication."""
         self.train_kwargs = self.find_training_args(request)
-        trl_train_kwargs, arbor_train_kwargs = self.process_training_args(self.train_kwargs)
+        trl_train_kwargs, arbor_train_kwargs = self.process_training_args(
+            self.train_kwargs
+        )
 
         self.current_model = request.model
 
@@ -104,29 +120,34 @@ class GRPOManager:
 
         self.training_process = subprocess.Popen(
             [
-                "python", "-m", "accelerate.commands.launch",
+                "python",
+                "-m",
+                "accelerate.commands.launch",
                 # "--config_file", "training_config.yaml",
-                "--num_processes", str(self.settings.arbor_config.training.num_processes),
+                "--num_processes",
+                str(self.settings.arbor_config.training.num_processes),
                 script_path,
-
                 # Comms args
-                "--host", self.socket_manager.host,
-                "--command_port", str(self.socket_manager.command_port),
-                "--status_port", str(self.socket_manager.status_port),
-                "--data_port", str(self.socket_manager.data_port),
-
+                "--host",
+                self.socket_manager.host,
+                "--command_port",
+                str(self.socket_manager.command_port),
+                "--status_port",
+                str(self.socket_manager.status_port),
+                "--data_port",
+                str(self.socket_manager.data_port),
                 # Training args
-                "--trl_train_kwargs", json.dumps(trl_train_kwargs),
-                "--arbor_train_kwargs", json.dumps(arbor_train_kwargs),
+                "--trl_train_kwargs",
+                json.dumps(trl_train_kwargs),
+                "--arbor_train_kwargs",
+                json.dumps(arbor_train_kwargs),
             ],
-            env=my_env
+            env=my_env,
         )
 
         # Start status handling thread
         self.status_thread = threading.Thread(
-            target=self._handle_status_updates,
-            args=(inference_manager,),
-            daemon=True
+            target=self._handle_status_updates, args=(inference_manager,), daemon=True
         )
         self.status_thread.start()
 
@@ -156,7 +177,9 @@ class GRPOManager:
         except Exception as e:
             print(f"Error in status update handler: {e}")
 
-    def grpo_step(self, request: GRPORequest, inference_manager: InferenceManager) -> str:
+    def grpo_step(
+        self, request: GRPORequest, inference_manager: InferenceManager
+    ) -> str:
         """Process a training step using ZMQ PUSH socket."""
         if inference_manager.is_server_restarting():
             print("Inferece manager restarting, ignoring GRPO step")
@@ -192,11 +215,14 @@ class GRPOManager:
                 self.socket_manager.close()
 
             if self.train_kwargs and "output_dir" in self.train_kwargs:
-                print(f"Training completed. Model saved to {self.train_kwargs['output_dir']}")
+                print(
+                    f"Training completed. Model saved to {self.train_kwargs['output_dir']}"
+                )
                 if not os.path.exists(self.train_kwargs["output_dir"]):
-                    print(f"Warning: Output directory {self.train_kwargs['output_dir']} does not exist")
+                    print(
+                        f"Warning: Output directory {self.train_kwargs['output_dir']} does not exist"
+                    )
                 return self.train_kwargs["output_dir"]
             else:
                 print("Training terminated, no output directory specified")
                 return None
-
