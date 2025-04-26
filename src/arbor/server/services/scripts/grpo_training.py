@@ -2,7 +2,7 @@
 # TODO: Need proper attribution before release
 
 import random
-from typing import Callable, Optional, Union, Any, List, Sized
+from typing import Optional, Union, Any, List
 import json
 import os
 import time
@@ -14,7 +14,6 @@ from datasets import load_dataset, Dataset, IterableDataset
 from peft import PeftConfig  # type: ignore
 import torch
 from torch.utils.data import Dataset
-from torch.utils.data import Sampler
 from transformers import (
     PreTrainedModel,
     PreTrainedTokenizerBase,
@@ -94,7 +93,6 @@ class ArborGRPOTrainer(GRPOTrainer):
         )
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
-        self._last_loaded_step = 0
         self.update_interval = update_interval
         # self.sampling_params = SamplingParams(
         #     max_tokens=self.max_completion_length,
@@ -160,21 +158,6 @@ class ArborGRPOTrainer(GRPOTrainer):
         # if self.max_prompt_length is not None:
         #     prompt_ids = prompt_ids[:, -self.max_prompt_length :]
         #     prompt_mask = prompt_mask[:, -self.max_prompt_length :]
-
-        # Check if we need to update the inference model
-        if self.comms_handler is not None and hasattr(self, "_last_loaded_step"):
-            if (
-                self.state.global_step - self._last_loaded_step
-                > self.update_interval - 1
-            ):
-                if self.accelerator.is_main_process:
-                    # SO I think this works if I make sure the saved model is
-                    self.comms_handler.send_status(
-                        {"status": f"saving model to {self.args.output_dir}"}
-                    )
-                    self.save_model()
-                    self.comms_handler.send_status({"status": "update_inference_model"})
-                    self._last_loaded_step = self.state.global_step
 
         # if self.state.global_step != self._last_loaded_step:
         #     self._move_model_to_vllm()
@@ -293,49 +276,6 @@ class ArborGRPOTrainer(GRPOTrainer):
         }
 
 
-# TODO: This should be in a separate file probably. It will be used by other training scripts as well.
-class ArborTerminateTrainingCallback(TrainerCallback):
-    """
-    A [`TrainerCallback`] that handles termination requests.
-    """
-
-    def __init__(
-        self, comms_handler: ArborScriptCommsHandler, accelerator: Accelerator
-    ):
-        self.comms_handler = comms_handler
-        self.terminate_requested = False
-        self.accelerator = accelerator
-
-        if self.comms_handler is not None:
-            self._command_thread = threading.Thread(
-                target=self._monitor_commands, daemon=True
-            )
-            self._command_thread.start()
-
-    def _monitor_commands(self):
-        """Background thread that monitors for commands from the server."""
-        if not self.comms_handler:
-            return
-        try:
-            for command in self.comms_handler.receive_command():
-                if (
-                    command.get("command") == "terminate"
-                    and self.accelerator.is_main_process
-                ):
-                    self.terminate_requested = True
-                    self.comms_handler.send_status(
-                        {
-                            "status": "Terminate requested. Training will stop at next step."
-                        }
-                    )
-        except Exception as e:
-            self.comms_handler.send_status({"status": "error", "error": str(e)})
-
-    def on_step_end(self, args, state, control, **kwargs):
-        if self.terminate_requested:
-            control.should_training_stop = True
-
-
 class BlockingQueueDataset(Dataset):
     def __init__(
         self,
@@ -382,6 +322,64 @@ class BlockingQueueDataset(Dataset):
         return item
 
 
+class CommandMonitor:
+    def __init__(
+        self, comms_handler: ArborScriptCommsHandler, trainer: ArborGRPOTrainer
+    ):
+        self.comms_handler = comms_handler
+        self.trainer = trainer
+        self.command_thread = threading.Thread(
+            target=self._monitor_commands, daemon=True
+        )
+        self.command_thread.start()
+
+        self.broadcast_thread = threading.Thread(
+            target=self._monitor_broadcasts, daemon=True
+        )
+        self.broadcast_thread.start()
+
+    def _monitor_commands(self):
+        """Background thread that monitors for commands from the server."""
+        if not self.comms_handler:
+            return
+        try:
+            print("!!!Starting command monitor")
+            if self.trainer.accelerator.is_main_process:
+                for command in self.comms_handler.receive_command():
+                    print(f"!!!Received command: {command}")
+                    if (
+                        command.get("command") == "save_model"
+                        and self.trainer.accelerator.is_main_process
+                    ):
+                        self.trainer.save_model()
+                        self.comms_handler.send_status(
+                            {
+                                "status": "model_saved",
+                                "output_dir": self.trainer.args.output_dir,
+                            }
+                        )
+        except Exception as e:
+            self.comms_handler.send_status({"status": "error", "error": str(e)})
+
+    def _monitor_broadcasts(self):
+        """Background thread that monitors for broadcasts from the server."""
+        if not self.comms_handler:
+            return
+        try:
+            for broadcast in self.comms_handler.receive_broadcast():
+                print(f"!!!Received broadcast: {broadcast}")
+                if broadcast.get("message") == "terminate":
+                    self.trainer.control.should_training_stop = True
+                    self.comms_handler.send_status(
+                        {
+                            "status": "Received termination command",
+                            "process_id": self.trainer.accelerator.process_index,
+                        }
+                    )
+        except Exception as e:
+            self.comms_handler.send_status({"status": "error", "error": str(e)})
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--debug", action="store_true")
@@ -391,6 +389,7 @@ def main():
     pipe_args.add_argument("--command_port", type=int, required=True)
     pipe_args.add_argument("--status_port", type=int, required=True)
     pipe_args.add_argument("--data_port", type=int, required=True)
+    pipe_args.add_argument("--broadcast_port", type=int, required=True)
 
     training_args = parser.add_argument_group("Training arguments")
     training_args.add_argument(
@@ -414,6 +413,7 @@ def main():
         args.command_port = server_comms_handler.command_port
         args.status_port = server_comms_handler.status_port
         args.data_port = server_comms_handler.data_port
+        args.broadcast_port = server_comms_handler.broadcast_port
 
         def debug_data_generator():
             tldr_dataset = load_dataset("trl-lib/tldr", split="train")
@@ -454,14 +454,6 @@ def main():
         status_listener_thread = threading.Thread(target=status_listener, daemon=True)
         status_listener_thread.start()
 
-    # Create client handler
-    comms_handler = ArborScriptCommsHandler(
-        host=args.host,
-        command_port=args.command_port,
-        status_port=args.status_port,
-        data_port=args.data_port,
-    )
-
     try:
         trl_train_args = {**(args.trl_train_kwargs or {})}
         arbor_train_args = {**(args.arbor_train_kwargs or {})}
@@ -473,17 +465,26 @@ def main():
         trainer = ArborGRPOTrainer(
             model="Qwen/Qwen2-0.5B-Instruct",
             args=training_args,
-            train_dataset=BlockingQueueDataset(None, comms_handler),
-            comms_handler=comms_handler,
+            train_dataset=BlockingQueueDataset(None, None),
             **arbor_train_args,
         )
+        # Create client handler
+        comms_handler = ArborScriptCommsHandler(
+            host=args.host,
+            command_port=args.command_port,
+            status_port=args.status_port,
+            data_port=args.data_port,
+            broadcast_port=args.broadcast_port,
+            is_main_process=trainer.accelerator.is_main_process,
+        )
+        trainer.comms_handler = comms_handler
 
         # Initialize the dataset with the actual accelerator
-        trainer.train_dataset = BlockingQueueDataset(trainer.accelerator, comms_handler)
-        # Add a callback to handle termination requests
-        trainer.add_callback(
-            ArborTerminateTrainingCallback(comms_handler, trainer.accelerator)
+        trainer.train_dataset = BlockingQueueDataset(
+            trainer.accelerator, trainer.comms_handler
         )
+
+        command_monitor = CommandMonitor(comms_handler, trainer)
 
         print("Training...")
         trainer.train()

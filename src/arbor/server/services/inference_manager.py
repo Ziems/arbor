@@ -174,15 +174,23 @@ class InferenceManager:
             if model.startswith(prefix):
                 model = model[len(prefix) :]
         print(f"Running inference for model {model}")
+        # Monkeypatch:
+        if model != self.current_model:
+            print(f"MONKEYPATCH: Model changed from {model} to {self.current_model}")
+            model = self.current_model
+            request_json["model"] = model
+
         # Update last_activity timestamp
         self.last_activity = datetime.now()
 
         if self.process is None or self.launch_kwargs.get("api_base") is None:
             raise RuntimeError("Server is not running. Please launch it first.")
 
-        while self.restarting:
-            print("Inference is paused while server is restarting...")
-            time.sleep(5)
+        if self.restarting:
+            while self.restarting:
+                print("Inference is paused while server is restarting...")
+                time.sleep(5)
+            request_json["model"] = self.current_model
 
         url = f"{self.launch_kwargs['api_base']}/chat/completions"
         try:
