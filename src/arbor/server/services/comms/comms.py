@@ -50,57 +50,53 @@ class ArborServerCommsHandler:
 
 
 class ArborScriptCommsHandler:
-    def __init__(self, host, command_port, status_port, data_port, broadcast_port):
+    def __init__(
+        self,
+        host,
+        command_port,
+        status_port,
+        data_port,
+        broadcast_port,
+        is_main_process,
+    ):
         self.context = zmq.Context()
+        self.is_main_process = is_main_process
 
-        # Command socket
-        self.command_socket = self.context.socket(zmq.REQ)
-        self.command_socket.connect(f"tcp://{host}:{command_port}")
+        # Command socket (main process only)
+        if is_main_process:
+            self.command_socket = self.context.socket(zmq.REQ)
+            self.command_socket.connect(f"tcp://{host}:{command_port}")
 
-        # Status socket
-        self.status_socket = self.context.socket(zmq.PUB)
-        self.status_socket.connect(f"tcp://{host}:{status_port}")
+            self.status_socket = self.context.socket(zmq.PUB)
+            self.status_socket.connect(f"tcp://{host}:{status_port}")
+        else:
+            self.command_socket = None
+            self.status_socket = None
 
-        # Data socket
+        # Data socket (all processes)
         self.data_socket = self.context.socket(zmq.PULL)
         self.data_socket.connect(f"tcp://{host}:{data_port}")
 
-        # Broadcast socket
+        # Broadcast socket (all processes)
         self.broadcast_socket = self.context.socket(zmq.SUB)
         self.broadcast_socket.connect(f"tcp://{host}:{broadcast_port}")
-
-    #     self.data_queue = queue.Queue()
-    #     self._start_data_receiver()
-
-    # def _start_data_receiver(self):
-    #     def receiver():
-    #         while True:
-    #             try:
-    #                 data = self.data_socket.recv_json()
-    #                 self.data_queue.put(data)
-    #             except Exception as e:
-    #                 print(f"Error receiving data: {e}")
-    #                 break
-
-    #     self.receiver_thread = threading.Thread(target=receiver, daemon=True)
-    #     self.receiver_thread.start()
+        self.broadcast_socket.setsockopt_string(zmq.SUBSCRIBE, "")
 
     def send_status(self, status):
-        self.status_socket.send_json(status)
+        if self.status_socket is not None:
+            self.status_socket.send_json(status)
 
     def receive_command(self):
-        while True:
-            command = self.command_socket.recv_json()
-            # Send acknowledgment
-            self.command_socket.send_json({"status": "received"})
-            yield command
+        if self.command_socket is not None:
+            while True:
+                command = self.command_socket.recv_json()
+                # Send acknowledgment
+                self.command_socket.send_json({"status": "received"})
+                yield command
 
     def receive_data(self):
         # return self.data_queue.get()
         return self.data_socket.recv_json()
-
-    # def has_data(self):
-    #     return not self.data_queue.empty()
 
     def receive_broadcast(self):
         while True:
@@ -108,8 +104,10 @@ class ArborScriptCommsHandler:
             yield broadcast
 
     def close(self):
-        self.command_socket.close()
-        self.status_socket.close()
+        if self.command_socket is not None:
+            self.command_socket.close()
+        if self.status_socket is not None:
+            self.status_socket.close()
         self.data_socket.close()
         self.broadcast_socket.close()
         self.context.term()

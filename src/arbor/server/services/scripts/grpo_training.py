@@ -454,15 +454,6 @@ def main():
         status_listener_thread = threading.Thread(target=status_listener, daemon=True)
         status_listener_thread.start()
 
-    # Create client handler
-    comms_handler = ArborScriptCommsHandler(
-        host=args.host,
-        command_port=args.command_port,
-        status_port=args.status_port,
-        data_port=args.data_port,
-        broadcast_port=args.broadcast_port,
-    )
-
     try:
         trl_train_args = {**(args.trl_train_kwargs or {})}
         arbor_train_args = {**(args.arbor_train_kwargs or {})}
@@ -474,13 +465,24 @@ def main():
         trainer = ArborGRPOTrainer(
             model="Qwen/Qwen2-0.5B-Instruct",
             args=training_args,
-            train_dataset=BlockingQueueDataset(None, comms_handler),
-            comms_handler=comms_handler,
+            train_dataset=BlockingQueueDataset(None, None),
             **arbor_train_args,
         )
+        # Create client handler
+        comms_handler = ArborScriptCommsHandler(
+            host=args.host,
+            command_port=args.command_port,
+            status_port=args.status_port,
+            data_port=args.data_port,
+            broadcast_port=args.broadcast_port,
+            is_main_process=trainer.accelerator.is_main_process,
+        )
+        trainer.comms_handler = comms_handler
 
         # Initialize the dataset with the actual accelerator
-        trainer.train_dataset = BlockingQueueDataset(trainer.accelerator, comms_handler)
+        trainer.train_dataset = BlockingQueueDataset(
+            trainer.accelerator, trainer.comms_handler
+        )
 
         command_monitor = CommandMonitor(comms_handler, trainer)
 
