@@ -186,9 +186,12 @@ class GRPOManager:
     def grpo_step(
         self, request: GRPORequest, inference_manager: InferenceManager
     ) -> str:
-        """Process a training step using ZMQ PUSH socket."""
         while inference_manager.is_server_restarting():
             print("Inferece manager restarting, waiting for GRPO step")
+            time.sleep(5)
+
+        while self._should_update_model():
+            print("Waiting for model update")
             time.sleep(5)
 
         try:

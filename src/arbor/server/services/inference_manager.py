@@ -180,9 +180,11 @@ class InferenceManager:
         if self.process is None or self.launch_kwargs.get("api_base") is None:
             raise RuntimeError("Server is not running. Please launch it first.")
 
-        while self.restarting:
-            print("Inference is paused while server is restarting...")
-            time.sleep(5)
+        if self.restarting:
+            while self.restarting:
+                print("Inference is paused while server is restarting...")
+                time.sleep(5)
+            request_json["model"] = self.current_model
 
         url = f"{self.launch_kwargs['api_base']}/chat/completions"
         try:
