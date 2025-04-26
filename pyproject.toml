@@ -3,7 +3,7 @@ name = "arbor-ai"
 version = "0.1.4"
 description = "A framework for fine-tuning and managing language models"
 authors = [
-    {name = "Noah Ziems",email = "nziems2@nd.edu"}
+    {name = "Noah Ziems", email = "nziems2@nd.edu"}
 ]
 readme = "README.md"
 requires-python = ">=3.9, <3.12"
@@ -19,9 +19,9 @@ dependencies = [
     "peft",
     "ray>=2.9",
     "setuptools (>=76.0.0,<77.0.0)",
-    "vllm==0.8.4",
     "pyzmq>=26.4.0",
     "pyyaml>=6.0.2",
+    "sglang>=0.4.5.post3",
 ]
 
 [project.scripts]
