@@ -30,4 +30,5 @@ arbor = "arbor.cli:cli"
 [dependency-groups]
 dev = [
     "black>=25.1.0",
+    "pre-commit>=4.2.0",
 ]

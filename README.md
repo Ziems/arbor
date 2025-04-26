@@ -116,7 +116,7 @@ When the job is complete, the response will look something like:
 
 ### 5️⃣ Use the Fine-Tuned Model
 
-You can then use the fine-tuned model in the same way you would use any other model.
+You can then use the fine-tuned model in the same way you would use any other model in HuggingFace
 
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -149,6 +149,12 @@ Run tests:
 
 ```bash
 uv run pytest
+```
+
+Pre-commit for [Black Formatter](https://github.com/psf/black)
+
+```bash
+pre-commit install
 ```
 
 ---
