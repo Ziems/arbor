@@ -335,6 +335,7 @@ class CommandMonitor:
             return
         try:
             for command in self.comms_handler.receive_command():
+                print(f"!!!Received command: {command}")
                 if command.get("command") == "save_model":
                     if self.trainer.accelerator.is_main_process:
                         self.trainer.save_model()
