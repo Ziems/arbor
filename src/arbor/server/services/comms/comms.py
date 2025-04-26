@@ -23,6 +23,9 @@ class ArborServerCommsHandler:
         self.data_socket = self.context.socket(zmq.PUSH)
         self.data_port = self.data_socket.bind_to_random_port(f"tcp://{host}")
 
+        self.broadcast_socket = self.context.socket(zmq.PUB)
+        self.broadcast_port = self.broadcast_socket.bind_to_random_port(f"tcp://{host}")
+
     def receive_status(self):
         while True:
             status = self.status_socket.recv_json()
@@ -35,15 +38,19 @@ class ArborServerCommsHandler:
     def send_data(self, data):
         self.data_socket.send_json(data)
 
+    def send_broadcast(self, message):
+        self.broadcast_socket.send_json({"message": message})
+
     def close(self):
         self.command_socket.close()
         self.status_socket.close()
         self.data_socket.close()
+        self.broadcast_socket.close()
         self.context.term()
 
 
 class ArborScriptCommsHandler:
-    def __init__(self, host, command_port, status_port, data_port):
+    def __init__(self, host, command_port, status_port, data_port, broadcast_port):
         self.context = zmq.Context()
 
         # Command socket
@@ -58,8 +65,9 @@ class ArborScriptCommsHandler:
         self.data_socket = self.context.socket(zmq.PULL)
         self.data_socket.connect(f"tcp://{host}:{data_port}")
 
-        # TODO: Hacky...
-        time.sleep(1)  # Give sockets time to connect
+        # Broadcast socket
+        self.broadcast_socket = self.context.socket(zmq.SUB)
+        self.broadcast_socket.connect(f"tcp://{host}:{broadcast_port}")
 
     #     self.data_queue = queue.Queue()
     #     self._start_data_receiver()
@@ -94,8 +102,14 @@ class ArborScriptCommsHandler:
     # def has_data(self):
     #     return not self.data_queue.empty()
 
+    def receive_broadcast(self):
+        while True:
+            broadcast = self.broadcast_socket.recv_json()
+            yield broadcast
+
     def close(self):
         self.command_socket.close()
         self.status_socket.close()
         self.data_socket.close()
+        self.broadcast_socket.close()
         self.context.term()

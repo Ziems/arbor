@@ -276,7 +276,6 @@ class ArborGRPOTrainer(GRPOTrainer):
         }
 
 
-
 class BlockingQueueDataset(Dataset):
     def __init__(
         self,
@@ -322,28 +321,61 @@ class BlockingQueueDataset(Dataset):
         # print(f"Process {self.accelerator.process_index} got item {item['completion']['content'][:50]}")
         return item
 
+
 class CommandMonitor:
-    def __init__(self, comms_handler: ArborScriptCommsHandler, trainer: ArborGRPOTrainer):
+    def __init__(
+        self, comms_handler: ArborScriptCommsHandler, trainer: ArborGRPOTrainer
+    ):
         self.comms_handler = comms_handler
         self.trainer = trainer
-        self.command_thread = threading.Thread(target=self._monitor_commands, daemon=True)
+        self.command_thread = threading.Thread(
+            target=self._monitor_commands, daemon=True
+        )
         self.command_thread.start()
+
+        self.broadcast_thread = threading.Thread(
+            target=self._monitor_broadcasts, daemon=True
+        )
+        self.broadcast_thread.start()
 
     def _monitor_commands(self):
         """Background thread that monitors for commands from the server."""
         if not self.comms_handler:
             return
         try:
-            for command in self.comms_handler.receive_command():
-                print(f"!!!Received command: {command}")
-                if command.get("command") == "save_model":
-                    if self.trainer.accelerator.is_main_process:
+            print("!!!Starting command monitor")
+            if self.trainer.accelerator.is_main_process:
+                for command in self.comms_handler.receive_command():
+                    print(f"!!!Received command: {command}")
+                    if (
+                        command.get("command") == "save_model"
+                        and self.trainer.accelerator.is_main_process
+                    ):
                         self.trainer.save_model()
-                        self.comms_handler.send_status({"status": "model_saved", "output_dir": self.trainer.args.output_dir})
-                elif command.get("command") == "terminate":
-                    # We want all processes to stop, so we dont check for main process here
+                        self.comms_handler.send_status(
+                            {
+                                "status": "model_saved",
+                                "output_dir": self.trainer.args.output_dir,
+                            }
+                        )
+        except Exception as e:
+            self.comms_handler.send_status({"status": "error", "error": str(e)})
+
+    def _monitor_broadcasts(self):
+        """Background thread that monitors for broadcasts from the server."""
+        if not self.comms_handler:
+            return
+        try:
+            for broadcast in self.comms_handler.receive_broadcast():
+                print(f"!!!Received broadcast: {broadcast}")
+                if broadcast.get("message") == "terminate":
                     self.trainer.control.should_training_stop = True
-                    self.comms_handler.send_status({"status": "Received termination command"})
+                    self.comms_handler.send_status(
+                        {
+                            "status": "Received termination command",
+                            "process_id": self.trainer.accelerator.process_index,
+                        }
+                    )
         except Exception as e:
             self.comms_handler.send_status({"status": "error", "error": str(e)})
 

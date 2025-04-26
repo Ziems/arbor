@@ -188,7 +188,6 @@ class GRPOManager:
         while inference_manager.is_server_restarting():
             print("Inferece manager restarting, waiting for GRPO step")
             time.sleep(5)
-        
 
         try:
             # Send the batch to the training process
@@ -196,10 +195,13 @@ class GRPOManager:
             self.data_count += 1
         except Exception as e:
             print(f"Failed to send batch to training process: {e}")
-        
+
         # We tell the script to save the model. The script will let us know when it's done via the status update handler
         # Then we'll actually run the update_model function in the inference manager and finally update the last_inference_update variable
-        if self.data_count - self.last_inference_update > self.train_kwargs["update_interval"]:
+        if (
+            self.data_count - self.last_inference_update
+            > self.train_kwargs["update_interval"]
+        ):
             self.server_comms_handler.send_command({"command": "save_model"})
 
         return self.current_model
