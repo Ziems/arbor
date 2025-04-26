@@ -11,7 +11,7 @@ from arbor.server.main import app
 # Make sure to run "uv run arbor serve --arbor-config arbor.yaml" in another terminal
 
 from openai import OpenAI
-base_url = "http://localhost:8000/v1"
+base_url = "http://localhost:8001/v1"
 
 openai_client = OpenAI(
     base_url=base_url,  # Using Arbor server
@@ -19,7 +19,7 @@ openai_client = OpenAI(
 )
 
 
-test_file_path = Path(__file__).parent.parent.parent / "data" / "training_data_dpo.jsonl"
+test_file_path = Path(__file__).parent.parent.parent / "data" / "training_data_pft.jsonl"
 test_content = test_file_path.read_bytes()
 files = {"file": ("test.jsonl", test_content, "application/json")}
 
