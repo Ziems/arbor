@@ -21,7 +21,7 @@ class InferenceManager:
         self.restarting = False
         self._shutting_down = False
         self.current_model = None
-
+        self.inference_count = 0
         # Set up signal handler for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -128,7 +128,6 @@ class InferenceManager:
         self.get_logs = get_logs
         self.process = process
         self.thread = thread
-        self.restarting = False
         self.current_model = model
 
     def kill(self):
@@ -173,12 +172,10 @@ class InferenceManager:
 
     def run_inference(self, request_json: dict):
         model = request_json["model"]
-        if model.startswith("openai/"):
-            model = model[7:]
-        if model.startswith("local:"):
-            model = model[6:]
-        if model.startswith("huggingface/"):
-            model = model[len("huggingface/"):]
+        prefixes = ["openai/", "huggingface/", "local:", "arbor:"]
+        for prefix in prefixes:
+            if model.startswith(prefix):
+                model = model[len(prefix):]
         print(f"Running inference for model {model}")
         # Update last_activity timestamp
         self.last_activity = datetime.now()
@@ -186,8 +183,13 @@ class InferenceManager:
         if self.process is None or self.launch_kwargs.get('api_base') is None:
             raise RuntimeError("Server is not running. Please launch it first.")
 
+        while self.restarting:
+            print("Inference is paused while server is restarting...")
+            time.sleep(5)
+
         url = f"{self.launch_kwargs['api_base']}/chat/completions"
         try:
+            self.inference_count += 1
             response = requests.post(url, json=request_json)
             return response.json()
         except requests.exceptions.ConnectionError:
@@ -196,10 +198,17 @@ class InferenceManager:
         except Exception as e:
             print(f"Error during inference: {e}")
             raise
+        finally:
+            self.inference_count -= 1
 
     def update_model(self, output_dir):
         print("Restarting server with new model...")
         self.restarting = True
+
+        while self.inference_count > 0:
+            print(f"Waiting for inference requests to finish... {self.inference_count} remaining")
+            time.sleep(5)
+
         tik = time.time()
         self.kill()
         print("Just killed server")
@@ -211,6 +220,7 @@ class InferenceManager:
         print("Launching new server")
         self.launch(output_dir, self.launch_kwargs)
         tok = time.time()
+        self.restarting = False
         print(f"Time taken to update model: {tok - tik} seconds")
 
 
