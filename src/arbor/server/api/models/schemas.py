@@ -3,12 +3,14 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict
 
 # Generic type for list items
-T = TypeVar('T')
+T = TypeVar("T")
+
 
 class PaginatedResponse(BaseModel, Generic[T]):
     object: str = "list"
     data: List[T]
     has_more: bool = False
+
 
 class FileModel(BaseModel):
     id: str
@@ -18,15 +20,18 @@ class FileModel(BaseModel):
     filename: str
     purpose: str
 
+
 class WandbConfig(BaseModel):
     project: str
     name: Optional[str] = None
     entity: Optional[str] = None
     tags: Optional[List[str]] = None
 
+
 class IntegrationModel(BaseModel):
     type: str
     wandb: WandbConfig
+
 
 class FineTuneRequest(BaseModel):
     model: str
@@ -44,10 +49,12 @@ class ErrorModel(BaseModel):
     message: str
     param: str | None = None
 
+
 class SupervisedHyperparametersModel(BaseModel):
     batch_size: int | str = "auto"
     learning_rate_multiplier: float | str = "auto"
     n_epochs: int | str = "auto"
+
 
 class DPOHyperparametersModel(BaseModel):
     beta: float | str = "auto"
@@ -55,23 +62,27 @@ class DPOHyperparametersModel(BaseModel):
     learning_rate_multiplier: float | str = "auto"
     n_epochs: int | str = "auto"
 
+
 class SupervisedModel(BaseModel):
     hyperparameters: SupervisedHyperparametersModel
 
+
 class DpoModel(BaseModel):
     hyperparameters: DPOHyperparametersModel
+
 
 class MethodModel(BaseModel):
     type: Literal["supervised"] | Literal["dpo"]
     supervised: SupervisedModel | None = None
     dpo: DpoModel | None = None
 
+
 # https://platform.openai.com/docs/api-reference/fine-tuning/object
 class JobStatus(Enum):
-    PENDING = "pending" # Not in OAI
-    PENDING_PAUSE = "pending_pause" # Not in OAI
-    PENDING_RESUME = "pending_resume" # Not in OAI
-    PAUSED = "paused" # Not in OAI
+    PENDING = "pending"  # Not in OAI
+    PENDING_PAUSE = "pending_pause"  # Not in OAI
+    PENDING_RESUME = "pending_resume"  # Not in OAI
+    PAUSED = "paused"  # Not in OAI
     VALIDATING_FILES = "validating_files"
     QUEUED = "queued"
     RUNNING = "running"
@@ -79,6 +90,7 @@ class JobStatus(Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     PENDING_CANCEL = "pending_cancel"
+
 
 # https://platform.openai.com/docs/api-reference/fine-tuning/object
 class JobStatusModel(BaseModel):
@@ -104,6 +116,7 @@ class JobStatusModel(BaseModel):
     # estimated_finish: int | None = None # The Unix timestamp (in seconds) for when the fine-tuning job is estimated to finish. The value will be null if the fine-tuning job is not running.
     # method: MethodModel
     # metadata: dict[str, str]
+
 
 class JobEventModel(BaseModel):
     object: str = "fine_tuning.job_event"
@@ -139,6 +152,7 @@ class ChatCompletionMessage(BaseModel):
     role: Literal["system", "user", "assistant"]
     content: str
 
+
 class ChatCompletionRequest(BaseModel):
     model: str
     messages: List[ChatCompletionMessage]
@@ -146,10 +160,12 @@ class ChatCompletionRequest(BaseModel):
     top_p: float | None = None
     max_tokens: int | None = None
 
+
 class ChatCompletionChoice(BaseModel):
     message: ChatCompletionMessage
     index: int
     finish_reason: Literal["stop", "length", "tool_calls"]
+
 
 class ChatCompletionModel(BaseModel):
     id: str
@@ -158,10 +174,12 @@ class ChatCompletionModel(BaseModel):
     model: str
     choices: List[ChatCompletionChoice]
 
+
 class GRPORequest(BaseModel):
     model: str
     update_inference_model: bool
     batch: List[dict]
+
 
 class GRPOConfigRequest(BaseModel):
     model: str
@@ -174,14 +192,19 @@ class GRPOConfigRequest(BaseModel):
     # To name the run
     suffix: Optional[str] = None
 
+
 class GRPOConfigResponse(BaseModel):
     status: str
 
+
 class GRPOTerminateRequest(BaseModel):
-    status: str
+    status: Optional[str] = "success"
+
 
 class GRPOTerminateResponse(BaseModel):
     status: str
+    current_model: str
+
 
 class GRPOStepResponse(BaseModel):
     status: str

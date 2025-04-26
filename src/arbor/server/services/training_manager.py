@@ -18,7 +18,7 @@ class PauseTrainingCallback(TrainerCallback):
     def on_step_end(self, args, state, control, **kwargs):
         if self.job.status in [JobStatus.PENDING_PAUSE, JobStatus.PENDING_CANCEL]:
             control.should_training_stop = True
-            if self.job.status == JobStatus.PENDING_PAUSE: # only save if we're pausing
+            if self.job.status == JobStatus.PENDING_PAUSE:  # only save if we're pausing
                 control.should_save = True
 
 
@@ -27,8 +27,12 @@ class TrainingManager:
         self.settings = settings
 
     def make_output_dir(self, request: FineTuneRequest):
-        model_name = request.model.split('/')[-1].lower()
-        suffix = request.suffix if request.suffix is not None else ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+        model_name = request.model.split("/")[-1].lower()
+        suffix = (
+            request.suffix
+            if request.suffix is not None
+            else "".join(random.choices(string.ascii_letters + string.digits, k=6))
+        )
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         name = f"ft:{model_name}:{suffix}:{timestamp}"
         return name, str(Path(self.settings.STORAGE_PATH).resolve() / "models" / name)
@@ -56,8 +60,8 @@ class TrainingManager:
             "output_dir": output_dir,
             "train_data_path": data_path,
         }
-        train_kwargs = {'packing': False}
-        train_kwargs={**default_train_kwargs, **(train_kwargs or {})}
+        train_kwargs = {"packing": False}
+        train_kwargs = {**default_train_kwargs, **(train_kwargs or {})}
 
         return train_kwargs
     
@@ -94,12 +98,13 @@ class TrainingManager:
 
         return train_kwargs
 
-
     def fine_tune(self, request: FineTuneRequest, job: Job, file_manager: FileManager):
         
 
         job.status = JobStatus.RUNNING
-        job.add_event(JobEvent(level="info", message="Starting fine-tuning job", data={}))
+        job.add_event(
+            JobEvent(level="info", message="Starting fine-tuning job", data={})
+        )
 
         fine_tune_type = request.method['type']
         if fine_tune_type == "dpo":
@@ -277,12 +282,16 @@ class TrainingManager:
                     if torch.cuda.is_available()
                     else "mps" if torch.backends.mps.is_available() else "cpu"
                 )
-            job.add_event(JobEvent(level="info", message=f"Using device: {device}", data={}))
+            job.add_event(
+                JobEvent(level="info", message=f"Using device: {device}", data={})
+            )
 
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name_or_path=request.model
             ).to(device)
-            tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path=request.model)
+            tokenizer = AutoTokenizer.from_pretrained(
+                pretrained_model_name_or_path=request.model
+            )
 
             # Set up the chat format; generally only for non-chat model variants, hence the try-except.
             try:
@@ -291,21 +300,40 @@ class TrainingManager:
                 pass
 
             if tokenizer.pad_token_id is None:
-                job.add_event(JobEvent(level="info", message="Adding pad token to tokenizer", data={}))
+                job.add_event(
+                    JobEvent(
+                        level="info", message="Adding pad token to tokenizer", data={}
+                    )
+                )
                 tokenizer.add_special_tokens({"pad_token": "[!#PAD#!]"})
 
             job.add_event(JobEvent(level="info", message="Creating dataset", data={}))
-            if "max_seq_length" not in train_kwargs or train_kwargs["max_seq_length"] is None:
+            if (
+                "max_seq_length" not in train_kwargs
+                or train_kwargs["max_seq_length"] is None
+            ):
                 train_kwargs["max_seq_length"] = 4096
-                job.add_event(JobEvent(level="info", message=f"The 'train_kwargs' parameter didn't include a 'max_seq_length', defaulting to {train_kwargs['max_seq_length']}", data={}))
+                job.add_event(
+                    JobEvent(
+                        level="info",
+                        message=f"The 'train_kwargs' parameter didn't include a 'max_seq_length', defaulting to {train_kwargs['max_seq_length']}",
+                        data={},
+                    )
+                )
 
             job.add_event(JobEvent(level="info", message="Tokenizing dataset", data={}))
             hf_dataset = dataset_from_file(train_kwargs["train_data_path"])
+
             def tokenize_function(example):
-                return encode_sft_example(example, tokenizer, train_kwargs["max_seq_length"])
+                return encode_sft_example(
+                    example, tokenizer, train_kwargs["max_seq_length"]
+                )
+
             tokenized_dataset = hf_dataset.map(tokenize_function, batched=False)
             tokenized_dataset.set_format(type="torch")
-            tokenized_dataset = tokenized_dataset.filter(lambda example: (example["labels"] != -100).any())
+            tokenized_dataset = tokenized_dataset.filter(
+                lambda example: (example["labels"] != -100).any()
+            )
 
             USE_PEFT = train_kwargs.get("use_peft", False)
             peft_config = None
@@ -352,18 +380,23 @@ class TrainingManager:
                 args=sft_config,
                 train_dataset=tokenized_dataset,
                 peft_config=peft_config,
-                callbacks=[PauseTrainingCallback(job)]
+                callbacks=[PauseTrainingCallback(job)],
             )
 
             # Train!
             trainer.train()
 
-
             if job.status == JobStatus.PENDING_PAUSE:
                 trainer.accelerator.save_state(output_dir=sft_config.output_dir)
                 current_step = trainer.state.global_step
                 job.status = JobStatus.PAUSED
-                job.add_event(JobEvent(level="info", message="Training paused", data={"step": current_step}))
+                job.add_event(
+                    JobEvent(
+                        level="info",
+                        message="Training paused",
+                        data={"step": current_step},
+                    )
+                )
 
             while job.status == JobStatus.PAUSED:
                 time.sleep(1)  # Sleep to avoid busy waiting
@@ -377,19 +410,30 @@ class TrainingManager:
                 job.status = JobStatus.CANCELLED
                 job.add_event(JobEvent(level="info", message="Training cancelled"))
                 import gc
+
                 del model
                 del tokenizer
                 del trainer
                 gc.collect()
                 torch.cuda.empty_cache()
-                raise Exception("Training cancelled") # not sure if this should be raised or just return None
+                raise Exception(
+                    "Training cancelled"
+                )  # not sure if this should be raised or just return None
 
-            job.add_event(JobEvent(level="info", message="Training completed successfully"))
+            job.add_event(
+                JobEvent(level="info", message="Training completed successfully")
+            )
 
             job.add_event(JobEvent(level="info", message="Saving model", data={}))
             # Save the model!
             trainer.save_model()
-            job.add_event(JobEvent(level="info", message="Model saved", data={'location': sft_config.output_dir}))
+            job.add_event(
+                JobEvent(
+                    level="info",
+                    message="Model saved",
+                    data={"location": sft_config.output_dir},
+                )
+            )
 
             MERGE = True
             if USE_PEFT and MERGE:
@@ -419,13 +463,16 @@ class TrainingManager:
             job.status = JobStatus.SUCCEEDED
             job.fine_tuned_model = sft_config.output_dir
         except Exception as e:
-            job.add_event(JobEvent(level="error", message=f"Training failed: {str(e)}", data={}))
+            job.add_event(
+                JobEvent(level="error", message=f"Training failed: {str(e)}", data={})
+            )
             job.status = JobStatus.FAILED
             raise
         finally:
             pass
 
         return sft_config.output_dir
+
 
 def dataset_from_file(data_path):
     """
@@ -468,7 +515,9 @@ def encode_sft_example(example, tokenizer, max_seq_length):
                 message_start_idx = 0
             else:
                 message_start_idx = tokenizer.apply_chat_template(
-                    conversation=messages[:message_idx],  # here marks the end of the previous messages
+                    conversation=messages[
+                        :message_idx
+                    ],  # here marks the end of the previous messages
                     tokenize=True,
                     return_tensors="pt",
                     padding=False,
@@ -477,7 +526,10 @@ def encode_sft_example(example, tokenizer, max_seq_length):
                     add_generation_prompt=False,
                 ).shape[1]
             # next, we calculate the end index of this non-assistant message
-            if message_idx < len(messages) - 1 and messages[message_idx + 1]["role"] == "assistant":
+            if (
+                message_idx < len(messages) - 1
+                and messages[message_idx + 1]["role"] == "assistant"
+            ):
                 # for intermediate messages that follow with an assistant message, we need to
                 # set `add_generation_prompt=True` to avoid the assistant generation prefix being included in the loss
                 # (e.g., `<|assistant|>`)
@@ -510,5 +562,5 @@ def encode_sft_example(example, tokenizer, max_seq_length):
     return {
         "input_ids": input_ids.flatten(),
         "labels": labels.flatten(),
-        "attention_mask": attention_mask.flatten()
+        "attention_mask": attention_mask.flatten(),
     }

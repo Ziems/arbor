@@ -5,6 +5,7 @@ from arbor.server.api.routes.files import router
 from arbor.server.services.file_manager import FileManager
 from pathlib import Path
 
+
 @pytest.fixture(scope="module")
 def server(tmp_path_factory):
     """Set up a test server with configured dependencies"""
@@ -18,9 +19,7 @@ def server(tmp_path_factory):
     test_storage = tmp_path_factory.mktemp("test_storage")
 
     # Create test settings
-    settings = Settings(
-        STORAGE_PATH=str(test_storage)
-    )
+    settings = Settings(STORAGE_PATH=str(test_storage))
 
     # Initialize services with test settings
     file_manager = FileManager(settings=settings)
@@ -35,13 +34,17 @@ def server(tmp_path_factory):
 
     return app
 
+
 @pytest.fixture
 def client(server):
     return TestClient(server)
 
+
 def test_upload_file(client):
     # Load the test file from tests/data
-    test_file_path = Path(__file__).parent.parent.parent.parent / "data" / "training_data_sft.jsonl"
+    test_file_path = (
+        Path(__file__).parent.parent.parent.parent / "data" / "training_data_sft.jsonl"
+    )
     test_content = test_file_path.read_bytes()
     files = {"file": ("test.jsonl", test_content, "application/json")}
 
@@ -50,16 +53,19 @@ def test_upload_file(client):
     assert response.status_code == 200
     assert "id" in response.json()
 
+
 def test_upload_file_validates_file_type(client):
     # Load the test file from tests/data
-    test_file_path = Path(__file__).parent.parent.parent.parent / "data" / "training_data_sft.jsonl"
+    test_file_path = (
+        Path(__file__).parent.parent.parent.parent / "data" / "training_data_sft.jsonl"
+    )
     test_content = test_file_path.read_bytes()
 
     # Test rejected file types
     invalid_content = b"test file content"
     invalid_files = [
         ("test.txt", invalid_content, "text/plain"),
-        ("test.json", b'{"key": "value"}', "application/json")
+        ("test.json", b'{"key": "value"}', "application/json"),
     ]
 
     for filename, content, content_type in invalid_files:
@@ -74,9 +80,12 @@ def test_upload_file_validates_file_type(client):
     assert response.status_code == 200
     assert "id" in response.json()
 
+
 def test_upload_file_validates_format(client):
     # Valid JSONL format (from our test file)
-    test_file_path = Path(__file__).parent.parent.parent.parent / "data" / "training_data_sft.jsonl"
+    test_file_path = (
+        Path(__file__).parent.parent.parent.parent / "data" / "training_data_sft.jsonl"
+    )
     valid_content = test_file_path.read_bytes()
 
     # Test valid format
@@ -98,26 +107,47 @@ def test_upload_file_validates_format(client):
     assert "Invalid file format" in response.json()["detail"]
 
     # Test invalid JSON structure
-    files = {"file": ("test.jsonl", b'{"messages": [{"role": "user"}]}\n{"broken_json":', "application/json")}
+    files = {
+        "file": (
+            "test.jsonl",
+            b'{"messages": [{"role": "user"}]}\n{"broken_json":',
+            "application/json",
+        )
+    }
     response = client.post("/v1/files", files=files)
     assert response.status_code == 400
     assert "Invalid file format" in response.json()["detail"]
 
     # Test missing required fields
-    files = {"file": ("test.jsonl", b'{"wrong_field": "test"}\n{"also_wrong": "test"}', "application/json")}
+    files = {
+        "file": (
+            "test.jsonl",
+            b'{"wrong_field": "test"}\n{"also_wrong": "test"}',
+            "application/json",
+        )
+    }
     response = client.post("/v1/files", files=files)
     assert response.status_code == 400
     assert "Invalid file format" in response.json()["detail"]
 
     # Test missing messages field
-    files = {"file": ("test.jsonl", b'{"other": "data"}\n{"more": "data"}', "application/json")}
+    files = {
+        "file": (
+            "test.jsonl",
+            b'{"other": "data"}\n{"more": "data"}',
+            "application/json",
+        )
+    }
     response = client.post("/v1/files", files=files)
     assert response.status_code == 400
     assert "Invalid file format" in response.json()["detail"]
 
+
 def test_get_file_returns_same_content(client):
     # Valid JSONL format (from our test file)
-    test_file_path = Path(__file__).parent.parent.parent.parent / "data" / "training_data_sft.jsonl"
+    test_file_path = (
+        Path(__file__).parent.parent.parent.parent / "data" / "training_data_sft.jsonl"
+    )
     valid_content = test_file_path.read_bytes()
 
     # Upload file first
@@ -134,6 +164,3 @@ def test_get_file_returns_same_content(client):
         stored_content = f.read()
 
     assert stored_content == valid_content
-
-
-

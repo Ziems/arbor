@@ -9,8 +9,10 @@ from multiprocessing import Process
 import uvicorn
 from arbor.server.main import app
 
+
 def run_server():
     uvicorn.run(app, host="127.0.0.1", port=8000)
+
 
 @pytest.fixture(scope="module")
 def server(tmp_path_factory):
@@ -25,9 +27,7 @@ def server(tmp_path_factory):
     test_storage = tmp_path_factory.mktemp("test_storage")
 
     # Create test settings
-    settings = Settings(
-        STORAGE_PATH=str(test_storage)
-    )
+    settings = Settings(STORAGE_PATH=str(test_storage))
 
     # Initialize services with test settings
     file_manager = FileManager(settings=settings)
@@ -48,6 +48,7 @@ def server(tmp_path_factory):
     proc.terminate()  # Shut down the server after tests
     proc.join()
 
+
 class APIClient:
     def __init__(self, base_url):
         self.base_url = base_url
@@ -62,17 +63,21 @@ class APIClient:
     def post(self, path, **kwargs):
         return self.session.post(self._url(path), **kwargs)
 
+
 @pytest.fixture(scope="module")
 def client():
     # Using requests for a real HTTP client
     base_url = "http://localhost:8000"
     return APIClient(base_url)
 
+
 @pytest.fixture(scope="module")
 def trained_model_job(server, client):
     """Fixture that runs the fine-tuning once and returns the job_id for other tests to use"""
     # 1. Upload training file
-    test_file_path = Path(__file__).parent.parent.parent / "data" / "training_data_sft.jsonl"
+    test_file_path = (
+        Path(__file__).parent.parent.parent / "data" / "training_data_sft.jsonl"
+    )
     test_content = test_file_path.read_bytes()
     files = {"file": ("test.jsonl", test_content, "application/json")}
 
@@ -81,10 +86,10 @@ def trained_model_job(server, client):
     file_id = upload_response.json()["id"]
 
     # 2. Start fine-tuning job
-    finetune_response = client.post("/v1/fine_tuning/jobs", json={
-        "training_file": file_id,
-        "model": "HuggingFaceTB/SmolLM2-135M-Instruct"
-    })
+    finetune_response = client.post(
+        "/v1/fine_tuning/jobs",
+        json={"training_file": file_id, "model": "HuggingFaceTB/SmolLM2-135M-Instruct"},
+    )
     assert finetune_response.status_code == 200
     job_id = finetune_response.json()["id"]
 
@@ -106,9 +111,12 @@ def trained_model_job(server, client):
 
         time.sleep(poll_interval)
     else:
-        raise AssertionError(f"Job did not complete within {max_attempts * poll_interval} seconds")
+        raise AssertionError(
+            f"Job did not complete within {max_attempts * poll_interval} seconds"
+        )
 
     return job_id
+
 
 def test_complete_workflow(trained_model_job, client):
     # Just verify final status since training is already done
@@ -116,6 +124,7 @@ def test_complete_workflow(trained_model_job, client):
     assert final_response.status_code == 200
     assert final_response.json()["status"] == "succeeded"
     assert final_response.json()["fine_tuned_model"] is not None
+
 
 def test_model_can_be_loaded(trained_model_job, client):
     # Your test code here, using trained_model_job
@@ -128,13 +137,12 @@ def test_model_can_be_loaded(trained_model_job, client):
         raise ValueError("No fine-tuned model path found in job response")
 
     model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        device_map=device,
-        torch_dtype=torch.float16
+        model_path, device_map=device, torch_dtype=torch.float16
     )
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     assert model is not None
     assert tokenizer is not None
+
 
 def test_model_can_be_prompted(trained_model_job, client):
     # Your test code here, using trained_model_job
@@ -147,9 +155,7 @@ def test_model_can_be_prompted(trained_model_job, client):
         raise ValueError("No fine-tuned model path found in job response")
 
     model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        device_map=device,
-        torch_dtype=torch.float16
+        model_path, device_map=device, torch_dtype=torch.float16
     )
     tokenizer = AutoTokenizer.from_pretrained(model_path)
 

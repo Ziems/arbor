@@ -2,21 +2,25 @@ from pydantic import BaseModel, ConfigDict
 import yaml
 from pathlib import Path
 
+
 class InferenceConfig(BaseModel):
     gpu_ids: str = "0"
+
 
 class TrainingConfig(BaseModel):
     gpu_ids: str = "0"
     num_processes: int = 1
 
+
 class ArborConfig(BaseModel):
     inference: InferenceConfig
     training: TrainingConfig
 
+
 class Settings(BaseModel):
 
     STORAGE_PATH: str = "./storage"
-    INACTIVITY_TIMEOUT: int = 30 # 5 seconds
+    INACTIVITY_TIMEOUT: int = 30  # 5 seconds
     arbor_config: ArborConfig
 
     @classmethod

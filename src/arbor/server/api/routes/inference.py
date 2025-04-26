@@ -3,9 +3,13 @@ from fastapi import APIRouter, Request
 from datetime import datetime, timedelta
 import asyncio
 from contextlib import asynccontextmanager
-from arbor.server.api.models.schemas import ChatCompletionModel, ChatCompletionRequest, ChatCompletionMessage, ChatCompletionChoice
+from arbor.server.api.models.schemas import (
+    ChatCompletionModel,
+    ChatCompletionRequest,
+    ChatCompletionMessage,
+    ChatCompletionChoice,
+)
 from arbor.server.services.job_manager import JobStatus
-
 
 
 @asynccontextmanager
@@ -20,13 +24,16 @@ async def lifespan(app):
     except asyncio.CancelledError:
         pass
 
+
 async def check_inactivity(app):
     inactivity_timeout = app.state.settings.INACTIVITY_TIMEOUT
     while True:
-        await asyncio.sleep(5) # check every 5 seconds
+        await asyncio.sleep(5)  # check every 5 seconds
         inference_manager = app.state.inference_manager
         if inference_manager.last_activity is not None:
-            if datetime.now() - inference_manager.last_activity > timedelta(seconds=inactivity_timeout):
+            if datetime.now() - inference_manager.last_activity > timedelta(
+                seconds=inactivity_timeout
+            ):
                 print("Inactivity timeout reached, killing server")
                 inference_manager.kill()
 
@@ -37,7 +44,9 @@ router = APIRouter()
 
 
 @router.post("/completions")
-async def run_inference(request: Request): # TODO: Ideally this should be ChatCompletionRequest
+async def run_inference(
+    request: Request,
+):  # TODO: Ideally this should be ChatCompletionRequest
     inference_manager = request.app.state.inference_manager
     # job_manager = request.app.state.job_manager
     raw_json = await request.json()
@@ -53,10 +62,13 @@ async def run_inference(request: Request): # TODO: Ideally this should be ChatCo
     prefixes = ["openai/", "huggingface/", "local:", "arbor:"]
     for prefix in prefixes:
         if raw_json["model"].startswith(prefix):
-            raw_json["model"] = raw_json["model"][len(prefix):]
+            raw_json["model"] = raw_json["model"][len(prefix) :]
 
     # if a server isnt running, launch one
-    if not inference_manager.is_server_running() and not inference_manager.is_server_restarting():
+    if (
+        not inference_manager.is_server_running()
+        and not inference_manager.is_server_restarting()
+    ):
         print("No model is running, launching model...")
         inference_manager.launch(raw_json["model"])
 
@@ -77,17 +89,19 @@ async def run_inference(request: Request): # TODO: Ideally this should be ChatCo
 
     return completion
 
-@router.post('/launch')
+
+@router.post("/launch")
 async def launch_inference(request: Request):
     inference_manager = request.app.state.inference_manager
     raw_json = await request.json()
-    inference_manager.launch(raw_json["model"], raw_json["launch_kwargs"]) # TODO: This should be done better
+    inference_manager.launch(
+        raw_json["model"], raw_json["launch_kwargs"]
+    )  # TODO: This should be done better
     return {"message": "Inference server launched"}
 
-@router.post('/kill')
+
+@router.post("/kill")
 async def kill_inference(request: Request):
     inference_manager = request.app.state.inference_manager
     inference_manager.kill()
     return {"message": "Inference server killed"}
-
-
