@@ -12,7 +12,7 @@ class ArborServerCommsHandler:
         self.context = zmq.Context()
 
         # Command socket (REQ/REP pattern)
-        self.command_socket = self.context.socket(zmq.REP)
+        self.command_socket = self.context.socket(zmq.REQ)
         self.command_port = self.command_socket.bind_to_random_port(f"tcp://{host}")
 
         # Status socket (PUB/SUB pattern)
@@ -39,7 +39,7 @@ class ArborServerCommsHandler:
         self.data_socket.send_json(data)
 
     def send_broadcast(self, message):
-        self.broadcast_socket.send_json({"message": message})
+        self.broadcast_socket.send_json(message)
 
     def close(self):
         self.command_socket.close()
@@ -64,7 +64,7 @@ class ArborScriptCommsHandler:
 
         # Command socket (main process only)
         if is_main_process:
-            self.command_socket = self.context.socket(zmq.REQ)
+            self.command_socket = self.context.socket(zmq.REP)
             self.command_socket.connect(f"tcp://{host}:{command_port}")
 
             self.status_socket = self.context.socket(zmq.PUB)
@@ -111,3 +111,30 @@ class ArborScriptCommsHandler:
         self.data_socket.close()
         self.broadcast_socket.close()
         self.context.term()
+
+if __name__ == "__main__":
+    def _server_thread(server_comms):
+        server_comms.send_command({"command": "test"})
+        print("Server sent command")
+
+    def _client_thread(script_comms):
+        for command in script_comms.receive_command():
+            command = script_comms.receive_command()
+            print("Client received command:", command)
+
+    server_comms = ArborServerCommsHandler()
+    script_comms = ArborScriptCommsHandler("localhost", server_comms.command_port, server_comms.status_port, server_comms.data_port, server_comms.broadcast_port, True)
+
+    t1 = threading.Thread(target=_server_thread, args=(server_comms,))
+    t2 = threading.Thread(target=_client_thread, args=(script_comms,))
+
+    try:
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+    except KeyboardInterrupt:
+        print("Keyboard interrupt")
+    finally:
+        script_comms.close()
+        server_comms.close()
