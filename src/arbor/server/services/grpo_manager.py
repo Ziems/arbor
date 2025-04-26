@@ -222,7 +222,7 @@ class GRPOManager:
 
             # Wait for training process to finish
             if self.training_process:
-                self.training_process.wait(timeout=10)
+                self.training_process.wait(timeout=30)
 
         except Exception as e:
             print(f"Error during termination: {e}")

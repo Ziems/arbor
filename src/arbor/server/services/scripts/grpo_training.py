@@ -343,7 +343,6 @@ class CommandMonitor:
         if not self.comms_handler:
             return
         try:
-            print("!!!Starting command monitor")
             if self.trainer.accelerator.is_main_process:
                 for command in self.comms_handler.receive_command():
                     print(f"!!!Received command: {command}")
