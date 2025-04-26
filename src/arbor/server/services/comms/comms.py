@@ -112,7 +112,9 @@ class ArborScriptCommsHandler:
         self.broadcast_socket.close()
         self.context.term()
 
+
 if __name__ == "__main__":
+
     def _server_thread(server_comms):
         server_comms.send_command({"command": "test"})
         print("Server sent command")
@@ -123,7 +125,14 @@ if __name__ == "__main__":
             print("Client received command:", command)
 
     server_comms = ArborServerCommsHandler()
-    script_comms = ArborScriptCommsHandler("localhost", server_comms.command_port, server_comms.status_port, server_comms.data_port, server_comms.broadcast_port, True)
+    script_comms = ArborScriptCommsHandler(
+        "localhost",
+        server_comms.command_port,
+        server_comms.status_port,
+        server_comms.data_port,
+        server_comms.broadcast_port,
+        True,
+    )
 
     t1 = threading.Thread(target=_server_thread, args=(server_comms,))
     t2 = threading.Thread(target=_client_thread, args=(script_comms,))

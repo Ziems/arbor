@@ -168,10 +168,13 @@ class GRPOManager:
                 print(f"Received status update: {status}")
                 if status["status"] == "model_saved":
                     print("Updating inference model...")
-                    inference_manager.update_model(status["output_dir"])
-                    self.last_inference_update = self.data_count
-                    self.current_model = status["output_dir"]
-                    print("Model update complete")
+                    # There is a case where this status is sent multiple times
+                    # We need to make sure we only update the model once
+                    if self._should_update_model():
+                        inference_manager.update_model(status["output_dir"])
+                        self.last_inference_update = self.data_count
+                        self.current_model = status["output_dir"]
+                        print("Model update complete")
                 elif status["status"] == "error":
                     print(f"Training error: {status.get('error', 'Unknown error')}")
                 elif status["status"] == "terminated":
@@ -197,10 +200,7 @@ class GRPOManager:
 
         # We tell the script to save the model. The script will let us know when it's done via the status update handler
         # Then we'll actually run the update_model function in the inference manager and finally update the last_inference_update variable
-        if (
-            self.data_count - self.last_inference_update
-            > self.train_kwargs["update_interval"]
-        ):
+        if self._should_update_model():
             self.server_comms_handler.send_command({"command": "save_model"})
 
         return self.current_model
@@ -213,7 +213,7 @@ class GRPOManager:
                 inference_manager.kill()
 
             # Send termination command through REQ socket
-            self.server_comms_handler.send_command({"command": "terminate"})
+            self.server_comms_handler.send_broadcast({"message": "terminate"})
 
             # Wait for training process to finish
             if self.training_process:
@@ -238,3 +238,9 @@ class GRPOManager:
             else:
                 print("Training terminated, no output directory specified")
                 return None
+
+    def _should_update_model(self):
+        return (
+            self.data_count - self.last_inference_update
+            > self.train_kwargs["update_interval"]
+        )
