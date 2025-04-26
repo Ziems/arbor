@@ -176,8 +176,8 @@ class InferenceManager:
         print(f"Running inference for model {model}")
         # Monkeypatch:
         if model != self.current_model:
-            print(f"MONKEYPATCH: Model changed from {self.current_model} to {model}")
-            self.current_model = model
+            print(f"MONKEYPATCH: Model changed from {model} to {self.current_model}")
+            model = self.current_model
 
         # Update last_activity timestamp
         self.last_activity = datetime.now()
