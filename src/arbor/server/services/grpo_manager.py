@@ -24,8 +24,11 @@ class GRPOManager:
         self.training_process = None
         self.current_model = None
         self.train_kwargs = None
-        self.socket_manager = None
+        self.server_comms_handler = None
         self.status_thread = None
+
+        self.data_count = 0
+        self.last_inference_update = 0
         # Set up signal handler
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -109,7 +112,7 @@ class GRPOManager:
         self.current_model = request.model
 
         # Initialize ZMQ socket manager - no need for connection acceptance thread anymore
-        self.socket_manager = ArborServerCommsHandler()
+        self.server_comms_handler = ArborServerCommsHandler()
 
         script_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
         script_path = os.path.join(script_dir, "grpo_training.py")
@@ -129,13 +132,13 @@ class GRPOManager:
                 script_path,
                 # Comms args
                 "--host",
-                self.socket_manager.host,
+                self.server_comms_handler.host,
                 "--command_port",
-                str(self.socket_manager.command_port),
+                str(self.server_comms_handler.command_port),
                 "--status_port",
-                str(self.socket_manager.status_port),
+                str(self.server_comms_handler.status_port),
                 "--data_port",
-                str(self.socket_manager.data_port),
+                str(self.server_comms_handler.data_port),
                 # Training args
                 "--trl_train_kwargs",
                 json.dumps(trl_train_kwargs),
@@ -160,14 +163,15 @@ class GRPOManager:
         print("Starting status update handler...")
         try:
             # Subscribe to all messages (empty string means all topics)
-            self.socket_manager.status_socket.setsockopt_string(zmq.SUBSCRIBE, "")
+            self.server_comms_handler.status_socket.setsockopt_string(zmq.SUBSCRIBE, "")
 
-            for status in self.socket_manager.receive_status():
+            for status in self.server_comms_handler.receive_status():
                 print(f"Received status update: {status}")
-                if status["status"] == "update_inference_model":
+                if status["status"] == "model_saved":
                     print("Updating inference model...")
-                    inference_manager.update_model(self.train_kwargs["output_dir"])
-                    self.current_model = self.train_kwargs["output_dir"]
+                    inference_manager.update_model(status["output_dir"])
+                    self.last_inference_update = self.data_count
+                    self.current_model = status["output_dir"]
                     print("Model update complete")
                 elif status["status"] == "error":
                     print(f"Training error: {status.get('error', 'Unknown error')}")
@@ -181,15 +185,22 @@ class GRPOManager:
         self, request: GRPORequest, inference_manager: InferenceManager
     ) -> str:
         """Process a training step using ZMQ PUSH socket."""
-        if inference_manager.is_server_restarting():
-            print("Inferece manager restarting, ignoring GRPO step")
-            return self.current_model
+        while inference_manager.is_server_restarting():
+            print("Inferece manager restarting, waiting for GRPO step")
+            time.sleep(5)
+        
 
         try:
             # Send the batch to the training process
-            self.socket_manager.send_data(request.batch)
+            self.server_comms_handler.send_data(request.batch)
+            self.data_count += 1
         except Exception as e:
             print(f"Failed to send batch to training process: {e}")
+        
+        # We tell the script to save the model. The script will let us know when it's done via the status update handler
+        # Then we'll actually run the update_model function in the inference manager and finally update the last_inference_update variable
+        if self.data_count - self.last_inference_update > self.train_kwargs["update_interval"]:
+            self.server_comms_handler.send_command({"command": "save_model"})
 
         return self.current_model
 
@@ -201,7 +212,7 @@ class GRPOManager:
                 inference_manager.kill()
 
             # Send termination command through REQ socket
-            self.socket_manager.send_command({"command": "terminate"})
+            self.server_comms_handler.send_command({"command": "terminate"})
 
             # Wait for training process to finish
             if self.training_process:
@@ -211,8 +222,8 @@ class GRPOManager:
             print(f"Error during termination: {e}")
         finally:
             # Clean up ZMQ connections
-            if self.socket_manager:
-                self.socket_manager.close()
+            if self.server_comms_handler:
+                self.server_comms_handler.close()
 
             if self.train_kwargs and "output_dir" in self.train_kwargs:
                 print(
