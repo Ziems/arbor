@@ -126,7 +126,6 @@ class GRPOManager:
                 "python",
                 "-m",
                 "accelerate.commands.launch",
-                # "--config_file", "training_config.yaml",
                 "--num_processes",
                 str(self.settings.arbor_config.training.num_processes),
                 script_path,
@@ -139,6 +138,8 @@ class GRPOManager:
                 str(self.server_comms_handler.status_port),
                 "--data_port",
                 str(self.server_comms_handler.data_port),
+                "--broadcast_port",
+                str(self.server_comms_handler.broadcast_port),
                 # Training args
                 "--trl_train_kwargs",
                 json.dumps(trl_train_kwargs),
