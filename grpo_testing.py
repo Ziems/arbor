@@ -63,6 +63,6 @@ for i in range(len(dataset)):
             {"messages": input_messages, "completion": completion, "reward": reward}
         )
     step_response = run_grpo_step(model_name=current_model, batch=batch)
-    current_model = step_response.json()["model"]
+    current_model = step_response.json()["current_model"]
 
 terminate_response = terminate_grpo()

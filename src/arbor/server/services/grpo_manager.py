@@ -189,9 +189,11 @@ class GRPOManager:
         while inference_manager.is_server_restarting():
             print("Inferece manager restarting, waiting for GRPO step")
             time.sleep(5)
-        
+
         while self._should_update_model():
-            print(f"Waiting for model update. Data count: {self.data_count}, Last inference update: {self.last_inference_update}")
+            print(
+                f"Waiting for model update. Data count: {self.data_count}, Last inference update: {self.last_inference_update}"
+            )
             time.sleep(5)
 
         try:
