@@ -245,5 +245,5 @@ class GRPOManager:
     def _should_update_model(self):
         return (
             self.data_count - self.last_inference_update
-            > self.train_kwargs["update_interval"]
+            >= self.train_kwargs["update_interval"]
         )

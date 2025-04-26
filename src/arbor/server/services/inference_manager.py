@@ -178,6 +178,7 @@ class InferenceManager:
         if model != self.current_model:
             print(f"MONKEYPATCH: Model changed from {model} to {self.current_model}")
             model = self.current_model
+            request_json["model"] = model
 
         # Update last_activity timestamp
         self.last_activity = datetime.now()
