@@ -230,7 +230,7 @@ class BlockingQueueDataset(Dataset):
 
     def _get_data(self, idx):
         if self.accelerator.is_main_process:
-            print(f"Main process {self.accelerator.process_index} getting new data")
+            # print(f"Main process {self.accelerator.process_index} getting new data")
             new_data = (
                 self.comms_handler.receive_data()
             )  # This blocks until data is available
@@ -239,11 +239,11 @@ class BlockingQueueDataset(Dataset):
                 self.completion_counters[idx] = 0
             return broadcast_object_list([new_data])[0]
         else:
-            print(f"Other process {self.accelerator.process_index} waiting for data")
+            # print(f"Other process {self.accelerator.process_index} waiting for data")
             return broadcast_object_list([None])[0]
 
     def __getitem__(self, idx):
-        print(f"Process {self.accelerator.process_index} getting item {idx}")
+        # print(f"Process {self.accelerator.process_index} getting item {idx}")
         data = self.get_cached_data(idx)
 
         if data is None:
@@ -383,7 +383,6 @@ def main():
                         )
                     server_comms_handler.send_data(batch)
                     time.sleep(1)
-                    print("Sent batch...")
 
         debug_thread = threading.Thread(target=debug_data_generator, daemon=True)
         debug_thread.start()
@@ -398,7 +397,7 @@ def main():
         status_listener_thread.start()
 
         def save_command():
-            time.sleep(120)  # Wait 2 minutes (120 seconds)
+            time.sleep(60)  # Wait 1 minute (60 seconds)
             server_comms_handler.send_command({"command": "save_model"})
 
         save_command_thread = threading.Thread(target=save_command, daemon=True)
