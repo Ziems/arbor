@@ -68,7 +68,6 @@ class ArborGRPOTrainer(GRPOTrainer):
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
         self.update_interval = update_interval
-        self.save_requested = False
         # Keeping this for when we switch to vllm
         # self.sampling_params = SamplingParams(
         #     max_tokens=self.max_completion_length,
@@ -396,6 +395,13 @@ def main():
 
         status_listener_thread = threading.Thread(target=status_listener, daemon=True)
         status_listener_thread.start()
+
+        def save_command():
+            time.sleep(120)  # Wait 2 minutes (120 seconds)
+            server_comms_handler.send_command({"command": "save_model"})
+
+        save_command_thread = threading.Thread(target=save_command, daemon=True)
+        save_command_thread.start()
 
     try:
         trl_train_args = {**(args.trl_train_kwargs or {})}
