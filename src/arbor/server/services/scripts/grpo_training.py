@@ -286,7 +286,7 @@ class CommandMonitor:
                         command.get("command") == "save_model"
                         and self.trainer.accelerator.is_main_process
                     ):
-                        self.trainer.save_requested = True
+                        self.trainer.control.should_save = True
         except Exception as e:
             self.comms_handler.send_status({"status": "error", "error": str(e)})
 
@@ -310,17 +310,17 @@ class CommandMonitor:
 
 
 class SaveOnRequestCallback(TrainerCallback):
-    def on_step_end(self, args, state, control, **kwargs):
-        trainer = kwargs["trainer"]
-        if getattr(trainer, "save_requested", False):
-            trainer.save_model()
-            trainer.comms_handler.send_status(
-                {
-                    "status": "model_saved",
-                    "output_dir": trainer.args.output_dir,
-                }
-            )
-            trainer.save_requested = False
+    def __init__(self, comms_handler: ArborScriptCommsHandler):
+        self.comms_handler = comms_handler
+
+    def on_save(self, args, state, control, **kwargs):
+        print(f"!!!Saving model at {args.output_dir}")
+        self.comms_handler.send_status(
+            {
+                "status": "model_saved",
+                "output_dir": args.output_dir,
+            }
+        )
 
 
 def main():
@@ -429,7 +429,8 @@ def main():
 
         command_monitor = CommandMonitor(comms_handler, trainer)
 
-        trainer.add_callback(SaveOnRequestCallback())
+        if trainer.accelerator.is_main_process:
+            trainer.add_callback(SaveOnRequestCallback(comms_handler))
 
         print("Training...")
         trainer.train()
