@@ -396,7 +396,7 @@ def main():
         trl_train_args = {**(args.trl_train_kwargs or {})}
         arbor_train_args = {**(args.arbor_train_kwargs or {})}
         trl_train_args["bf16"] = True
-        trl_train_args["gradient_accumulation_steps"] = 8
+        # trl_train_args["gradient_accumulation_steps"] = 8
 
         # TODO: These assertions should be done in some better way
         assert "output_dir" in trl_train_args, "output_dir is required"
