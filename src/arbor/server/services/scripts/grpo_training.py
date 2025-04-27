@@ -82,7 +82,6 @@ class ArborGRPOTrainer(GRPOTrainer):
         self, batch: List[dict[str, Any]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
         device = self.accelerator.device
-        self.comms_handler.send_status({"status": "Training step..."})
 
         # Process prompts and completions
         prompt_completion_texts = []
@@ -286,6 +285,7 @@ class CommandMonitor:
                         command.get("command") == "save_model"
                         and self.trainer.accelerator.is_main_process
                     ):
+                        print(f"!!!Saving model at {self.trainer.args.output_dir}")
                         self.trainer.save_model()
                         self.comms_handler.send_status(
                             {
@@ -313,20 +313,6 @@ class CommandMonitor:
                     )
         except Exception as e:
             self.comms_handler.send_status({"status": "error", "error": str(e)})
-
-
-class SaveOnRequestCallback(TrainerCallback):
-    def __init__(self, comms_handler: ArborScriptCommsHandler):
-        self.comms_handler = comms_handler
-
-    def on_save(self, args, state, control, **kwargs):
-        print(f"!!!Saving model at {args.output_dir}")
-        self.comms_handler.send_status(
-            {
-                "status": "model_saved",
-                "output_dir": args.output_dir,
-            }
-        )
 
 
 def main():
@@ -442,9 +428,6 @@ def main():
         )
 
         command_monitor = CommandMonitor(comms_handler, trainer)
-
-        if trainer.accelerator.is_main_process:
-            trainer.add_callback(SaveOnRequestCallback(comms_handler))
 
         print("Training...")
         trainer.train()
