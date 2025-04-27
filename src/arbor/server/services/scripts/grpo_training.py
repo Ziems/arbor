@@ -49,7 +49,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         ] = (None, None),
         peft_config: Optional["PeftConfig"] = None,
         comms_handler: Optional[ArborScriptCommsHandler] = None,
-        update_interval: Optional[int] = 25,
+        update_interval: Optional[int] = 5,
         **kwargs,
     ):
 
