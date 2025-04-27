@@ -121,31 +121,34 @@ class GRPOManager:
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.training.gpu_ids
 
+        params = [
+            "python",
+            "-m",
+            "accelerate.commands.launch",
+            "--num_processes",
+            str(self.settings.arbor_config.training.num_processes),
+            script_path,
+            # Comms args
+            "--host",
+            self.server_comms_handler.host,
+            "--command_port",
+            str(self.server_comms_handler.command_port),
+            "--status_port",
+            str(self.server_comms_handler.status_port),
+            "--data_port",
+            str(self.server_comms_handler.data_port),
+            "--broadcast_port",
+            str(self.server_comms_handler.broadcast_port),
+            # Training args
+            "--trl_train_kwargs",
+            json.dumps(trl_train_kwargs),
+            "--arbor_train_kwargs",
+            json.dumps(arbor_train_kwargs),
+        ]
+        print(f"Running following command\n: {' '.join(params)}")
+
         self.training_process = subprocess.Popen(
-            [
-                "python",
-                "-m",
-                "accelerate.commands.launch",
-                "--num_processes",
-                str(self.settings.arbor_config.training.num_processes),
-                script_path,
-                # Comms args
-                "--host",
-                self.server_comms_handler.host,
-                "--command_port",
-                str(self.server_comms_handler.command_port),
-                "--status_port",
-                str(self.server_comms_handler.status_port),
-                "--data_port",
-                str(self.server_comms_handler.data_port),
-                "--broadcast_port",
-                str(self.server_comms_handler.broadcast_port),
-                # Training args
-                "--trl_train_kwargs",
-                json.dumps(trl_train_kwargs),
-                "--arbor_train_kwargs",
-                json.dumps(arbor_train_kwargs),
-            ],
+            params,
             env=my_env,
         )
 
