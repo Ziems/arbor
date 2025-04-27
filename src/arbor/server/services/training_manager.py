@@ -64,12 +64,12 @@ class TrainingManager:
         train_kwargs = {**default_train_kwargs, **(train_kwargs or {})}
 
         return train_kwargs
-    
+
     def find_train_args_dpo(self, request: FineTuneRequest, file_manager: FileManager):
         file = file_manager.get_file(request.training_file)
         if file is None:
             raise ValueError(f"Training file {request.training_file} not found")
-        
+
         data_path = file["path"]
         file_manager.validate_file_format_dpo(data_path)
 
@@ -88,7 +88,7 @@ class TrainingManager:
             "train_data_path": data_path,
             "prompt_length": 1024,
             "max_seq_length": 1512,
-            "use_peft": False
+            "use_peft": False,
         }
 
         # https://www.philschmid.de/dpo-align-llms-in-2024-with-trl#3-align-llm-with-trl-and-the-dpotrainer
@@ -99,29 +99,35 @@ class TrainingManager:
         return train_kwargs
 
     def fine_tune(self, request: FineTuneRequest, job: Job, file_manager: FileManager):
-        
 
         job.status = JobStatus.RUNNING
         job.add_event(
             JobEvent(level="info", message="Starting fine-tuning job", data={})
         )
 
-        fine_tune_type = request.method['type']
+        fine_tune_type = request.method["type"]
         if fine_tune_type == "dpo":
             self.dpo_fine_tune(request, job, file_manager)
         else:
             self.sft_fine_tune(request, job, file_manager)
 
-
-    def dpo_fine_tune(self, request: FineTuneRequest, job: Job, file_manager: FileManager):
+    def dpo_fine_tune(
+        self, request: FineTuneRequest, job: Job, file_manager: FileManager
+    ):
         try:
 
             job.status = JobStatus.RUNNING
-            job.add_event(JobEvent(level="info", message="Starting fine-tuning job", data={}))
+            job.add_event(
+                JobEvent(level="info", message="Starting fine-tuning job", data={})
+            )
 
             train_kwargs = self.find_train_args_dpo(request, file_manager)
             import torch
-            from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
+            from transformers import (
+                AutoModelForCausalLM,
+                AutoTokenizer,
+                TrainingArguments,
+            )
             from trl import setup_chat_format, DPOConfig, DPOTrainer
 
             device = train_kwargs.get("device", None)
@@ -132,14 +138,16 @@ class TrainingManager:
                     else "mps" if torch.backends.mps.is_available() else "cpu"
                 )
 
-            job.add_event(JobEvent(level="info", message=f"Using device: {device}", data={}))
-
+            job.add_event(
+                JobEvent(level="info", message=f"Using device: {device}", data={})
+            )
 
             model = AutoModelForCausalLM.from_pretrained(
-                pretrained_model_name_or_path=request.model,
-                device_map='auto'
+                pretrained_model_name_or_path=request.model, device_map="auto"
             )
-            tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path=request.model)
+            tokenizer = AutoTokenizer.from_pretrained(
+                pretrained_model_name_or_path=request.model
+            )
 
             try:
                 model, tokenizer = setup_chat_format(model=model, tokenizer=tokenizer)
@@ -147,9 +155,12 @@ class TrainingManager:
                 pass
 
             if tokenizer.pad_token_id is None:
-                job.add_event(JobEvent(level="info", message="Adding pad token to tokenizer", data={}))
+                job.add_event(
+                    JobEvent(
+                        level="info", message="Adding pad token to tokenizer", data={}
+                    )
+                )
                 tokenizer.add_special_tokens({"pad_token": "[!#PAD#!]"})
-            
 
             hf_dataset = dataset_from_file(train_kwargs["train_data_path"])
             train_dataset = hf_dataset
@@ -159,14 +170,14 @@ class TrainingManager:
 
             if use_peft:
                 from peft import LoraConfig
-        
+
                 peft_config = LoraConfig(
-                        lora_alpha=128,
-                        lora_dropout=0.05,
-                        r=256,
-                        bias="none",
-                        target_modules="all-linear",
-                        task_type="CAUSAL_LM",
+                    lora_alpha=128,
+                    lora_dropout=0.05,
+                    r=256,
+                    bias="none",
+                    target_modules="all-linear",
+                    task_type="CAUSAL_LM",
                 )
 
             dpo_args = DPOConfig(
@@ -193,14 +204,19 @@ class TrainingManager:
                 peft_config=peft_config,
             )
 
-            
             trainer.train()
 
             if job.status == JobStatus.PENDING_PAUSE:
-                    trainer.accelerator.save_state(output_dir=dpo_args.output_dir)
-                    current_step = trainer.state.global_step
-                    job.status = JobStatus.PAUSED
-                    job.add_event(JobEvent(level="info", message="Training paused", data={"step": current_step}))
+                trainer.accelerator.save_state(output_dir=dpo_args.output_dir)
+                current_step = trainer.state.global_step
+                job.status = JobStatus.PAUSED
+                job.add_event(
+                    JobEvent(
+                        level="info",
+                        message="Training paused",
+                        data={"step": current_step},
+                    )
+                )
 
             while job.status == JobStatus.PAUSED:
                 time.sleep(1)  # Sleep to avoid busy waiting
@@ -209,25 +225,35 @@ class TrainingManager:
                     job.add_event(JobEvent(level="info", message="Resuming training"))
                     trainer.accelerator.load_state(input_dir=dpo_args.output_dir)
                     trainer.train(resume_from_checkpoint=True)
-            
+
             if job.status == JobStatus.PENDING_CANCEL:
                 job.status = JobStatus.CANCELLED
                 job.add_event(JobEvent(level="info", message="Training cancelled"))
                 import gc
+
                 del model
                 del tokenizer
                 del trainer
                 gc.collect()
                 torch.cuda.empty_cache()
-                raise Exception("Training cancelled") # not sure if this should be raised or just return None
+                raise Exception(
+                    "Training cancelled"
+                )  # not sure if this should be raised or just return None
 
-            job.add_event(JobEvent(level="info", message="Training completed successfully"))
+            job.add_event(
+                JobEvent(level="info", message="Training completed successfully")
+            )
 
             job.add_event(JobEvent(level="info", message="Saving model", data={}))
             # Save the model!
             trainer.save_model()
-            job.add_event(JobEvent(level="info", message="Model saved", data={'location': dpo_args.output_dir}))
-
+            job.add_event(
+                JobEvent(
+                    level="info",
+                    message="Model saved",
+                    data={"location": dpo_args.output_dir},
+                )
+            )
 
             MERGE = True
             if use_peft and MERGE:
@@ -257,7 +283,9 @@ class TrainingManager:
             job.status = JobStatus.SUCCEEDED
             job.fine_tuned_model = dpo_args.output_dir
         except Exception as e:
-            job.add_event(JobEvent(level="error", message=f"Training failed: {str(e)}", data={}))
+            job.add_event(
+                JobEvent(level="error", message=f"Training failed: {str(e)}", data={})
+            )
             job.status = JobStatus.FAILED
             raise
         finally:
@@ -265,8 +293,9 @@ class TrainingManager:
 
         return dpo_args.output_dir
 
-
-    def sft_fine_tune(self, request: FineTuneRequest, job: Job, file_manager: FileManager):
+    def sft_fine_tune(
+        self, request: FineTuneRequest, job: Job, file_manager: FileManager
+    ):
 
         try:
             train_kwargs = self.find_train_args_sft(request, file_manager)
