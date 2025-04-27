@@ -82,6 +82,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         self, batch: List[dict[str, Any]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
         device = self.accelerator.device
+        self.comms_handler.send_status({"status": "Training step..."})
 
         # Process prompts and completions
         prompt_completion_texts = []
@@ -285,7 +286,13 @@ class CommandMonitor:
                         command.get("command") == "save_model"
                         and self.trainer.accelerator.is_main_process
                     ):
-                        self.trainer.control.should_save = True
+                        self.trainer.save_model()
+                        self.comms_handler.send_status(
+                            {
+                                "status": "model_saved",
+                                "output_dir": self.trainer.args.output_dir,
+                            }
+                        )
         except Exception as e:
             self.comms_handler.send_status({"status": "error", "error": str(e)})
 
@@ -359,30 +366,31 @@ def main():
 
         def debug_data_generator():
             tldr_dataset = load_dataset("trl-lib/tldr", split="train")
-            while True:
-                for item in tldr_dataset:
-                    input_messages = [{"role": "user", "content": item["prompt"]}]
-                    completions = [
-                        {
-                            "role": "assistant",
-                            "content": "This is a test completion"
-                            + hex(random.randint(0, 0xFFFFFF))[2:],
-                        }
-                        for _ in range(8)
-                    ]
+            idx = 0
+            for item in tldr_dataset:
+                input_messages = [{"role": "user", "content": item["prompt"]}]
+                completions = [
+                    {
+                        "role": "assistant",
+                        "content": "This is a test completion"
+                        + hex(random.randint(0, 0xFFFFFF))[2:],
+                    }
+                    for _ in range(8)
+                ]
 
-                    rewards = [-abs(20 - len(c["content"])) for c in completions]
-                    batch = []
-                    for completion, reward in zip(completions, rewards):
-                        batch.append(
-                            {
-                                "messages": input_messages,
-                                "completion": completion,
-                                "reward": reward,
-                            }
-                        )
-                    server_comms_handler.send_data(batch)
-                    time.sleep(1)
+                rewards = [-abs(20 - len(c["content"])) for c in completions]
+                batch = []
+                for completion, reward in zip(completions, rewards):
+                    batch.append(
+                        {
+                            "messages": input_messages,
+                            "completion": completion,
+                            "reward": reward,
+                        }
+                    )
+                server_comms_handler.send_data(batch)
+                time.sleep(1)
+                idx += 1
 
         debug_thread = threading.Thread(target=debug_data_generator, daemon=True)
         debug_thread.start()
