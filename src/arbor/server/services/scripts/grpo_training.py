@@ -382,7 +382,7 @@ def main():
                             }
                         )
                     server_comms_handler.send_data(batch)
-                    time.sleep(5)
+                    time.sleep(1)
 
         debug_thread = threading.Thread(target=debug_data_generator, daemon=True)
         debug_thread.start()
