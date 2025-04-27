@@ -8,6 +8,7 @@ import pytest
 from multiprocessing import Process
 import uvicorn
 from arbor.server.main import app
+import os
 
 
 def run_server():
@@ -27,7 +28,9 @@ def server(tmp_path_factory):
     test_storage = tmp_path_factory.mktemp("test_storage")
 
     # Create test settings
-    settings = Settings(STORAGE_PATH=str(test_storage))
+    # settings = Settings(STORAGE_PATH=str(test_storage))
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    settings = Settings.load_from_yaml(f"{root_dir}/arbor.yaml")
 
     # Initialize services with test settings
     file_manager = FileManager(settings=settings)
@@ -72,24 +75,11 @@ def client():
 
 
 @pytest.fixture(scope="module")
-def openai_client():
-    from openai import OpenAI
-
-    base_url = "http://localhost:8000/v1"
-
-    client = OpenAI(
-        base_url=base_url,  # Using Arbor server
-        api_key="not-needed",  # If you're using a local server, you dont need an API key
-    )
-    return client
-
-
-@pytest.fixture(scope="module")
 def trained_model_job(server, client):
     """Fixture that runs the fine-tuning once and returns the job_id for other tests to use"""
     # 1. Upload training file
     test_file_path = (
-        Path(__file__).parent.parent.parent / "data" / "training_data_dpo.jsonl"
+        Path(__file__).parent.parent.parent / "data" / "training_data_pft.jsonl"
     )
     test_content = test_file_path.read_bytes()
     files = {"file": ("test.jsonl", test_content, "application/json")}
@@ -100,9 +90,19 @@ def trained_model_job(server, client):
 
     # 2. Start fine-tuning job
     dpo_response = client.post(
-        "/v1/fine_tuning/dpo",
-        json={"training_file": file_id, "model": "HuggingFaceTB/SmolLM2-135M-Instruct"},
+        "/v1/fine_tuning/jobs",
+        json={
+            "training_file": file_id,
+            "model": "HuggingFaceTB/SmolLM2-135M-Instruct",
+            "method": {
+                "type": "dpo",
+                "dpo": {
+                    "hyperparameters": {"beta": 0.1},
+                },
+            },
+        },
     )
+
     assert dpo_response.status_code == 200
     job_id = dpo_response.json()["id"]
 
@@ -129,72 +129,6 @@ def trained_model_job(server, client):
         )
 
     return job_id
-
-
-# @pytest.fixture(scope="module")
-# def trained_model_job_openai(server, openai_client):
-
-#     test_file_path = Path(__file__).parent.parent.parent / "data" / "training_data_dpo.jsonl"
-#     test_content = test_file_path.read_bytes()
-#     files = {"file": ("test.jsonl", test_content, "application/json")}
-
-
-#     # upload_response = openai_client.post("/v1/files", files=files)
-#     upload_response = openai_client.files.create(
-#         file=open(test_file_path, "rb"),
-#         purpose="fine-tune"
-#         )
-#     # assert upload_response.status_code == 200   #Openai doesn't have the "status_code" return
-#     file_id = upload_response.id
-
-#     dpo_response = openai_client.fine_tuning.jobs.create(
-#         training_file=file_id,
-#         model="HuggingFaceTB/SmolLM2-135M-Instruct",
-#         method={
-#             "type": "dpo",
-#             "dpo": {
-#                 "hyperparameters": {"beta": 0.1},
-#             },
-#         },
-#     )
-
-#     print("????????????", dpo_response)
-
-#     # dpo_response = openai_client.post("/v1/fine_tuning/dpo", json={
-#     #     "training_file": file_id,
-#     #     "model": "HuggingFaceTB/SmolLM2-135M-Instruct"
-#     # })
-#     assert dpo_response.status_code == 200
-#     job_id = dpo_response.json()["id"]
-
-#     # 3. Poll job status until completion
-#     max_attempts = 30
-#     poll_interval = 2
-
-#     time.sleep(2)
-
-#     for _ in range(max_attempts):
-#         status_response = openai_client.get(f"/v1/fine_tuning/jobs/{job_id}")
-#         assert status_response.status_code == 200
-
-#         status = status_response.json()["status"]
-#         if status == "succeeded":
-#             break
-#         elif status in ["failed", "cancelled"]:
-#             raise AssertionError(f"Job failed with status: {status}")
-
-#         time.sleep(poll_interval)
-#     else:
-#         raise AssertionError(f"Job did not complete within {max_attempts * poll_interval} seconds")
-
-#     return job_id
-
-# def test_complete_workflow_openai(trained_model_job_openai, openai_client):
-#     # Just verify final status since training is already done
-#     final_response = openai_client.get(f"/v1/fine_tuning/jobs/{trained_model_job_openai}")
-#     assert final_response.status_code == 200
-#     assert final_response.json()["status"] == "succeeded"
-#     assert final_response.json()["fine_tuned_model"] is not None
 
 
 def test_complete_workflow(trained_model_job, client):
