@@ -34,29 +34,6 @@ from trl.trainer.utils import pad
 import zmq
 
 
-# if is_wandb_available():
-#     import wandb
-# torch.nanstd doesn't exist, so we define it here
-def nanstd(tensor: torch.Tensor) -> torch.Tensor:
-    """
-    Compute the standard deviation of a tensor, ignoring NaNs. This function only supports 1D tensors.
-
-    Args:
-        tensor (`torch.Tensor`):
-            Input tensor of shape `(N,)`.
-
-    Returns:
-        `torch.Tensor`:
-            Standard deviation of the tensor, ignoring NaNs.
-    """
-    variance = torch.nanmean(
-        (tensor - torch.nanmean(tensor, keepdim=True)) ** 2
-    )  # Compute variance ignoring NaNs
-    count = torch.sum(~torch.isnan(tensor))  # Count of non-NaN values
-    variance *= count / (count - 1)  # Bessel's correction
-    return torch.sqrt(variance)
-
-
 class ArborGRPOTrainer(GRPOTrainer):
     def __init__(
         self,
@@ -75,9 +52,6 @@ class ArborGRPOTrainer(GRPOTrainer):
         update_interval: Optional[int] = 25,
         **kwargs,
     ):
-        # self.vllm_client = None
-        # if not args.use_vllm: # type: ignore
-        #     raise ValueError("vLLM must be enabled for GRPOEnvTrainer")
 
         super().__init__(
             model=model,
@@ -94,6 +68,8 @@ class ArborGRPOTrainer(GRPOTrainer):
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
         self.update_interval = update_interval
+        self.save_requested = False
+        # Keeping this for when we switch to vllm
         # self.sampling_params = SamplingParams(
         #     max_tokens=self.max_completion_length,
         #     temperature=self.temperature,
@@ -159,6 +135,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         #     prompt_ids = prompt_ids[:, -self.max_prompt_length :]
         #     prompt_mask = prompt_mask[:, -self.max_prompt_length :]
 
+        # Keeping this for when we switch to vllm
         # if self.state.global_step != self._last_loaded_step:
         #     self._move_model_to_vllm()
         #     self._last_loaded_step = self.state.global_step
@@ -222,48 +199,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         )
         advantages = advantages[process_slice]
 
-        # # Log the metrics
-        # mode = "eval" if self.control.should_evaluate else "train"
-
-        # completion_length = self.accelerator.gather_for_metrics(completion_mask.sum(1)).float().mean().item() # type: ignore
-        # self._metrics[mode]["completion_length"].append(completion_length)
-
-        # # Calculate mean reward per function, but only for samples where the function was applied
-        # for i, reward_func in enumerate(self.reward_funcs):
-        #     reward_func_name = reward_func.__name__ # type: ignore
-        #     # Only calculate mean for samples where this reward function was applied (non-NaN values)
-        #     mean_rewards = torch.nanmean(rewards_per_func[:, i]).item()
-        #     self._metrics[mode][f"rewards/{reward_func_name}"].append(mean_rewards)
-        #     std_rewards = nanstd(rewards_per_func[:, i]).item()
-        #     self._metrics[mode][f"rewards/{reward_func_name}/std"].append(std_rewards)
-        # self._metrics[mode]["reward"].append(rewards.mean().item())
-        # self._metrics[mode]["reward_std"].append(std_grouped_rewards.mean().item()) # type: ignore
-
-        # if self.log_completions and self.state.global_step % self.args.logging_steps == 0:
-        #     prompts_to_log = gather_object(prompts)
-        #     completions_to_log = gather_object(completions)
-        #     rewards_to_log = rewards.tolist()
-
-        #     if self.accelerator.is_main_process:
-        #         if is_rich_available():
-        #             print_prompt_completions_sample(
-        #                 [str(prompts_to_log[0][-1]["content"])],
-        #                 [completions_to_log[0]],
-        #                 [rewards_to_log[0]],
-        #                 self.state.global_step,
-        #             )
-        #         if self.args.report_to and "wandb" in self.args.report_to and wandb.run is not None: # type: ignore
-        #             import pandas as pd
-
-        #             # For logging
-        #             table = {
-        #                 "step": [str(self.state.global_step)] * len(rewards),
-        #                 "prompt": prompts_to_log,
-        #                 "completion": completions_to_log,
-        #                 "reward": rewards.tolist(),
-        #             }
-        #             df = pd.DataFrame(table)
-        #             wandb.log({"completions": wandb.Table(dataframe=df)}) # type: ignore
+        ## Logged Metrics Removed Here
 
         return {
             "prompt_ids": prompt_ids,
@@ -350,13 +286,7 @@ class CommandMonitor:
                         command.get("command") == "save_model"
                         and self.trainer.accelerator.is_main_process
                     ):
-                        self.trainer.save_model()
-                        self.comms_handler.send_status(
-                            {
-                                "status": "model_saved",
-                                "output_dir": self.trainer.args.output_dir,
-                            }
-                        )
+                        self.trainer.save_requested = True
         except Exception as e:
             self.comms_handler.send_status({"status": "error", "error": str(e)})
 
@@ -377,6 +307,20 @@ class CommandMonitor:
                     )
         except Exception as e:
             self.comms_handler.send_status({"status": "error", "error": str(e)})
+
+
+class SaveOnRequestCallback(TrainerCallback):
+    def on_step_end(self, args, state, control, **kwargs):
+        trainer = kwargs["trainer"]
+        if getattr(trainer, "save_requested", False):
+            trainer.save_model()
+            trainer.comms_handler.send_status(
+                {
+                    "status": "model_saved",
+                    "output_dir": trainer.args.output_dir,
+                }
+            )
+            trainer.save_requested = False
 
 
 def main():
@@ -484,6 +428,8 @@ def main():
         )
 
         command_monitor = CommandMonitor(comms_handler, trainer)
+
+        trainer.add_callback(SaveOnRequestCallback())
 
         print("Training...")
         trainer.train()
