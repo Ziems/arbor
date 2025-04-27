@@ -9,6 +9,7 @@ from multiprocessing import Process
 import uvicorn
 from arbor.server.main import app
 import os
+import threading
 
 
 def run_server():
@@ -43,13 +44,12 @@ def server(tmp_path_factory):
     app.state.job_manager = job_manager
     app.state.training_manager = training_manager
 
-    # Start server in a separate process
-    proc = Process(target=run_server)
-    proc.start()
-    time.sleep(1)  # Give the server a moment to start
+    # Start server in a separate thread
+    thread = threading.Thread(target=run_server, daemon=True)
+    thread.start()
+    time.sleep(1)  # give it a moment to bind
     yield app
-    proc.terminate()  # Shut down the server after tests
-    proc.join()
+
 
 
 class APIClient:
