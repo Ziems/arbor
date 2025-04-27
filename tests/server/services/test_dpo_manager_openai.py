@@ -8,7 +8,7 @@ from multiprocessing import Process
 import uvicorn
 from arbor.server.main import app
 
-# Make sure to run "uv run arbor serve --arbor-config arbor.yaml" in another terminal
+# Make sure to run "uv run arbor serve --arbor-config arbor.yaml --port 8001" in another terminal
 
 from openai import OpenAI
 base_url = "http://localhost:8001/v1"
@@ -65,8 +65,4 @@ else:
     raise AssertionError(f"Job did not complete within {max_attempts * poll_interval} seconds")
 
 # return job_id
-
-
-
-
-trained_model_job_openai()
+print(f"Job {job_id} completed successfully with status: {status}")
