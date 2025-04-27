@@ -376,7 +376,9 @@ def main():
                     )
                 server_comms_handler.send_data(batch)
                 time.sleep(1)
-                idx += 1
+
+                if idx >= 25:
+                    server_comms_handler.send_command({"command": "save_model"})
 
         debug_thread = threading.Thread(target=debug_data_generator, daemon=True)
         debug_thread.start()
@@ -390,16 +392,11 @@ def main():
         status_listener_thread = threading.Thread(target=status_listener, daemon=True)
         status_listener_thread.start()
 
-        def save_command():
-            time.sleep(60)  # Wait 1 minute (60 seconds)
-            server_comms_handler.send_command({"command": "save_model"})
-
-        save_command_thread = threading.Thread(target=save_command, daemon=True)
-        save_command_thread.start()
-
     try:
         trl_train_args = {**(args.trl_train_kwargs or {})}
         arbor_train_args = {**(args.arbor_train_kwargs or {})}
+        trl_train_args["bf16"] = True
+        trl_train_args["gradient_accumulation_steps"] = 8
 
         # TODO: These assertions should be done in some better way
         assert "output_dir" in trl_train_args, "output_dir is required"
