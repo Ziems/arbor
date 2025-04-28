@@ -1,25 +1,15 @@
+import os
 import time
 import random
 import string
+import json
+from typing import Literal
 from datetime import datetime
 from pathlib import Path
-import os
-from transformers.trainer_callback import TrainerCallback
 from arbor.server.api.models.schemas import FineTuneRequest
 from arbor.server.services.job_manager import Job, JobStatus, JobEvent
 from arbor.server.services.file_manager import FileManager
 from arbor.server.core.config import Settings
-
-
-class PauseTrainingCallback(TrainerCallback):
-    def __init__(self, job: Job):
-        self.job = job
-
-    def on_step_end(self, args, state, control, **kwargs):
-        if self.job.status in [JobStatus.PENDING_PAUSE, JobStatus.PENDING_CANCEL]:
-            control.should_training_stop = True
-            if self.job.status == JobStatus.PENDING_PAUSE:  # only save if we're pausing
-                control.should_save = True
 
 
 class TrainingManager:
@@ -76,7 +66,7 @@ class TrainingManager:
         name, output_dir = self.make_output_dir(request)
 
         default_train_kwargs = {
-            "device": "cuda:2",
+            "device": None,
             "use_peft": False,
             "num_train_epochs": 5,
             "per_device_train_batch_size": 1,
@@ -111,9 +101,86 @@ class TrainingManager:
         else:
             self.sft_fine_tune(request, job, file_manager)
 
-    def dpo_fine_tune(
-        self, request: FineTuneRequest, job: Job, file_manager: FileManager
+    def fine_tune(
+        self,
+        request: FineTuneRequest,
+        job: Job,
+        file_manager: FileManager,
+        method: Literal["dpo", "sft"],
     ):
+        train_kwargs = self.find_train_args(request, file_manager, method)
+        trl_train_kwargs, arbor_train_kwargs = self.process_training_args(
+            train_kwargs,
+            method,
+        )
+        self.server_comms_handler = ArborServerCommsHandler()
+
+        script_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
+        script_filename = {
+            "dpo": "grpo_training.py",
+            "sft": "grpo_training.py",
+        }[method]
+        script_path = os.path.join(script_dir, script_filename)
+
+        my_env = os.environ.copy()
+        my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.training.gpu_ids
+
+        params = [
+            "python",
+            "-m",
+            "accelerate.commands.launch",
+            "--num_processes",
+            str(self.settings.arbor_config.training.num_processes),
+            script_path,
+            # Comms args
+            "--host",
+            self.server_comms_handler.host,
+            "--command_port",
+            str(self.server_comms_handler.command_port),
+            "--status_port",
+            str(self.server_comms_handler.status_port),
+            "--data_port",
+            str(self.server_comms_handler.data_port),
+            "--broadcast_port",
+            str(self.server_comms_handler.broadcast_port),
+            # Training args
+            "--model",
+            request.model,
+            "--trl_train_kwargs",
+            json.dumps(trl_train_kwargs),
+            "--arbor_train_kwargs",
+            json.dumps(arbor_train_kwargs),
+        ]
+        print(f"Running following command\n: {' '.join(params)}")
+
+        self.training_process = subprocess.Popen(
+            params,
+            env=my_env,
+        )
+
+        # Start status handling thread
+        self.status_thread = threading.Thread(
+            target=self._handle_status_updates, daemon=True
+        )
+        self.status_thread.start()
+
+    def _handle_status_updates(self):
+        """Handle status updates from training process using ZMQ SUB socket"""
+        print("Starting status update handler...")
+        try:
+
+            for status in self.server_comms_handler.receive_status():
+                print(f"Received status update: {status}")
+                if status["status"] == "model_saved":
+                    print("Updating inference model...")
+                elif status["status"] == "error":
+                    print(f"Training error: {status.get('error', 'Unknown error')}")
+                elif status["status"] == "terminated":
+                    print("Training process terminated")
+                    break
+        except Exception as e:
+            print(f"Error in status update handler: {e}")
+
         try:
 
             job.status = JobStatus.RUNNING
