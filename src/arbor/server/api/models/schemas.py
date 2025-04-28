@@ -36,6 +36,7 @@ class IntegrationModel(BaseModel):
 class FineTuneRequest(BaseModel):
     model: str
     training_file: str  # id of uploaded jsonl file
+    method: dict
     suffix: Optional[str] = None
     # UNUSED
     validation_file: Optional[str] = None

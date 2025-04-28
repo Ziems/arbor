@@ -3,9 +3,8 @@ import random
 import string
 from datetime import datetime
 from pathlib import Path
-
+import os
 from transformers.trainer_callback import TrainerCallback
-
 from arbor.server.api.models.schemas import FineTuneRequest
 from arbor.server.services.job_manager import Job, JobStatus, JobEvent
 from arbor.server.services.file_manager import FileManager
@@ -38,12 +37,13 @@ class TrainingManager:
         name = f"ft:{model_name}:{suffix}:{timestamp}"
         return name, str(Path(self.settings.STORAGE_PATH).resolve() / "models" / name)
 
-    def find_train_args(self, request: FineTuneRequest, file_manager: FileManager):
+    def find_train_args_sft(self, request: FineTuneRequest, file_manager: FileManager):
         file = file_manager.get_file(request.training_file)
         if file is None:
             raise ValueError(f"Training file {request.training_file} not found")
 
         data_path = file["path"]
+        file_manager.validate_file_format_sft(data_path)
 
         name, output_dir = self.make_output_dir(request)
 
@@ -65,14 +65,240 @@ class TrainingManager:
 
         return train_kwargs
 
+    def find_train_args_dpo(self, request: FineTuneRequest, file_manager: FileManager):
+        file = file_manager.get_file(request.training_file)
+        if file is None:
+            raise ValueError(f"Training file {request.training_file} not found")
+
+        data_path = file["path"]
+        file_manager.validate_file_format_dpo(data_path)
+
+        name, output_dir = self.make_output_dir(request)
+
+        default_train_kwargs = {
+            "device": "cuda:2",
+            "use_peft": False,
+            "num_train_epochs": 5,
+            "per_device_train_batch_size": 1,
+            "gradient_accumulation_steps": 8,
+            "learning_rate": 1e-5,
+            "packing": True,
+            "bf16": True,
+            "output_dir": output_dir,
+            "train_data_path": data_path,
+            "prompt_length": 1024,
+            "max_seq_length": 1512,
+            "use_peft": False,
+        }
+
+        # https://www.philschmid.de/dpo-align-llms-in-2024-with-trl#3-align-llm-with-trl-and-the-dpotrainer
+
+        train_kwargs = request.model_dump(exclude_unset=True)
+        train_kwargs = {**default_train_kwargs, **(train_kwargs or {})}
+
+        return train_kwargs
+
     def fine_tune(self, request: FineTuneRequest, job: Job, file_manager: FileManager):
+
         job.status = JobStatus.RUNNING
         job.add_event(
             JobEvent(level="info", message="Starting fine-tuning job", data={})
         )
 
+        fine_tune_type = request.method["type"]
+        if fine_tune_type == "dpo":
+            self.dpo_fine_tune(request, job, file_manager)
+        else:
+            self.sft_fine_tune(request, job, file_manager)
+
+    def dpo_fine_tune(
+        self, request: FineTuneRequest, job: Job, file_manager: FileManager
+    ):
         try:
-            train_kwargs = self.find_train_args(request, file_manager)
+
+            job.status = JobStatus.RUNNING
+            job.add_event(
+                JobEvent(level="info", message="Starting fine-tuning job", data={})
+            )
+
+            train_kwargs = self.find_train_args_dpo(request, file_manager)
+            import torch
+            from transformers import (
+                AutoModelForCausalLM,
+                AutoTokenizer,
+                TrainingArguments,
+            )
+            from trl import setup_chat_format, DPOConfig, DPOTrainer
+
+            device = train_kwargs.get("device", None)
+            if device is None:
+                device = (
+                    "cuda"
+                    if torch.cuda.is_available()
+                    else "mps" if torch.backends.mps.is_available() else "cpu"
+                )
+
+            job.add_event(
+                JobEvent(level="info", message=f"Using device: {device}", data={})
+            )
+
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name_or_path=request.model, device_map="auto"
+            )
+            tokenizer = AutoTokenizer.from_pretrained(
+                pretrained_model_name_or_path=request.model
+            )
+
+            try:
+                model, tokenizer = setup_chat_format(model=model, tokenizer=tokenizer)
+            except Exception:
+                pass
+
+            if tokenizer.pad_token_id is None:
+                job.add_event(
+                    JobEvent(
+                        level="info", message="Adding pad token to tokenizer", data={}
+                    )
+                )
+                tokenizer.add_special_tokens({"pad_token": "[!#PAD#!]"})
+
+            hf_dataset = dataset_from_file(train_kwargs["train_data_path"])
+            train_dataset = hf_dataset
+
+            use_peft = train_kwargs.get("use_peft", False)
+            peft_config = None
+
+            if use_peft:
+                from peft import LoraConfig
+
+                peft_config = LoraConfig(
+                    lora_alpha=128,
+                    lora_dropout=0.05,
+                    r=256,
+                    bias="none",
+                    target_modules="all-linear",
+                    task_type="CAUSAL_LM",
+                )
+
+            dpo_args = DPOConfig(
+                output_dir=train_kwargs["output_dir"],
+                num_train_epochs=train_kwargs["num_train_epochs"],
+            )
+
+            # TODO: set these training parameters
+            # f_divergence_type: str = "reverse_kl"
+            # label_pad_token_id: int = -100
+            # max_length: Optional[int] = None
+            # beta: float = 0.1
+            # padding_value: Optional[int] = None
+            # label_smoothing: float = 0.0
+            # reference_free: bool = False
+            # max_length: Optional[int] = None
+            # truncation_mode: str = "keep_end"
+
+            trainer = DPOTrainer(
+                model=model,
+                args=dpo_args,
+                train_dataset=train_dataset,
+                processing_class=tokenizer,
+                peft_config=peft_config,
+            )
+
+            trainer.train()
+
+            if job.status == JobStatus.PENDING_PAUSE:
+                trainer.accelerator.save_state(output_dir=dpo_args.output_dir)
+                current_step = trainer.state.global_step
+                job.status = JobStatus.PAUSED
+                job.add_event(
+                    JobEvent(
+                        level="info",
+                        message="Training paused",
+                        data={"step": current_step},
+                    )
+                )
+
+            while job.status == JobStatus.PAUSED:
+                time.sleep(1)  # Sleep to avoid busy waiting
+                if job.status == JobStatus.PENDING_RESUME:
+                    job.status = JobStatus.RUNNING
+                    job.add_event(JobEvent(level="info", message="Resuming training"))
+                    trainer.accelerator.load_state(input_dir=dpo_args.output_dir)
+                    trainer.train(resume_from_checkpoint=True)
+
+            if job.status == JobStatus.PENDING_CANCEL:
+                job.status = JobStatus.CANCELLED
+                job.add_event(JobEvent(level="info", message="Training cancelled"))
+                import gc
+
+                del model
+                del tokenizer
+                del trainer
+                gc.collect()
+                torch.cuda.empty_cache()
+                raise Exception(
+                    "Training cancelled"
+                )  # not sure if this should be raised or just return None
+
+            job.add_event(
+                JobEvent(level="info", message="Training completed successfully")
+            )
+
+            job.add_event(JobEvent(level="info", message="Saving model", data={}))
+            # Save the model!
+            trainer.save_model()
+            job.add_event(
+                JobEvent(
+                    level="info",
+                    message="Model saved",
+                    data={"location": dpo_args.output_dir},
+                )
+            )
+
+            MERGE = True
+            if use_peft and MERGE:
+                from peft import AutoPeftModelForCausalLM
+
+                # Load PEFT model on CPU
+                model_ = AutoPeftModelForCausalLM.from_pretrained(
+                    pretrained_model_name_or_path=dpo_args.output_dir,
+                    torch_dtype=torch.float16,
+                    low_cpu_mem_usage=True,
+                )
+
+                merged_model = model_.merge_and_unload()
+                merged_model.save_pretrained(
+                    dpo_args.output_dir, safe_serialization=True, max_shard_size="5GB"
+                )
+
+            # Clean up! (TODO: This should be a function because its used when cancelling as well)
+            import gc
+
+            del model
+            del tokenizer
+            del trainer
+            gc.collect()
+            torch.cuda.empty_cache()
+
+            job.status = JobStatus.SUCCEEDED
+            job.fine_tuned_model = dpo_args.output_dir
+        except Exception as e:
+            job.add_event(
+                JobEvent(level="error", message=f"Training failed: {str(e)}", data={})
+            )
+            job.status = JobStatus.FAILED
+            raise
+        finally:
+            pass
+
+        return dpo_args.output_dir
+
+    def sft_fine_tune(
+        self, request: FineTuneRequest, job: Job, file_manager: FileManager
+    ):
+
+        try:
+            train_kwargs = self.find_train_args_sft(request, file_manager)
 
             import torch
             from transformers import AutoModelForCausalLM, AutoTokenizer

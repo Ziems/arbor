@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, BackgroundTasks, HTTPException
 from typing import List
 import time
-
+import os
 from arbor.server.api.models.schemas import (
     JobStatusModel,
     FineTuneRequest,
@@ -25,7 +25,9 @@ def create_fine_tune_job(
     job_manager = request.app.state.job_manager
     file_manager = request.app.state.file_manager
     training_manager = request.app.state.training_manager
-    inference_manager = request.app.state.inference_manager
+    gpu_ids = training_manager.settings.arbor_config.training.gpu_ids
+    # raw_json = await request.json()
+    # inference_manager = request.app.state.inference_manager
 
     # TODO: Temporarily disabling this because kill isn't working properly.
     # if inference_manager.is_server_running():
@@ -33,6 +35,8 @@ def create_fine_tune_job(
     #     while inference_manager.is_server_running(): # TODO: This should be done cleaner
     #         time.sleep(1)
 
+    my_env = os.environ.copy()
+    my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids
     job = job_manager.create_job()
     background_tasks.add_task(
         training_manager.fine_tune, fine_tune_request, job, file_manager
