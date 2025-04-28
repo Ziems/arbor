@@ -32,11 +32,6 @@ def run_grpo_step(
 
     current_model = grpo_manager.grpo_step(grpo_request, inference_manager)
 
-    # if inference_manager.is_server_running():
-    #     inference_manager.kill()
-    #     while inference_manager.is_server_running(): # TODO: This should be done cleaner
-    #         time.sleep(1)
-
     return GRPOStepResponse(status="success", current_model=current_model)
 
 

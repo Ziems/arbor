@@ -34,29 +34,6 @@ from trl.trainer.utils import pad
 import zmq
 
 
-# if is_wandb_available():
-#     import wandb
-# torch.nanstd doesn't exist, so we define it here
-def nanstd(tensor: torch.Tensor) -> torch.Tensor:
-    """
-    Compute the standard deviation of a tensor, ignoring NaNs. This function only supports 1D tensors.
-
-    Args:
-        tensor (`torch.Tensor`):
-            Input tensor of shape `(N,)`.
-
-    Returns:
-        `torch.Tensor`:
-            Standard deviation of the tensor, ignoring NaNs.
-    """
-    variance = torch.nanmean(
-        (tensor - torch.nanmean(tensor, keepdim=True)) ** 2
-    )  # Compute variance ignoring NaNs
-    count = torch.sum(~torch.isnan(tensor))  # Count of non-NaN values
-    variance *= count / (count - 1)  # Bessel's correction
-    return torch.sqrt(variance)
-
-
 class ArborGRPOTrainer(GRPOTrainer):
     def __init__(
         self,
@@ -72,12 +49,9 @@ class ArborGRPOTrainer(GRPOTrainer):
         ] = (None, None),
         peft_config: Optional["PeftConfig"] = None,
         comms_handler: Optional[ArborScriptCommsHandler] = None,
-        update_interval: Optional[int] = 25,
+        update_interval: Optional[int] = 5,
         **kwargs,
     ):
-        # self.vllm_client = None
-        # if not args.use_vllm: # type: ignore
-        #     raise ValueError("vLLM must be enabled for GRPOEnvTrainer")
 
         super().__init__(
             model=model,
@@ -94,6 +68,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
         self.update_interval = update_interval
+        # Keeping this for when we switch to vllm
         # self.sampling_params = SamplingParams(
         #     max_tokens=self.max_completion_length,
         #     temperature=self.temperature,
@@ -159,6 +134,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         #     prompt_ids = prompt_ids[:, -self.max_prompt_length :]
         #     prompt_mask = prompt_mask[:, -self.max_prompt_length :]
 
+        # Keeping this for when we switch to vllm
         # if self.state.global_step != self._last_loaded_step:
         #     self._move_model_to_vllm()
         #     self._last_loaded_step = self.state.global_step
@@ -222,48 +198,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         )
         advantages = advantages[process_slice]
 
-        # # Log the metrics
-        # mode = "eval" if self.control.should_evaluate else "train"
-
-        # completion_length = self.accelerator.gather_for_metrics(completion_mask.sum(1)).float().mean().item() # type: ignore
-        # self._metrics[mode]["completion_length"].append(completion_length)
-
-        # # Calculate mean reward per function, but only for samples where the function was applied
-        # for i, reward_func in enumerate(self.reward_funcs):
-        #     reward_func_name = reward_func.__name__ # type: ignore
-        #     # Only calculate mean for samples where this reward function was applied (non-NaN values)
-        #     mean_rewards = torch.nanmean(rewards_per_func[:, i]).item()
-        #     self._metrics[mode][f"rewards/{reward_func_name}"].append(mean_rewards)
-        #     std_rewards = nanstd(rewards_per_func[:, i]).item()
-        #     self._metrics[mode][f"rewards/{reward_func_name}/std"].append(std_rewards)
-        # self._metrics[mode]["reward"].append(rewards.mean().item())
-        # self._metrics[mode]["reward_std"].append(std_grouped_rewards.mean().item()) # type: ignore
-
-        # if self.log_completions and self.state.global_step % self.args.logging_steps == 0:
-        #     prompts_to_log = gather_object(prompts)
-        #     completions_to_log = gather_object(completions)
-        #     rewards_to_log = rewards.tolist()
-
-        #     if self.accelerator.is_main_process:
-        #         if is_rich_available():
-        #             print_prompt_completions_sample(
-        #                 [str(prompts_to_log[0][-1]["content"])],
-        #                 [completions_to_log[0]],
-        #                 [rewards_to_log[0]],
-        #                 self.state.global_step,
-        #             )
-        #         if self.args.report_to and "wandb" in self.args.report_to and wandb.run is not None: # type: ignore
-        #             import pandas as pd
-
-        #             # For logging
-        #             table = {
-        #                 "step": [str(self.state.global_step)] * len(rewards),
-        #                 "prompt": prompts_to_log,
-        #                 "completion": completions_to_log,
-        #                 "reward": rewards.tolist(),
-        #             }
-        #             df = pd.DataFrame(table)
-        #             wandb.log({"completions": wandb.Table(dataframe=df)}) # type: ignore
+        ## Logged Metrics Removed Here
 
         return {
             "prompt_ids": prompt_ids,
@@ -295,11 +230,11 @@ class BlockingQueueDataset(Dataset):
 
     def _get_data(self, idx):
         if self.accelerator.is_main_process:
-            print(f"Main process {self.accelerator.process_index} getting new data")
+            # print(f"Main process {self.accelerator.process_index} getting new data")
             new_data = (
                 self.comms_handler.receive_data()
             )  # This blocks until data is available
-            # print(f"Main process {self.accelerator.process_index} got new data")
+            print(f"Main process {self.accelerator.process_index} got new data")
             if idx not in self.completion_counters:
                 self.completion_counters[idx] = 0
             return broadcast_object_list([new_data])[0]
@@ -350,6 +285,7 @@ class CommandMonitor:
                         command.get("command") == "save_model"
                         and self.trainer.accelerator.is_main_process
                     ):
+                        print(f"!!!Saving model at {self.trainer.args.output_dir}")
                         self.trainer.save_model()
                         self.comms_handler.send_status(
                             {
@@ -416,30 +352,33 @@ def main():
 
         def debug_data_generator():
             tldr_dataset = load_dataset("trl-lib/tldr", split="train")
-            while True:
-                for item in tldr_dataset:
-                    input_messages = [{"role": "user", "content": item["prompt"]}]
-                    completions = [
-                        {
-                            "role": "assistant",
-                            "content": "This is a test completion"
-                            + hex(random.randint(0, 0xFFFFFF))[2:],
-                        }
-                        for _ in range(8)
-                    ]
+            idx = 0
+            for item in tldr_dataset:
+                input_messages = [{"role": "user", "content": item["prompt"]}]
+                completions = [
+                    {
+                        "role": "assistant",
+                        "content": "This is a test completion"
+                        + hex(random.randint(0, 0xFFFFFF))[2:],
+                    }
+                    for _ in range(8)
+                ]
 
-                    rewards = [-abs(20 - len(c["content"])) for c in completions]
-                    batch = []
-                    for completion, reward in zip(completions, rewards):
-                        batch.append(
-                            {
-                                "messages": input_messages,
-                                "completion": completion,
-                                "reward": reward,
-                            }
-                        )
-                    server_comms_handler.send_data(batch)
-                    time.sleep(5)
+                rewards = [-abs(20 - len(c["content"])) for c in completions]
+                batch = []
+                for completion, reward in zip(completions, rewards):
+                    batch.append(
+                        {
+                            "messages": input_messages,
+                            "completion": completion,
+                            "reward": reward,
+                        }
+                    )
+                server_comms_handler.send_data(batch)
+                time.sleep(1)
+
+                if idx >= 25:
+                    server_comms_handler.send_command({"command": "save_model"})
 
         debug_thread = threading.Thread(target=debug_data_generator, daemon=True)
         debug_thread.start()
@@ -456,6 +395,8 @@ def main():
     try:
         trl_train_args = {**(args.trl_train_kwargs or {})}
         arbor_train_args = {**(args.arbor_train_kwargs or {})}
+        trl_train_args["bf16"] = True
+        # trl_train_args["gradient_accumulation_steps"] = 8
 
         # TODO: These assertions should be done in some better way
         assert "output_dir" in trl_train_args, "output_dir is required"

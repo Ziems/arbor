@@ -60,7 +60,8 @@ class InferenceManager:
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
         # If vllm has trouble because a tokenizer is not found, make sure to save the tokenizer in the same directory as the model during training
         # transformers.Trainer already does this when you save the model. In a pinch, you can manually set the tokenizer of the original model in vllm
-        command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.7 --max_model_len 8192"
+        # command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.7 --max_model_len 8192"
+        command = f"python -m sglang.launch_server --model-path {model} --port {port} --host 0.0.0.0"
         print(f"Running command: {command}")
 
         # We will manually stream & capture logs.
@@ -126,12 +127,16 @@ class InferenceManager:
         self.current_model = model
 
     def kill(self):
+        from sglang.utils import terminate_process
+
         if self.process is None:
             print("No running server to kill.")
             return
 
         process = self.process
         thread = self.thread
+
+        terminate_process(process)
 
         # Clear references first
         self.process = None
