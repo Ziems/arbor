@@ -8,7 +8,6 @@ import os
 import subprocess
 import threading
 from typing import Optional
-import zmq
 import signal
 import sys
 
@@ -140,6 +139,8 @@ class GRPOManager:
             "--broadcast_port",
             str(self.server_comms_handler.broadcast_port),
             # Training args
+            "--model",
+            self.current_model,
             "--trl_train_kwargs",
             json.dumps(trl_train_kwargs),
             "--arbor_train_kwargs",

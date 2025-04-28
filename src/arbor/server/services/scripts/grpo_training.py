@@ -319,7 +319,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--debug", action="store_true")
 
-    pipe_args = parser.add_argument_group("Pipe arguments")
+    pipe_args = parser.add_argument_group("Comms arguments")
     pipe_args.add_argument("--host", default="localhost")
     pipe_args.add_argument("--command_port", type=int, required=True)
     pipe_args.add_argument("--status_port", type=int, required=True)
@@ -327,6 +327,11 @@ def main():
     pipe_args.add_argument("--broadcast_port", type=int, required=True)
 
     training_args = parser.add_argument_group("Training arguments")
+    training_args.add_argument(
+        "--model",
+        type=str,
+        help="Model to use for training",
+    )
     training_args.add_argument(
         "--trl_train_kwargs",
         type=json.loads,
@@ -396,14 +401,13 @@ def main():
         trl_train_args = {**(args.trl_train_kwargs or {})}
         arbor_train_args = {**(args.arbor_train_kwargs or {})}
         trl_train_args["bf16"] = True
-        # trl_train_args["gradient_accumulation_steps"] = 8
 
         # TODO: These assertions should be done in some better way
         assert "output_dir" in trl_train_args, "output_dir is required"
 
         training_args = GRPOConfig(**trl_train_args)
         trainer = ArborGRPOTrainer(
-            model="Qwen/Qwen2-0.5B-Instruct",
+            model=args.model,
             args=training_args,
             train_dataset=BlockingQueueDataset(None, None),
             **arbor_train_args,
