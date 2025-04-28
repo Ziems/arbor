@@ -1,6 +1,22 @@
 import json
 import argparse
 
+from trl import SFTConfig, SFTTrainer
+
+
+class ArborSFTTrainer(SFTTrainer):
+    pass
+
+
+def dataset_from_file(data_path):
+    """
+    Creates a HuggingFace Dataset from a JSONL file.
+    """
+    from datasets import load_dataset
+
+    dataset = load_dataset("json", data_files=data_path, split="train")
+    return dataset
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -18,6 +34,11 @@ def main():
         "--model",
         type=str,
         help="Model to use for training",
+    )
+    training_args.add_argument(
+        "--train_data_path",
+        type=str,
+        help="Path to the training data",
     )
     training_args.add_argument(
         "--trl_config_kwargs",
@@ -39,11 +60,12 @@ def main():
 
         # TODO: These assertions should be done in some better way
         assert "output_dir" in trl_config_args, "output_dir is required"
+        assert "train_data_path" in trainer_args, "train_data_path is required"
 
         config = SFTConfig(**trl_config_args)
         trainer = ArborSFTTrainer(
             model=args.model,
-            args=config,
+            trl_config=config,
             **trainer_args,
         )
     except Exception as e:
