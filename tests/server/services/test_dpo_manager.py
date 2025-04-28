@@ -30,7 +30,9 @@ def server(tmp_path_factory):
 
     # Create test settings
     # settings = Settings(STORAGE_PATH=str(test_storage))
-    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    root_dir = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..")
+    )
     settings = Settings.load_from_yaml(f"{root_dir}/arbor.yaml")
 
     # Initialize services with test settings
@@ -49,7 +51,6 @@ def server(tmp_path_factory):
     thread.start()
     time.sleep(1)  # give it a moment to bind
     yield app
-
 
 
 class APIClient:
