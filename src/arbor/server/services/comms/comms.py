@@ -76,6 +76,8 @@ class ArborScriptCommsHandler:
         # Data socket (all processes)
         self.data_socket = self.context.socket(zmq.PULL)
         self.data_socket.connect(f"tcp://{host}:{data_port}")
+        self.data_queue = queue.Queue()
+        self._start_data_receiver()
 
         # Broadcast socket (all processes)
         self.broadcast_socket = self.context.socket(zmq.SUB)
@@ -95,8 +97,26 @@ class ArborScriptCommsHandler:
                 yield command
 
     def receive_data(self):
-        # return self.data_queue.get()
-        return self.data_socket.recv_json()
+        return self.data_queue.get()
+
+    def _start_data_receiver(self):
+        def _receiver():
+            while True:
+                try:
+                    data = self.data_socket.recv_json()
+                    self.data_queue.put(data)
+                except Exception as e:
+                    print(f"Error receiving data: {e}")
+                    break
+
+        self.receiver_thread = threading.Thread(target=_receiver, daemon=True)
+        self.receiver_thread.start()
+
+    def is_data_queue_empty(self):
+        return self.data_queue.empty()
+
+    def get_data_queue_size(self):
+        return self.data_queue.qsize()
 
     def receive_broadcast(self):
         while True:
