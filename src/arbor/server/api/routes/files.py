@@ -19,7 +19,7 @@ async def upload_file(
 
     try:
         content = await file.read()
-        file_manager.validate_file_format(content)
+        # file_manager.validate_file_format(content)   #TODO: add another flag to specify the types of files
         await file.seek(0)  # Reset file pointer to beginning
         return FileModel(**file_manager.save_uploaded_file(file))
     except FileValidationError as e:
