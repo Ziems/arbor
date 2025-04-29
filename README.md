@@ -1,4 +1,5 @@
 # 🌳 Arbor
+![arbor-logo](https://github.com/user-attachments/assets/ed0dd782-65fa-48b5-a762-b343b183be09)
 
 **A drop-in replacement for OpenAI's fine-tuning API that lets you fine-tune open-source language models locally.**
 Train and deploy custom models using the same API you already know.
