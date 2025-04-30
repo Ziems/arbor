@@ -356,9 +356,11 @@ class CommandMonitor:
                             # f"Waiting for data queue to empty...{self.comms_handler.get_data_queue_size()}"
                             # )
                             print(f"Waiting for steps to finish")
-                            print(f"Time since last step: {time_since_last_step()}")
                             print(
-                                f"Time since last queue pop: {get_time_since_last_queue_pop()}"
+                                f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
+                            )
+                            print(
+                                f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
                             )
                             time.sleep(10)  # Small delay to prevent busy waiting
                         self.trainer.save_model()

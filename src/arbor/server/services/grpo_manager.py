@@ -211,9 +211,13 @@ class GRPOManager:
 
         # We tell the script to save the model. The script will let us know when it's done via the status update handler
         # Then we'll actually run the update_model function in the inference manager and finally update the last_inference_update variable
-        if self._should_update_model():
-            self.server_comms_handler.send_command({"command": "save_model"})
+        # if self._should_update_model():
+        #     self.server_comms_handler.send_command({"command": "save_model"})
 
+        return self.current_model
+
+    def refresh_model(self, request):
+        self.server_comms_handler.send_command({"command": "save_model"})
         return self.current_model
 
     def terminate(self, inference_manager: InferenceManager):
