@@ -227,38 +227,6 @@ class ArborGRPOTrainer(GRPOTrainer):
             "advantages": advantages,
         }
 
-    def callback(self, args, state, control, **kwargs):
-        """Callback to handle saving and status updates during training."""
-        if not self.accelerator.is_main_process:
-            return
-
-        if state.is_world_process_zero:
-            # Save model checkpoint
-            output_dir = os.path.join(
-                args.output_dir, f"checkpoint-{state.global_step}"
-            )
-            self.accelerator.save_state(output_dir)
-
-            # Send status update about saved model
-            self.comms_handler.send_status(
-                {
-                    "status": "model_saved",
-                    "output_dir": output_dir,
-                    "step": state.global_step,
-                }
-            )
-
-            # Log training metrics
-            if state.log_history:
-                latest_logs = state.log_history[-1]
-                self.comms_handler.send_status(
-                    {
-                        "status": "training_log",
-                        "step": state.global_step,
-                        "metrics": latest_logs,
-                    }
-                )
-
 
 class LastStepTimeCallback(TrainerCallback):
     "A callback that prints a message at the beginning of training"
@@ -345,25 +313,29 @@ class CommandMonitor:
                         command.get("command") == "save_model"
                         and self.trainer.accelerator.is_main_process
                     ):
-                        print(f"!!!Saving model at {self.trainer.args.output_dir}")
+                        print(
+                            f"[Training Script] Instructed to save model at {self.trainer.args.output_dir}"
+                        )
                         # Wait until data queue is empty before saving
 
-                        while (
-                            time_since_last_step() <= 10
-                            or get_time_since_last_queue_pop() <= 10
-                        ):
-                            # print(
-                            # f"Waiting for data queue to empty...{self.comms_handler.get_data_queue_size()}"
-                            # )
-                            print(f"Waiting for steps to finish")
-                            print(
-                                f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
-                            )
-                            print(
-                                f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
-                            )
-                            time.sleep(10)  # Small delay to prevent busy waiting
+                        # while (
+                        #     time_since_last_step() <= 10
+                        #     or get_time_since_last_queue_pop() <= 10
+                        # ):
+                        #     # print(
+                        #     # f"Waiting for data queue to empty...{self.comms_handler.get_data_queue_size()}"
+                        #     # )
+                        #     print(f"Waiting for steps to finish")
+                        #     print(
+                        #         f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
+                        #     )
+                        #     print(
+                        #         f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
+                        #     )
+                        time.sleep(5)  # Small delay to prevent busy waiting)
+                        # print("[Training Script] Saving model...")
                         self.trainer.save_model()
+                        print("[Training Script] Model saved")
                         self.comms_handler.send_status(
                             {
                                 "status": "model_saved",
