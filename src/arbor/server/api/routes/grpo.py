@@ -35,6 +35,14 @@ def run_grpo_step(
     return GRPOStepResponse(status="success", current_model=current_model)
 
 
+@router.post("/update_model", response_model=GRPOStepResponse)
+def update_model(request: Request):
+    grpo_manager = request.app.state.grpo_manager
+    inference_manager = request.app.state.inference_manager
+    current_model = grpo_manager.update_model(request, inference_manager)
+    return GRPOStepResponse(status="success", current_model=current_model)
+
+
 @router.post("/terminate", response_model=GRPOTerminateResponse)
 def terminate_grpo(request: Request):
     # No body needed for this request at this moment
