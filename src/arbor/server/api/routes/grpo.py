@@ -35,10 +35,11 @@ def run_grpo_step(
     return GRPOStepResponse(status="success", current_model=current_model)
 
 
-@router.post("/refresh", response_model=GRPOStepResponse)
-def refresh_model(request: Request):
+@router.post("/update_model", response_model=GRPOStepResponse)
+def update_model(request: Request):
     grpo_manager = request.app.state.grpo_manager
-    current_model = grpo_manager.refresh_model()
+    inference_manager = request.app.state.inference_manager
+    current_model = grpo_manager.update_model(inference_manager)
     return GRPOStepResponse(status="success", current_model=current_model)
 
 
