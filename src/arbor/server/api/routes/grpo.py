@@ -39,7 +39,7 @@ def run_grpo_step(
 def update_model(request: Request):
     grpo_manager = request.app.state.grpo_manager
     inference_manager = request.app.state.inference_manager
-    current_model = grpo_manager.update_model(inference_manager)
+    current_model = grpo_manager.update_model(request, inference_manager)
     return GRPOStepResponse(status="success", current_model=current_model)
 
 

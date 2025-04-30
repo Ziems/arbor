@@ -220,9 +220,8 @@ class GRPOManager:
         return self.current_model
 
     def update_model(self, request, inference_manager: InferenceManager):
-        inference_manager.restarting = (
-            True  # THIS IS HACKY AND NEEDS TO BE FIXED BEFORE RELEASE
-        )
+        # THIS IS HACKY AND NEEDS TO BE FIXED BEFORE RELEASE
+        inference_manager.restarting = True
         self.model_saved_and_reload_requested = True
         self.server_comms_handler.send_command({"command": "save_model"})
         while self.model_saved_and_reload_requested:
