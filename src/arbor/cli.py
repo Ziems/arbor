@@ -44,7 +44,7 @@ def create_app(arbor_config_path: str):
     return app
 
 
-def start_server(host="0.0.0.0", port=8000, storage_path="./storage", timeout=10):
+def start_server(host="0.0.0.0", port=7453, storage_path="./storage", timeout=10):
     """Start the Arbor API server with a single function call"""
     import threading
     import time
@@ -89,7 +89,7 @@ def stop_server(server):
 
 @cli.command()
 @click.option("--host", default="0.0.0.0", help="Host to bind to")
-@click.option("--port", default=8000, help="Port to bind to")
+@click.option("--port", default=7453, help="Port to bind to")
 @click.option("--arbor-config", required=True, help="Path to the Arbor config file")
 def serve(host, port, arbor_config):
     """Start the Arbor API server"""
