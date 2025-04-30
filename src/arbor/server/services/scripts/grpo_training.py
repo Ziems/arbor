@@ -453,7 +453,7 @@ def main():
         trl_train_args["gradient_checkpointing"] = True
         trl_train_args["per_device_train_batch_size"] = 8
         trl_train_args["lr_scheduler_type"] = "constant_with_warmup"
-        trl_train_args["learning_rate"] = 1e-6
+        trl_train_args["learning_rate"] = 1e-5
 
         # TODO: These assertions should be done in some better way
         assert "output_dir" in trl_train_args, "output_dir is required"
