@@ -69,7 +69,7 @@ class GRPOManager:
             "output_dir": output_dir,
             # "beta": 0.04,
             # "num_iterations": 1,
-            # "temperature": 0.9, # TODO: This should match vLLM
+            # "temperature": 0.9,
             # "num_generations": 8,
             # "scale_rewards": True,
             # "epsilon_low": 0.2,

@@ -53,13 +53,11 @@ class InferenceManager:
             if model.startswith(prefix):
                 model = model[len(prefix) :]
 
-        print(f"Grabbing a free port to launch an vLLM server for model {model}")
+        print(f"Grabbing a free port to launch an SGLang server for model {model}")
         port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
-        # If vllm has trouble because a tokenizer is not found, make sure to save the tokenizer in the same directory as the model during training
-        # transformers.Trainer already does this when you save the model. In a pinch, you can manually set the tokenizer of the original model in vllm
         # command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.7 --max_model_len 8192"
         command = f"python -m sglang.launch_server --model-path {model} --port {port} --host 0.0.0.0"
         print(f"Running command: {command}")
@@ -75,7 +73,7 @@ class InferenceManager:
 
         # A threading.Event to control printing after the server is ready.
         # This will store *all* lines (both before and after readiness).
-        print(f"vLLM server process started with PID {process.pid}.")
+        print(f"SGLang server process started with PID {process.pid}.")
         stop_printing_event = threading.Event()
         logs_buffer = []
 
