@@ -205,6 +205,7 @@ class GRPOManager:
             time.sleep(5)
 
         try:
+            print("Data received for grpo_step...")
             # Send the batch to the training process
             self.server_comms_handler.send_data(request.batch)
             self.data_count += 1
