@@ -318,22 +318,22 @@ class CommandMonitor:
                         )
                         # Wait until data queue is empty before saving
 
-                        # while (
-                        #     time_since_last_step() <= 10
-                        #     or get_time_since_last_queue_pop() <= 10
-                        # ):
-                        #     # print(
-                        #     # f"Waiting for data queue to empty...{self.comms_handler.get_data_queue_size()}"
-                        #     # )
-                        #     print(f"Waiting for steps to finish")
-                        #     print(
-                        #         f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
-                        #     )
-                        #     print(
-                        #         f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
-                        #     )
-                        time.sleep(5)  # Small delay to prevent busy waiting)
-                        # print("[Training Script] Saving model...")
+                        while (
+                            time_since_last_step() <= 10
+                            or get_time_since_last_queue_pop() <= 10
+                        ):
+                            # print(
+                            # f"Waiting for data queue to empty...{self.comms_handler.get_data_queue_size()}"
+                            # )
+                            print(f"Waiting for steps to finish")
+                            print(
+                                f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
+                            )
+                            print(
+                                f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
+                            )
+                            time.sleep(5)  # Small delay to prevent busy waiting)
+                        print("[Training Script] Saving model...")
                         self.trainer.save_model()
                         print("[Training Script] Model saved")
                         self.comms_handler.send_status(
