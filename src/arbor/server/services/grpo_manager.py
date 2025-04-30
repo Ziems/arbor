@@ -219,7 +219,9 @@ class GRPOManager:
         return self.current_model
 
     def update_model(self, request, inference_manager: InferenceManager):
-        inference_manager.restarting = True
+        inference_manager.restarting = (
+            True  # THIS IS HACKY AND NEEDS TO BE FIXED BEFORE RELEASE
+        )
         self.model_saved_and_reload_requested = True
         self.server_comms_handler.send_command({"command": "save_model"})
         while self.model_saved_and_reload_requested:
@@ -266,4 +268,4 @@ class GRPOManager:
         #     self.data_count - self.last_inference_update
         #     >= self.train_kwargs["update_interval"]
         # )
-        return self.request_model_saved_and_reload
+        return self.model_saved_and_reload_requested
