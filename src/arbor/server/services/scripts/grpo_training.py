@@ -33,6 +33,15 @@ from trl.import_utils import is_rich_available
 from trl.trainer.utils import pad
 import zmq
 
+last_step_time = None
+
+
+def time_since_last_step():
+    global last_step_time
+    if last_step_time is None:
+        return float("inf")
+    return time.time() - last_step_time
+
 
 class ArborGRPOTrainer(GRPOTrainer):
     def __init__(
@@ -210,6 +219,47 @@ class ArborGRPOTrainer(GRPOTrainer):
             "advantages": advantages,
         }
 
+    def callback(self, args, state, control, **kwargs):
+        """Callback to handle saving and status updates during training."""
+        if not self.accelerator.is_main_process:
+            return
+
+        if state.is_world_process_zero:
+            # Save model checkpoint
+            output_dir = os.path.join(
+                args.output_dir, f"checkpoint-{state.global_step}"
+            )
+            self.accelerator.save_state(output_dir)
+
+            # Send status update about saved model
+            self.comms_handler.send_status(
+                {
+                    "status": "model_saved",
+                    "output_dir": output_dir,
+                    "step": state.global_step,
+                }
+            )
+
+            # Log training metrics
+            if state.log_history:
+                latest_logs = state.log_history[-1]
+                self.comms_handler.send_status(
+                    {
+                        "status": "training_log",
+                        "step": state.global_step,
+                        "metrics": latest_logs,
+                    }
+                )
+
+
+class LastStepTimeCallback(TrainerCallback):
+    "A callback that prints a message at the beginning of training"
+
+    def on_step_end(self, args, state, control, **kwargs):
+        global last_step_time
+        print(f"Time since last step: {time_since_last_step()}")
+        last_step_time = time.time()
+
 
 class BlockingQueueDataset(Dataset):
     def __init__(
@@ -287,11 +337,15 @@ class CommandMonitor:
                     ):
                         print(f"!!!Saving model at {self.trainer.args.output_dir}")
                         # Wait until data queue is empty before saving
-                        if not self.comms_handler.is_data_queue_empty():
+
+                        while time_since_last_step() <= 10:
+                            # print(
+                            # f"Waiting for data queue to empty...{self.comms_handler.get_data_queue_size()}"
+                            # )
                             print(
-                                f"Waiting for data queue to empty...{self.comms_handler.get_data_queue_size()}"
+                                f"Waiting for steps to finish: {time_since_last_step()} needs to be >= 10"
                             )
-                            time.sleep(20)  # Small delay to prevent busy waiting
+                            time.sleep(10)  # Small delay to prevent busy waiting
                         self.trainer.save_model()
                         self.comms_handler.send_status(
                             {
@@ -420,6 +474,7 @@ def main():
             model=args.model,
             args=training_args,
             train_dataset=BlockingQueueDataset(None, None),
+            callbacks=[LastStepTimeCallback()],
             **arbor_train_args,
         )
         # Create client handler
