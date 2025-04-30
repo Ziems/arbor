@@ -34,6 +34,7 @@ from trl.trainer.utils import pad
 import zmq
 
 last_step_time = None
+last_queue_pop_time = None
 
 
 def time_since_last_step():
@@ -41,6 +42,13 @@ def time_since_last_step():
     if last_step_time is None:
         return float("inf")
     return time.time() - last_step_time
+
+
+def get_time_since_last_queue_pop():
+    global last_queue_pop_time
+    if last_queue_pop_time is None:
+        return float("inf")
+    return time.time() - last_queue_pop_time
 
 
 class ArborGRPOTrainer(GRPOTrainer):
@@ -285,6 +293,8 @@ class BlockingQueueDataset(Dataset):
                 self.comms_handler.receive_data()
             )  # This blocks until data is available
             print(f"Main process {self.accelerator.process_index} got new data")
+            global last_queue_pop_time
+            last_queue_pop_time = time.time()
             if idx not in self.completion_counters:
                 self.completion_counters[idx] = 0
             return broadcast_object_list([new_data])[0]
@@ -338,12 +348,17 @@ class CommandMonitor:
                         print(f"!!!Saving model at {self.trainer.args.output_dir}")
                         # Wait until data queue is empty before saving
 
-                        while time_since_last_step() <= 10:
+                        while (
+                            time_since_last_step() <= 10
+                            or get_time_since_last_queue_pop() <= 10
+                        ):
                             # print(
                             # f"Waiting for data queue to empty...{self.comms_handler.get_data_queue_size()}"
                             # )
+                            print(f"Waiting for steps to finish")
+                            print(f"Time since last step: {time_since_last_step()}")
                             print(
-                                f"Waiting for steps to finish: {time_since_last_step()} needs to be >= 10"
+                                f"Time since last queue pop: {get_time_since_last_queue_pop()}"
                             )
                             time.sleep(10)  # Small delay to prevent busy waiting
                         self.trainer.save_model()
