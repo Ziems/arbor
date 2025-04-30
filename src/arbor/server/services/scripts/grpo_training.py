@@ -287,12 +287,11 @@ class CommandMonitor:
                     ):
                         print(f"!!!Saving model at {self.trainer.args.output_dir}")
                         # Wait until data queue is empty before saving
-                        while not self.comms_handler.is_data_queue_empty():
-                            # TODO: This blocks any other commands from being processed...Maybe worth fixing...
+                        if not self.comms_handler.is_data_queue_empty():
                             print(
                                 f"Waiting for data queue to empty...{self.comms_handler.get_data_queue_size()}"
                             )
-                            time.sleep(0.5)  # Small delay to prevent busy waiting
+                            time.sleep(20)  # Small delay to prevent busy waiting
                         self.trainer.save_model()
                         self.comms_handler.send_status(
                             {

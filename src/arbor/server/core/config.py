@@ -9,7 +9,6 @@ class InferenceConfig(BaseModel):
 
 class TrainingConfig(BaseModel):
     gpu_ids: str = "0"
-    num_processes: int = 1
 
 
 class ArborConfig(BaseModel):

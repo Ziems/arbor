@@ -120,12 +120,14 @@ class GRPOManager:
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.training.gpu_ids
 
+        num_processes = self.settings.arbor_config.training.gpu_ids.count(",") + 1
+
         params = [
             "python",
             "-m",
             "accelerate.commands.launch",
             "--num_processes",
-            str(self.settings.arbor_config.training.num_processes),
+            str(num_processes),
             script_path,
             # Comms args
             "--host",
