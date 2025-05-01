@@ -108,6 +108,9 @@ class GRPOManager:
     ):
         """Initialize the training process with ZMQ-based communication."""
         self.train_kwargs = self.find_training_args(request)
+        import pdb
+
+        pdb.set_trace()
         trl_train_kwargs, arbor_train_kwargs = self.process_training_args(
             self.train_kwargs
         )
