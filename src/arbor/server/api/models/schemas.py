@@ -188,6 +188,9 @@ class GRPOConfigRequest(BaseModel):
     num_iterations: Optional[int] = None
     num_generations: Optional[int] = None
     update_interval: Optional[int] = None
+    per_device_train_batch_size: Optional[int] = None
+    learning_rate: Optional[float] = None
+    gradient_accumulation_steps: Optional[int] = None
 
     # To name the run
     suffix: Optional[str] = None

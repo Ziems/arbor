@@ -82,6 +82,7 @@ class GRPOManager:
         return {**default_train_kwargs, **(train_kwargs or {})}
 
     def process_training_args(self, train_kwargs: dict) -> tuple[dict, dict]:
+        # NOTE: These also need to be in the GRPOConfigRequest
         trl_keys = [
             "output_dir",
             "temperature",
