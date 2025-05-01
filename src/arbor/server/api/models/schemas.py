@@ -191,7 +191,7 @@ class GRPOConfigRequest(BaseModel):
     per_device_train_batch_size: Optional[int] = None
     learning_rate: Optional[float] = None
     gradient_accumulation_steps: Optional[int] = None
-
+    lr_scheduler_type: Optional[str] = None
     # To name the run
     suffix: Optional[str] = None
 

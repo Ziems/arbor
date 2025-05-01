@@ -92,6 +92,7 @@ class GRPOManager:
             "per_device_train_batch_size",
             "learning_rate",
             "gradient_accumulation_steps",
+            "lr_scheduler_type",
         ]
         trl_train_kwargs = {
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
@@ -109,9 +110,7 @@ class GRPOManager:
     ):
         """Initialize the training process with ZMQ-based communication."""
         self.train_kwargs = self.find_training_args(request)
-        import pdb
 
-        pdb.set_trace()
         trl_train_kwargs, arbor_train_kwargs = self.process_training_args(
             self.train_kwargs
         )
