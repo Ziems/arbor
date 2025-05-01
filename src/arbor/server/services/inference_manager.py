@@ -53,13 +53,14 @@ class InferenceManager:
             if model.startswith(prefix):
                 model = model[len(prefix) :]
 
-        print(f"Grabbing a free port to launch an SGLang server for model {model}")
+        print(f"Grabbing a free port to launch an vLLM server for model {model}")
         port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
-        # command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.7 --max_model_len 8192"
-        command = f"python -m sglang.launch_server --model-path {model} --port {port} --host 0.0.0.0"
+        n_gpus = len(self.settings.arbor_config.inference.gpu_ids.split(","))
+        command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.7 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching"
+        # command = f"python -m sglang.launch_server --model-path {model} --port {port} --host 0.0.0.0"
         print(f"Running command: {command}")
 
         # We will manually stream & capture logs.
@@ -73,7 +74,7 @@ class InferenceManager:
 
         # A threading.Event to control printing after the server is ready.
         # This will store *all* lines (both before and after readiness).
-        print(f"SGLang server process started with PID {process.pid}.")
+        print(f"vLLM server process started with PID {process.pid}.")
         stop_printing_event = threading.Event()
         logs_buffer = []
 
@@ -125,7 +126,6 @@ class InferenceManager:
         self.current_model = model
 
     def kill(self):
-        from sglang.utils import terminate_process
 
         if self.process is None:
             print("No running server to kill.")
@@ -133,8 +133,6 @@ class InferenceManager:
 
         process = self.process
         thread = self.thread
-
-        terminate_process(process)
 
         # Clear references first
         self.process = None
