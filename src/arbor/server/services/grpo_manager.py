@@ -90,6 +90,7 @@ class GRPOManager:
             "num_generations",
             "per_device_train_batch_size",
             "learning_rate",
+            "gradient_accumulation_steps",
         ]
         trl_train_kwargs = {
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
