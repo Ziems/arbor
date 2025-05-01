@@ -449,9 +449,6 @@ def main():
     try:
         trl_train_args = {**(args.trl_train_kwargs or {})}
         arbor_train_args = {**(args.arbor_train_kwargs or {})}
-        trl_train_args["bf16"] = True
-        trl_train_args["gradient_checkpointing"] = True
-        trl_train_args["lr_scheduler_type"] = "constant_with_warmup"
 
         # TODO: These assertions should be done in some better way
         assert "output_dir" in trl_train_args, "output_dir is required"
