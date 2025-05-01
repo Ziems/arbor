@@ -59,7 +59,7 @@ class InferenceManager:
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
         n_gpus = len(self.settings.arbor_config.inference.gpu_ids.split(","))
-        command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.7 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching"
+        command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching"
         # command = f"python -m sglang.launch_server --model-path {model} --port {port} --host 0.0.0.0"
         print(f"Running command: {command}")
 
