@@ -148,17 +148,17 @@ class ArborGRPOTrainer(GRPOTrainer):
             completion_ids["attention_mask"],
         )
 
-        if self.max_prompt_length is not None:
-            if prompt_ids.shape[1] > self.max_prompt_length:
-                print(f"Truncating prompt to {self.max_prompt_length} tokens")
-            prompt_ids = prompt_ids[:, -self.max_prompt_length :]
-            prompt_mask = prompt_mask[:, -self.max_prompt_length :]
+        # if self.max_prompt_length is not None:
+        #     if prompt_ids.shape[1] > self.max_prompt_length:
+        #         print(f"Truncating prompt to {self.max_prompt_length} tokens")
+        #     prompt_ids = prompt_ids[:, -self.max_prompt_length :]
+        #     prompt_mask = prompt_mask[:, -self.max_prompt_length :]
 
-        if self.max_completion_length is not None:
-            if completion_ids.shape[1] > self.max_completion_length:
-                print(f"Truncating completion to {self.max_completion_length} tokens")
-            completion_ids = completion_ids[:, : self.max_completion_length]
-            completion_mask = completion_mask[:, : self.max_completion_length]
+        # if self.max_completion_length is not None:
+        #     if completion_ids.shape[1] > self.max_completion_length:
+        #         print(f"Truncating completion to {self.max_completion_length} tokens")
+        #     completion_ids = completion_ids[:, : self.max_completion_length]
+        #     completion_mask = completion_mask[:, : self.max_completion_length]
 
         # Keeping this for when we switch to vllm
         # if self.state.global_step != self._last_loaded_step:
