@@ -13,6 +13,7 @@ from accelerate import Accelerator
 from datasets import load_dataset, Dataset, IterableDataset
 from peft import PeftConfig  # type: ignore
 import torch
+import torch.distributed as dist
 from torch.utils.data import Dataset
 from transformers import (
     PreTrainedModel,
@@ -267,9 +268,19 @@ class BlockingQueueDataset(Dataset):
         return self.size
 
     def _get_data(self, idx):
+        rank = self.accelerator.process_index
+        world_size = self.accelerator.num_processes
+
+        # 1. Each process sets a flag for this idx
+        ready_flag = torch.tensor([idx], device="cpu")
+        gathered = [torch.zeros_like(ready_flag) for _ in range(world_size)]
+        dist.all_gather(gathered, ready_flag)
+        gathered_indices = [int(x.item()) for x in gathered]
         print(
-            f"[rank {self.accelerator.process_index}] Calling _get_data for idx {idx}"
+            f"[rank {rank}] all_gather before broadcast for idx {idx}: {gathered_indices}"
         )
+
+        print(f"[rank {rank}] Calling _get_data for idx {idx}")
         if self.accelerator.is_main_process:
             global last_queue_pop_time
             last_queue_pop_time = time.time()
@@ -277,23 +288,15 @@ class BlockingQueueDataset(Dataset):
                 self.completion_counters[idx] = 0
             try:
                 new_data = self.comms_handler.receive_data()
-                print(
-                    f"[rank {self.accelerator.process_index}] Got new data for idx {idx}"
-                )
+                print(f"[rank {rank}] Got new data for idx {idx}")
             except Exception as e:
-                print(
-                    f"[rank {self.accelerator.process_index}] Error receiving data: {e}"
-                )
+                print(f"[rank {rank}] Error receiving data: {e}")
                 new_data = None  # Or some sentinel
             data = broadcast_object_list([new_data])[0]
         else:
-            print(
-                f"[rank {self.accelerator.process_index}] Waiting for broadcast for idx {idx}"
-            )
+            print(f"[rank {rank}] Waiting for broadcast for idx {idx}")
             data = broadcast_object_list([None])[0]
-        print(
-            f"[rank {self.accelerator.process_index}] Received data for idx {idx}: {type(data)}"
-        )
+        print(f"[rank {rank}] Received data for idx {idx}: {type(data)}")
         return data
 
     def __getitem__(self, idx):
