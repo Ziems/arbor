@@ -159,6 +159,8 @@ class ArborGRPOTrainer(GRPOTrainer):
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B, P+C)
 
+        print(f"prompt_completion_ids.shape: {prompt_completion_ids.shape}")
+
         logits_to_keep = completion_ids.size(1)
 
         with torch.no_grad():
