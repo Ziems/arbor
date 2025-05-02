@@ -267,21 +267,33 @@ class BlockingQueueDataset(Dataset):
         return self.size
 
     def _get_data(self, idx):
+        print(
+            f"[rank {self.accelerator.process_index}] Calling _get_data for idx {idx}"
+        )
         if self.accelerator.is_main_process:
-            # print(f"Main process {self.accelerator.process_index} getting new data")
-            new_data = (
-                self.comms_handler.receive_data()
-            )  # This blocks until data is available
-            print(f"Main process {self.accelerator.process_index} got new data")
             global last_queue_pop_time
             last_queue_pop_time = time.time()
             if idx not in self.completion_counters:
                 self.completion_counters[idx] = 0
+            try:
+                new_data = self.comms_handler.receive_data()
+                print(
+                    f"[rank {self.accelerator.process_index}] Got new data for idx {idx}"
+                )
+            except Exception as e:
+                print(
+                    f"[rank {self.accelerator.process_index}] Error receiving data: {e}"
+                )
+                new_data = None  # Or some sentinel
             data = broadcast_object_list([new_data])[0]
         else:
-            print(f"Other process {self.accelerator.process_index} waiting for data.")
-            # Broadcasting None to all processes blocks until the main process sends data
+            print(
+                f"[rank {self.accelerator.process_index}] Waiting for broadcast for idx {idx}"
+            )
             data = broadcast_object_list([None])[0]
+        print(
+            f"[rank {self.accelerator.process_index}] Received data for idx {idx}: {type(data)}"
+        )
         return data
 
     def __getitem__(self, idx):
