@@ -58,8 +58,8 @@ class InferenceManager:
         timeout = launch_kwargs.get("timeout", 1800)
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
-        n_gpus = len(self.settings.arbor_config.inference.gpu_ids.split(","))
-        command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching"
+        n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
+        command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching --guided-decoding-backend xgrammar"
         # command = f"python -m sglang.launch_server --model-path {model} --port {port} --host 0.0.0.0"
         print(f"Running command: {command}")
 
@@ -88,7 +88,7 @@ class InferenceManager:
                     buffer.append(line)
                     # Print only if stop_event is not set
                     if not stop_event.is_set():
-                        print(line, end="")
+                        print(f"[vLLM LOG] {line}", end="")
 
         # Start a background thread to read from the process continuously
         thread = threading.Thread(
