@@ -147,9 +147,17 @@ class ArborGRPOTrainer(GRPOTrainer):
             completion_ids["attention_mask"],
         )
 
-        # if self.max_prompt_length is not None:
-        #     prompt_ids = prompt_ids[:, -self.max_prompt_length :]
-        #     prompt_mask = prompt_mask[:, -self.max_prompt_length :]
+        if self.max_prompt_length is not None:
+            if prompt_ids.shape[1] > self.max_prompt_length:
+                print(f"Truncating prompt to {self.max_prompt_length} tokens")
+            prompt_ids = prompt_ids[:, -self.max_prompt_length :]
+            prompt_mask = prompt_mask[:, -self.max_prompt_length :]
+
+        if self.max_completion_length is not None:
+            if completion_ids.shape[1] > self.max_completion_length:
+                print(f"Truncating completion to {self.max_completion_length} tokens")
+            completion_ids = completion_ids[:, : self.max_completion_length]
+            completion_mask = completion_mask[:, : self.max_completion_length]
 
         # Keeping this for when we switch to vllm
         # if self.state.global_step != self._last_loaded_step:
@@ -159,7 +167,9 @@ class ArborGRPOTrainer(GRPOTrainer):
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B, P+C)
 
-        print(f"prompt_completion_ids.shape: {prompt_completion_ids.shape}")
+        print(
+            f"prompt_completion_ids.shape (after truncation): {prompt_completion_ids.shape}"
+        )
 
         logits_to_keep = completion_ids.size(1)
 
@@ -269,8 +279,8 @@ class BlockingQueueDataset(Dataset):
                 self.completion_counters[idx] = 0
             return broadcast_object_list([new_data])[0]
         else:
-            # print(f"Other process {self.accelerator.process_index} waiting for data")
-            return broadcast_object_list([None])[0]
+            print(f"Other process {self.accelerator.process_index} waiting for data.")
+            print(f"Please report this to noah")
 
     def __getitem__(self, idx):
         # print(f"Process {self.accelerator.process_index} getting item {idx}")

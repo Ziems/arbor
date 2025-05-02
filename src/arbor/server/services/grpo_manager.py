@@ -93,6 +93,8 @@ class GRPOManager:
             "learning_rate",
             "gradient_accumulation_steps",
             "lr_scheduler_type",
+            "max_prompt_length",
+            "max_completion_length",
         ]
         trl_train_kwargs = {
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
