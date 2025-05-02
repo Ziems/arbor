@@ -272,7 +272,8 @@ class BlockingQueueDataset(Dataset):
         world_size = self.accelerator.num_processes
 
         # 1. Each process sets a flag for this idx
-        ready_flag = torch.tensor([idx], device="cpu")
+        device = torch.device("cuda", self.accelerator.local_process_index)
+        ready_flag = torch.tensor([idx], device=device)
         gathered = [torch.zeros_like(ready_flag) for _ in range(world_size)]
         dist.all_gather(gathered, ready_flag)
         gathered_indices = [int(x.item()) for x in gathered]
