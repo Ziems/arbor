@@ -11,10 +11,11 @@ from functools import lru_cache
 from accelerate.utils import broadcast_object_list, gather, gather_object
 from accelerate import Accelerator
 from datasets import load_dataset, Dataset, IterableDataset
+import datasets
 from peft import PeftConfig  # type: ignore
 import torch
 import torch.distributed as dist
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 from transformers import (
     PreTrainedModel,
     PreTrainedTokenizerBase,
@@ -27,7 +28,8 @@ from arbor.server.services.comms.comms import (
     ArborServerCommsHandler,
     ArborScriptCommsHandler,
 )
-
+from transformers.utils import is_datasets_available
+from transformers.trainer_utils import seed_worker
 from trl import GRPOTrainer, GRPOConfig
 from trl.data_utils import maybe_apply_chat_template
 from trl.import_utils import is_rich_available
@@ -239,6 +241,38 @@ class ArborGRPOTrainer(GRPOTrainer):
             "ref_per_token_logps": ref_per_token_logps,
             "advantages": advantages,
         }
+
+    def get_train_dataloader(self):
+        if self.train_dataset is None:
+            raise ValueError("Trainer: training requires a train_dataset.")
+
+        train_dataset = self.train_dataset
+        data_collator = self.data_collator
+        if is_datasets_available() and isinstance(train_dataset, datasets.Dataset):
+            train_dataset = self._remove_unused_columns(
+                train_dataset, description="training"
+            )
+        else:
+            data_collator = self._get_collator_with_removed_columns(
+                data_collator, description="training"
+            )
+
+        dataloader_params = {
+            "batch_size": self._train_batch_size
+            * self.args.gradient_accumulation_steps,  # < this is the change
+            "collate_fn": data_collator,
+            "num_workers": self.args.dataloader_num_workers,
+            "pin_memory": self.args.dataloader_pin_memory,
+            "persistent_workers": self.args.dataloader_persistent_workers,
+        }
+
+        if not isinstance(train_dataset, torch.utils.data.IterableDataset):
+            dataloader_params["sampler"] = self._get_train_sampler()
+            dataloader_params["drop_last"] = self.args.dataloader_drop_last
+            dataloader_params["worker_init_fn"] = seed_worker
+            dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
+
+        return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))
 
 
 class LastStepTimeCallback(TrainerCallback):
@@ -483,7 +517,11 @@ def main():
         # TODO: These assertions should be done in some better way
         assert "output_dir" in trl_train_args, "output_dir is required"
 
-        training_args = GRPOConfig(**trl_train_args)
+        training_args = GRPOConfig(
+            dataloader_num_workers=0,
+            shuffle_dataset=False,
+            **trl_train_args,
+        )
         trainer = ArborGRPOTrainer(
             model=args.model,
             args=training_args,
