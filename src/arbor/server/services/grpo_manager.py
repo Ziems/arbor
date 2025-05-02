@@ -159,8 +159,35 @@ class GRPOManager:
 
         self.training_process = subprocess.Popen(
             params,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             env=my_env,
         )
+
+        # A threading.Event to control printing after the server is ready.
+        stop_printing_event = threading.Event()
+        logs_buffer = []
+
+        def _tail_process(proc, buffer, stop_event):
+            while True:
+                line = proc.stdout.readline()
+                if not line and proc.poll() is not None:
+                    # Process ended and no new line
+                    break
+                if line:
+                    buffer.append(line)
+                    # Print only if stop_event is not set
+                    if not stop_event.is_set():
+                        print(f"[GRPO LOG] {line}", end="")
+
+        # Start a background thread to read from the process continuously
+        thread = threading.Thread(
+            target=_tail_process,
+            args=(self.training_process, logs_buffer, stop_printing_event),
+            daemon=True,
+        )
+        thread.start()
 
         # Start status handling thread
         self.status_thread = threading.Thread(
