@@ -277,10 +277,12 @@ class BlockingQueueDataset(Dataset):
             last_queue_pop_time = time.time()
             if idx not in self.completion_counters:
                 self.completion_counters[idx] = 0
-            return broadcast_object_list([new_data])[0]
+            data = broadcast_object_list([new_data])[0]
         else:
             print(f"Other process {self.accelerator.process_index} waiting for data.")
-            print(f"Please report this to noah")
+            # Broadcasting None to all processes blocks until the main process sends data
+            data = broadcast_object_list([None])[0]
+        return data
 
     def __getitem__(self, idx):
         # print(f"Process {self.accelerator.process_index} getting item {idx}")
