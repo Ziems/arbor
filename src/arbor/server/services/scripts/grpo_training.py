@@ -257,7 +257,7 @@ class BlockingQueueDataset(Dataset):
         self,
         accelerator: Accelerator,
         comms_handler: ArborScriptCommsHandler,
-        size=1000,
+        size=10_000,  # Just a random number
         maxsize=100,
     ):
         self.size = size
