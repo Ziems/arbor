@@ -42,6 +42,11 @@ class ArborServerCommsHandler:
     def send_broadcast(self, message):
         self.broadcast_socket.send_json(message)
 
+    def receive_status(self):
+        while True:
+            status = self.status_socket.recv_json()
+            yield status
+
     def close(self):
         self.command_socket.close()
         self.status_socket.close()
