@@ -95,6 +95,10 @@ class GRPOManager:
             "lr_scheduler_type",
             "max_prompt_length",
             "max_completion_length",
+            "gradient_checkpointing_kwargs",
+            "bf16",
+            "packing",
+            "scale_rewards",
         ]
         trl_train_kwargs = {
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
