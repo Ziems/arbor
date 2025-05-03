@@ -457,6 +457,7 @@ def main():
         args.status_port = server_comms_handler.status_port
         args.data_port = server_comms_handler.data_port
         args.broadcast_port = server_comms_handler.broadcast_port
+        args.handshake_port = server_comms_handler.handshake_port
 
         def debug_data_generator():
             tldr_dataset = load_dataset("trl-lib/tldr", split="train")
@@ -526,6 +527,7 @@ def main():
             status_port=args.status_port,
             data_port=args.data_port,
             broadcast_port=args.broadcast_port,
+            handshake_port=args.handshake_port,
             is_main_process=trainer.accelerator.is_main_process,
         )
         trainer.comms_handler = comms_handler
