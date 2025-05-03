@@ -242,38 +242,6 @@ class ArborGRPOTrainer(GRPOTrainer):
             "advantages": advantages,
         }
 
-    def get_train_dataloader(self):
-        if self.train_dataset is None:
-            raise ValueError("Trainer: training requires a train_dataset.")
-
-        train_dataset = self.train_dataset
-        data_collator = self.data_collator
-        if is_datasets_available() and isinstance(train_dataset, datasets.Dataset):
-            train_dataset = self._remove_unused_columns(
-                train_dataset, description="training"
-            )
-        else:
-            data_collator = self._get_collator_with_removed_columns(
-                data_collator, description="training"
-            )
-
-        dataloader_params = {
-            "batch_size": self._train_batch_size
-            * self.args.gradient_accumulation_steps,  # < this is the change
-            "collate_fn": data_collator,
-            "num_workers": self.args.dataloader_num_workers,
-            "pin_memory": self.args.dataloader_pin_memory,
-            "persistent_workers": self.args.dataloader_persistent_workers,
-        }
-
-        if not isinstance(train_dataset, torch.utils.data.IterableDataset):
-            dataloader_params["sampler"] = self._get_train_sampler()
-            dataloader_params["drop_last"] = self.args.dataloader_drop_last
-            dataloader_params["worker_init_fn"] = seed_worker
-            dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
-
-        return self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))
-
 
 class LastStepTimeCallback(TrainerCallback):
     "A callback that prints a message at the beginning of training"
@@ -325,8 +293,10 @@ class BlockingQueueDataset(Dataset):
         return new_data
 
     def __getitem__(self, idx):
-        print(f"Process {self.accelerator.process_index} getting item {idx}")
         data = self.get_cached_data(idx)
+        # Create hash of data to detect duplicates
+        data_hash = hash(str(data))
+        print(f"[rank {self.accelerator.process_index}] {idx} data hash: {data_hash}")
 
         if data is None:
             return None
