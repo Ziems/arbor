@@ -2,6 +2,8 @@ import zmq
 import queue
 import threading
 import time
+import socket
+import os
 
 
 class ArborServerCommsHandler:
@@ -19,17 +21,16 @@ class ArborServerCommsHandler:
         self.status_socket = self.context.socket(zmq.SUB)
         self.status_port = self.status_socket.bind_to_random_port(f"tcp://{host}")
         self.status_socket.setsockopt_string(zmq.SUBSCRIBE, "")
-        # Data socket (PUSH/PULL pattern)
-        self.data_socket = self.context.socket(zmq.PUSH)
+
+        # Data socket (PUB/SUB pattern)
+        self.data_socket = self.context.socket(zmq.PUB)
         self.data_port = self.data_socket.bind_to_random_port(f"tcp://{host}")
 
         self.broadcast_socket = self.context.socket(zmq.PUB)
         self.broadcast_port = self.broadcast_socket.bind_to_random_port(f"tcp://{host}")
 
-    def receive_status(self):
-        while True:
-            status = self.status_socket.recv_json()
-            yield status
+        self.handshake_socket = self.context.socket(zmq.REP)
+        self.handshake_port = self.handshake_socket.bind_to_random_port(f"tcp://{host}")
 
     def send_command(self, command):
         self.command_socket.send_json(command)
@@ -41,12 +42,30 @@ class ArborServerCommsHandler:
     def send_broadcast(self, message):
         self.broadcast_socket.send_json(message)
 
+    def receive_status(self):
+        while True:
+            status = self.status_socket.recv_json()
+            yield status
+
     def close(self):
         self.command_socket.close()
         self.status_socket.close()
         self.data_socket.close()
         self.broadcast_socket.close()
+        self.handshake_socket.close()
         self.context.term()
+
+    def wait_for_clients(self, expected_count):
+        connected_clients = []
+        while len(connected_clients) < expected_count:
+            print(f"Waiting for {expected_count} clients to connect...")
+            msg = self.handshake_socket.recv_json()
+            if msg.get("type") == "hello":
+                client_id = msg.get("client_id")
+                connected_clients.append(client_id)
+                self.handshake_socket.send_json({"status": "ack"})
+            print(f"Received handshake from {client_id}")
+        print(f"All {expected_count} clients connected!")
 
 
 class ArborScriptCommsHandler:
@@ -57,6 +76,7 @@ class ArborScriptCommsHandler:
         status_port,
         data_port,
         broadcast_port,
+        handshake_port,
         is_main_process,
     ):
         self.context = zmq.Context()
@@ -74,8 +94,9 @@ class ArborScriptCommsHandler:
             self.status_socket = None
 
         # Data socket (all processes)
-        self.data_socket = self.context.socket(zmq.PULL)
+        self.data_socket = self.context.socket(zmq.SUB)
         self.data_socket.connect(f"tcp://{host}:{data_port}")
+        self.data_socket.setsockopt_string(zmq.SUBSCRIBE, "")
         self.data_queue = queue.Queue()
         self._start_data_receiver()
 
@@ -83,6 +104,11 @@ class ArborScriptCommsHandler:
         self.broadcast_socket = self.context.socket(zmq.SUB)
         self.broadcast_socket.connect(f"tcp://{host}:{broadcast_port}")
         self.broadcast_socket.setsockopt_string(zmq.SUBSCRIBE, "")
+
+        # Handshake socket (all processes)
+        self.handshake_socket = self.context.socket(zmq.REQ)
+        self.handshake_socket.connect(f"tcp://{host}:{handshake_port}")
+        self._send_handshake()
 
     def send_status(self, status):
         if self.status_socket is not None:
@@ -130,40 +156,70 @@ class ArborScriptCommsHandler:
             self.status_socket.close()
         self.data_socket.close()
         self.broadcast_socket.close()
+        self.handshake_socket.close()
         self.context.term()
+
+    def _get_client_id(self):
+        # Return a unique identifier for this client (could be hostname, PID, etc.)
+        return f"{socket.gethostname()}_{os.getpid()}"
+
+    def _send_handshake(self):
+        print(f"Sending handshake to {self.handshake_socket}")
+        self.handshake_socket.send_json(
+            {"type": "hello", "client_id": self._get_client_id()}
+        )
+        self.handshake_socket.recv_json()  # Wait for ack
 
 
 if __name__ == "__main__":
 
     def _server_thread(server_comms):
-        server_comms.send_command({"command": "test"})
-        print("Server sent command")
+        server_comms.wait_for_clients(expected_count=3)
+        server_comms.send_data({"data": "test"})
+        # server_comms.send_command({"command": "test"})
+        # print("Server sent command")
 
     def _client_thread(script_comms):
-        for command in script_comms.receive_command():
-            command = script_comms.receive_command()
-            print("Client received command:", command)
+        for data in script_comms.receive_data():
+            print("Client received data:", data)
 
     server_comms = ArborServerCommsHandler()
-    script_comms = ArborScriptCommsHandler(
-        "localhost",
-        server_comms.command_port,
-        server_comms.status_port,
-        server_comms.data_port,
-        server_comms.broadcast_port,
-        True,
-    )
-
     t1 = threading.Thread(target=_server_thread, args=(server_comms,))
-    t2 = threading.Thread(target=_client_thread, args=(script_comms,))
+    t1.start()
+    print("Server started")
+
+    client_threads = []
+    script_comms_list = []
+    for i in range(3):
+        script_comms = ArborScriptCommsHandler(
+            "localhost",
+            server_comms.command_port,
+            server_comms.status_port,
+            server_comms.data_port,
+            server_comms.broadcast_port,
+            server_comms.handshake_port,
+            False,
+        )
+        t = threading.Thread(target=_client_thread, args=(script_comms,))
+        t.start()
+        script_comms_list.append(script_comms)
+
+    import time
+
+    time.sleep(1)
+    import pdb
+
+    pdb.set_trace()
 
     try:
-        t1.start()
-        t2.start()
         t1.join()
-        t2.join()
+        for t in client_threads:
+            t.join()
     except KeyboardInterrupt:
         print("Keyboard interrupt")
+    except Exception as e:
+        print(f"Error: {e}")
     finally:
-        script_comms.close()
+        for script_comms in script_comms_list:
+            script_comms.close()
         server_comms.close()

@@ -192,6 +192,8 @@ class GRPOConfigRequest(BaseModel):
     learning_rate: Optional[float] = None
     gradient_accumulation_steps: Optional[int] = None
     lr_scheduler_type: Optional[str] = None
+    max_prompt_length: Optional[int] = None
+    max_completion_length: Optional[int] = None
     # To name the run
     suffix: Optional[str] = None
 

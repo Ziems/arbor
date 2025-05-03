@@ -11,9 +11,11 @@ from functools import lru_cache
 from accelerate.utils import broadcast_object_list, gather, gather_object
 from accelerate import Accelerator
 from datasets import load_dataset, Dataset, IterableDataset
+import datasets
 from peft import PeftConfig  # type: ignore
 import torch
-from torch.utils.data import Dataset
+import torch.distributed as dist
+from torch.utils.data import Dataset, DataLoader
 from transformers import (
     PreTrainedModel,
     PreTrainedTokenizerBase,
@@ -26,7 +28,8 @@ from arbor.server.services.comms.comms import (
     ArborServerCommsHandler,
     ArborScriptCommsHandler,
 )
-
+from transformers.utils import is_datasets_available
+from transformers.trainer_utils import seed_worker
 from trl import GRPOTrainer, GRPOConfig
 from trl.data_utils import maybe_apply_chat_template
 from trl.import_utils import is_rich_available
@@ -148,8 +151,16 @@ class ArborGRPOTrainer(GRPOTrainer):
         )
 
         # if self.max_prompt_length is not None:
+        #     if prompt_ids.shape[1] > self.max_prompt_length:
+        #         print(f"Truncating prompt to {self.max_prompt_length} tokens")
         #     prompt_ids = prompt_ids[:, -self.max_prompt_length :]
         #     prompt_mask = prompt_mask[:, -self.max_prompt_length :]
+
+        # if self.max_completion_length is not None:
+        #     if completion_ids.shape[1] > self.max_completion_length:
+        #         print(f"Truncating completion to {self.max_completion_length} tokens")
+        #     completion_ids = completion_ids[:, : self.max_completion_length]
+        #     completion_mask = completion_mask[:, : self.max_completion_length]
 
         # Keeping this for when we switch to vllm
         # if self.state.global_step != self._last_loaded_step:
@@ -159,7 +170,9 @@ class ArborGRPOTrainer(GRPOTrainer):
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B, P+C)
 
-        print(f"prompt_completion_ids.shape: {prompt_completion_ids.shape}")
+        print(
+            f"prompt_completion_ids.shape (after truncation): {prompt_completion_ids.shape}"
+        )
 
         logits_to_keep = completion_ids.size(1)
 
@@ -244,7 +257,7 @@ class BlockingQueueDataset(Dataset):
         self,
         accelerator: Accelerator,
         comms_handler: ArborScriptCommsHandler,
-        size=1000,
+        size=10_000,  # Just a random number
         maxsize=100,
     ):
         self.size = size
@@ -257,24 +270,33 @@ class BlockingQueueDataset(Dataset):
         return self.size
 
     def _get_data(self, idx):
+        rank = self.accelerator.process_index
+        world_size = self.accelerator.num_processes
+
         if self.accelerator.is_main_process:
-            # print(f"Main process {self.accelerator.process_index} getting new data")
-            new_data = (
-                self.comms_handler.receive_data()
-            )  # This blocks until data is available
-            print(f"Main process {self.accelerator.process_index} got new data")
             global last_queue_pop_time
             last_queue_pop_time = time.time()
-            if idx not in self.completion_counters:
-                self.completion_counters[idx] = 0
-            return broadcast_object_list([new_data])[0]
-        else:
-            # print(f"Other process {self.accelerator.process_index} waiting for data")
-            return broadcast_object_list([None])[0]
+
+        if idx not in self.completion_counters:
+            self.completion_counters[idx] = 0
+
+        try:
+            new_data = self.comms_handler.receive_data()
+            print(f"[rank {rank}] Popping from queue for idx: {idx}")
+
+        except Exception as e:
+            print(f"[rank {rank}] Error receiving data: {e}")
+            new_data = None
+
+        return new_data
 
     def __getitem__(self, idx):
-        # print(f"Process {self.accelerator.process_index} getting item {idx}")
         data = self.get_cached_data(idx)
+        # Create hash of data to detect if processes are using the same idx for the same data
+        data_hash = format(abs(hash(str(data))) % (16**8), "08x")
+        print(
+            f"[rank {self.accelerator.process_index}] idx: {idx} data hash: {data_hash}"
+        )
 
         if data is None:
             return None
@@ -282,8 +304,6 @@ class BlockingQueueDataset(Dataset):
         counter = self.completion_counters.get(idx, 0)
         item = data[counter]
         self.completion_counters[idx] = (counter + 1) % len(data)
-
-        # print(f"Process {self.accelerator.process_index} got item {item['completion']['content'][:50]}")
         return item
 
 
@@ -376,6 +396,7 @@ def main():
     pipe_args.add_argument("--status_port", type=int, required=True)
     pipe_args.add_argument("--data_port", type=int, required=True)
     pipe_args.add_argument("--broadcast_port", type=int, required=True)
+    pipe_args.add_argument("--handshake_port", type=int, required=True)
 
     training_args = parser.add_argument_group("Training arguments")
     training_args.add_argument(
@@ -405,6 +426,7 @@ def main():
         args.status_port = server_comms_handler.status_port
         args.data_port = server_comms_handler.data_port
         args.broadcast_port = server_comms_handler.broadcast_port
+        args.handshake_port = server_comms_handler.handshake_port
 
         def debug_data_generator():
             tldr_dataset = load_dataset("trl-lib/tldr", split="train")
@@ -455,7 +477,11 @@ def main():
         # TODO: These assertions should be done in some better way
         assert "output_dir" in trl_train_args, "output_dir is required"
 
-        training_args = GRPOConfig(**trl_train_args)
+        training_args = GRPOConfig(
+            dataloader_num_workers=0,
+            shuffle_dataset=False,
+            **trl_train_args,
+        )
         trainer = ArborGRPOTrainer(
             model=args.model,
             args=training_args,
@@ -470,6 +496,7 @@ def main():
             status_port=args.status_port,
             data_port=args.data_port,
             broadcast_port=args.broadcast_port,
+            handshake_port=args.handshake_port,
             is_main_process=trainer.accelerator.is_main_process,
         )
         trainer.comms_handler = comms_handler

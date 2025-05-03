@@ -93,6 +93,8 @@ class GRPOManager:
             "learning_rate",
             "gradient_accumulation_steps",
             "lr_scheduler_type",
+            "max_prompt_length",
+            "max_completion_length",
         ]
         trl_train_kwargs = {
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
@@ -147,6 +149,8 @@ class GRPOManager:
             str(self.server_comms_handler.data_port),
             "--broadcast_port",
             str(self.server_comms_handler.broadcast_port),
+            "--handshake_port",
+            str(self.server_comms_handler.handshake_port),
             # Training args
             "--model",
             self.current_model,
@@ -194,6 +198,7 @@ class GRPOManager:
             target=self._handle_status_updates, args=(inference_manager,), daemon=True
         )
         self.status_thread.start()
+        self.server_comms_handler.wait_for_clients(num_processes)
 
         # Launch the inference server
         print("Launching inference server...")
