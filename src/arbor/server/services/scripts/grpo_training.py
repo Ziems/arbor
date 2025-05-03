@@ -325,7 +325,7 @@ class BlockingQueueDataset(Dataset):
         return new_data
 
     def __getitem__(self, idx):
-        # print(f"Process {self.accelerator.process_index} getting item {idx}")
+        print(f"Process {self.accelerator.process_index} getting item {idx}")
         data = self.get_cached_data(idx)
 
         if data is None:
@@ -335,7 +335,9 @@ class BlockingQueueDataset(Dataset):
         item = data[counter]
         self.completion_counters[idx] = (counter + 1) % len(data)
 
-        # print(f"Process {self.accelerator.process_index} got item {item['completion']['content'][:50]}")
+        print(
+            f"Process {self.accelerator.process_index} got item {item['completion']['content'][:50]}"
+        )
         return item
 
 
