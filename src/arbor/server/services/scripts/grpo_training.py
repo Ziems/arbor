@@ -295,7 +295,7 @@ class BlockingQueueDataset(Dataset):
     def __getitem__(self, idx):
         data = self.get_cached_data(idx)
         # Create hash of data to detect duplicates
-        data_hash = hash(str(data))
+        data_hash = format(abs(hash(str(data))) % (16**8), "08x")
         print(f"[rank {self.accelerator.process_index}] {idx} data hash: {data_hash}")
 
         if data is None:
