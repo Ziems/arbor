@@ -149,6 +149,8 @@ class GRPOManager:
             str(self.server_comms_handler.data_port),
             "--broadcast_port",
             str(self.server_comms_handler.broadcast_port),
+            "--handshake_port",
+            str(self.server_comms_handler.handshake_port),
             # Training args
             "--model",
             self.current_model,
