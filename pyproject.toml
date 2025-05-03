@@ -22,6 +22,7 @@ dependencies = [
     "pyzmq>=26.4.0",
     "pyyaml>=6.0.2",
     "sglang>=0.4.5.post3",
+    "sglang-router"
 ]
 
 [project.scripts]
