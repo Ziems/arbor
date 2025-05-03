@@ -305,34 +305,24 @@ class BlockingQueueDataset(Dataset):
         rank = self.accelerator.process_index
         world_size = self.accelerator.num_processes
 
-        # 1. Each process sets a flag for this idx
-        device = torch.device("cuda", self.accelerator.local_process_index)
-        ready_flag = torch.tensor([idx], device=device)
-        gathered = [torch.zeros_like(ready_flag) for _ in range(world_size)]
-        dist.all_gather(gathered, ready_flag)
-        gathered_indices = [int(x.item()) for x in gathered]
-        print(
-            f"[rank {rank}] all_gather before broadcast for idx {idx}: {gathered_indices}"
-        )
-
         print(f"[rank {rank}] Calling _get_data for idx {idx}")
         if self.accelerator.is_main_process:
             global last_queue_pop_time
             last_queue_pop_time = time.time()
-            if idx not in self.completion_counters:
-                self.completion_counters[idx] = 0
-            try:
-                new_data = self.comms_handler.receive_data()
-                print(f"[rank {rank}] Got new data for idx {idx}")
-            except Exception as e:
-                print(f"[rank {rank}] Error receiving data: {e}")
-                new_data = None  # Or some sentinel
-            data = broadcast_object_list([new_data])[0]
-        else:
-            print(f"[rank {rank}] Waiting for broadcast for idx {idx}")
-            data = broadcast_object_list([None])[0]
-        print(f"[rank {rank}] Received data for idx {idx}: {type(data)}")
-        return data
+
+        if idx not in self.completion_counters:
+            self.completion_counters[idx] = 0
+
+        try:
+            new_data = self.comms_handler.receive_data()
+            print(f"[rank {rank}] Got new data for idx {idx}")
+
+        except Exception as e:
+            print(f"[rank {rank}] Error receiving data: {e}")
+            new_data = None
+
+        print(f"[rank {rank}] Received data for idx {idx}: {type(new_data)}")
+        return new_data
 
     def __getitem__(self, idx):
         # print(f"Process {self.accelerator.process_index} getting item {idx}")

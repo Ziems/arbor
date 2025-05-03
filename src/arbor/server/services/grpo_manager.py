@@ -166,6 +166,7 @@ class GRPOManager:
             stderr=subprocess.STDOUT,
             env=my_env,
         )
+        self.server_comms_handler.wait_for_clients(num_processes)
 
         # A threading.Event to control printing after the server is ready.
         stop_printing_event = threading.Event()
