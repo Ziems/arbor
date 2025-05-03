@@ -273,7 +273,6 @@ class BlockingQueueDataset(Dataset):
         rank = self.accelerator.process_index
         world_size = self.accelerator.num_processes
 
-        print(f"[rank {rank}] Calling _get_data for idx {idx}")
         if self.accelerator.is_main_process:
             global last_queue_pop_time
             last_queue_pop_time = time.time()
@@ -283,20 +282,21 @@ class BlockingQueueDataset(Dataset):
 
         try:
             new_data = self.comms_handler.receive_data()
-            print(f"[rank {rank}] Got new data for idx {idx}")
+            print(f"[rank {rank}] Popping from queue for idx: {idx}")
 
         except Exception as e:
             print(f"[rank {rank}] Error receiving data: {e}")
             new_data = None
 
-        print(f"[rank {rank}] Received data for idx {idx}: {type(new_data)}")
         return new_data
 
     def __getitem__(self, idx):
         data = self.get_cached_data(idx)
-        # Create hash of data to detect duplicates
+        # Create hash of data to detect if processes are using the same idx for the same data
         data_hash = format(abs(hash(str(data))) % (16**8), "08x")
-        print(f"[rank {self.accelerator.process_index}] {idx} data hash: {data_hash}")
+        print(
+            f"[rank {self.accelerator.process_index}] idx: {idx} data hash: {data_hash}"
+        )
 
         if data is None:
             return None
@@ -304,10 +304,6 @@ class BlockingQueueDataset(Dataset):
         counter = self.completion_counters.get(idx, 0)
         item = data[counter]
         self.completion_counters[idx] = (counter + 1) % len(data)
-
-        print(
-            f"Process {self.accelerator.process_index} got item {item['completion']['content'][:50]}"
-        )
         return item
 
 
