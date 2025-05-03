@@ -92,12 +92,12 @@ class GRPOManager:
             "per_device_train_batch_size",
             "learning_rate",
             "gradient_accumulation_steps",
+            "gradient_checkpointing",
             "lr_scheduler_type",
             "max_prompt_length",
             "max_completion_length",
             "gradient_checkpointing_kwargs",
             "bf16",
-            "packing",
             "scale_rewards",
         ]
         trl_train_kwargs = {
