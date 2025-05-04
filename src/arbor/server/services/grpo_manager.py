@@ -142,28 +142,39 @@ class GRPOManager:
             "accelerate.commands.launch",
             "--num_processes",
             str(num_processes),
-            script_path,
-            # Comms args
-            "--host",
-            self.server_comms_handler.host,
-            "--command_port",
-            str(self.server_comms_handler.command_port),
-            "--status_port",
-            str(self.server_comms_handler.status_port),
-            "--data_port",
-            str(self.server_comms_handler.data_port),
-            "--broadcast_port",
-            str(self.server_comms_handler.broadcast_port),
-            "--handshake_port",
-            str(self.server_comms_handler.handshake_port),
-            # Training args
-            "--model",
-            self.current_model,
-            "--trl_train_kwargs",
-            json.dumps(trl_train_kwargs),
-            "--arbor_train_kwargs",
-            json.dumps(arbor_train_kwargs),
         ]
+        if self.settings.arbor_config.training.accelerate_config:
+            params.extend(
+                [
+                    "--config_file",
+                    self.settings.arbor_config.training.accelerate_config,
+                ]
+            )
+        params.extend(
+            [
+                script_path,
+                # Comms args
+                "--host",
+                self.server_comms_handler.host,
+                "--command_port",
+                str(self.server_comms_handler.command_port),
+                "--status_port",
+                str(self.server_comms_handler.status_port),
+                "--data_port",
+                str(self.server_comms_handler.data_port),
+                "--broadcast_port",
+                str(self.server_comms_handler.broadcast_port),
+                "--handshake_port",
+                str(self.server_comms_handler.handshake_port),
+                # Training args
+                "--model",
+                self.current_model,
+                "--trl_train_kwargs",
+                json.dumps(trl_train_kwargs),
+                "--arbor_train_kwargs",
+                json.dumps(arbor_train_kwargs),
+            ]
+        )
         print(f"Running following command\n: {' '.join(params)}")
 
         self.training_process = subprocess.Popen(
