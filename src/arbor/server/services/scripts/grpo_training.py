@@ -527,6 +527,8 @@ def main():
                 lora_dropout=0.05,
                 inference_mode=False,
             )
+            # Super hacky temporary fix to remove lora from the training args
+            del arbor_train_args["lora"]
 
         training_args = GRPOConfig(
             dataloader_num_workers=0,
