@@ -12,7 +12,7 @@ from accelerate.utils import broadcast_object_list, gather, gather_object
 from accelerate import Accelerator
 from datasets import load_dataset, Dataset, IterableDataset
 import datasets
-from peft import PeftConfig  # type: ignore
+from peft import PeftConfig, LoraConfig, AutoPeftModelForCausalLM  # type: ignore
 import torch
 import torch.distributed as dist
 from torch.utils.data import Dataset, DataLoader
@@ -30,6 +30,7 @@ from arbor.server.services.comms.comms import (
 )
 from transformers.utils import is_datasets_available
 from transformers.trainer_utils import seed_worker
+from transformers import AutoModelForCausalLM
 from trl import GRPOTrainer, GRPOConfig
 from trl.data_utils import maybe_apply_chat_template
 from trl.import_utils import is_rich_available
@@ -85,6 +86,7 @@ class ArborGRPOTrainer(GRPOTrainer):
             peft_config=peft_config,
             **kwargs,
         )
+        self.peft_config = peft_config
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
         self.update_interval = update_interval
@@ -309,10 +311,14 @@ class BlockingQueueDataset(Dataset):
 
 class CommandMonitor:
     def __init__(
-        self, comms_handler: ArborScriptCommsHandler, trainer: ArborGRPOTrainer
+        self,
+        comms_handler: ArborScriptCommsHandler,
+        trainer: ArborGRPOTrainer,
+        base_model_name: str,
     ):
         self.comms_handler = comms_handler
         self.trainer = trainer
+        self.base_model_name = base_model_name
         self.command_thread = threading.Thread(
             target=self._monitor_commands, daemon=True
         )
@@ -328,43 +334,72 @@ class CommandMonitor:
         if not self.comms_handler:
             return
         try:
-            if self.trainer.accelerator.is_main_process:
-                for command in self.comms_handler.receive_command():
-                    print(f"!!!Received command: {command}")
-                    if (
-                        command.get("command") == "save_model"
-                        and self.trainer.accelerator.is_main_process
-                    ):
-                        print(
-                            f"[Training Script] Instructed to save model at {self.trainer.args.output_dir}"
-                        )
-                        # Wait until data queue is empty before saving
+            for command in self.comms_handler.receive_command():
+                print(f"!!!Received command: {command}")
+                if (
+                    command.get("command") == "save_model"
+                    and self.trainer.accelerator.is_main_process
+                ):
+                    print(
+                        f"[Training Script] Instructed to save model at {self.trainer.args.output_dir}"
+                    )
+                    # Wait until data queue is empty before saving
 
-                        while (
-                            time_since_last_step() <= 10
-                            or get_time_since_last_queue_pop() <= 10
-                        ):
-                            # print(
-                            # f"Waiting for data queue to empty...{self.comms_handler.get_data_queue_size()}"
-                            # )
-                            print(f"Waiting for steps to finish")
-                            print(
-                                f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
-                            )
-                            print(
-                                f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
-                            )
-                            time.sleep(5)  # Small delay to prevent busy waiting)
-                        print("[Training Script] Saving model...")
-                        self.trainer.save_model()
-                        print("[Training Script] Model saved")
-                        self.comms_handler.send_status(
-                            {
-                                "status": "model_saved",
-                                "output_dir": self.trainer.args.output_dir,
-                            }
+                    while (
+                        time_since_last_step() <= 10
+                        or get_time_since_last_queue_pop() <= 10
+                    ):
+                        # print(
+                        # f"Waiting for data queue to empty...{self.comms_handler.get_data_queue_size()}"
+                        # )
+                        print(f"Waiting for steps to finish")
+                        print(
+                            f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
                         )
+                        print(
+                            f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
+                        )
+                        time.sleep(5)  # Small delay to prevent busy waiting)
+                    print("[Training Script] Saving model...")
+
+                    if self.trainer.peft_config:
+
+                        self.trainer.save_model(
+                            output_dir=self.trainer.args.output_dir + "/adapter/"
+                        )
+
+                        # base_model = AutoModelForCausalLM.from_pretrained(
+                        #     self.base_model_name
+                        # ).to(self.trainer.accelerator.device)
+
+                        _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
+                            self.trainer.args.output_dir + "/adapter/",
+                            config=self.trainer.peft_config,
+                        )
+                        merged_model = _model_to_merge.merge_and_unload()
+                        merged_model.save_pretrained(
+                            self.trainer.args.output_dir,
+                            safe_serialization=True,
+                        )
+                        self.trainer.processing_class.save_pretrained(
+                            self.trainer.args.output_dir
+                        )
+                    else:
+                        self.trainer.save_model()
+
+                    print("[Training Script] Model saved")
+                    self.comms_handler.send_status(
+                        {
+                            "status": "model_saved",
+                            "output_dir": self.trainer.args.output_dir,
+                            # "lora": {
+                            #     "adapter": f"default={self.trainer.args.output_dir}",
+                            #     "base_model": self.base_model_name,
+                            # },
+                        }
+                    )
         except Exception as e:
+            print(e)
             self.comms_handler.send_status({"status": "error", "error": str(e)})
 
     def _monitor_broadcasts(self):
@@ -477,16 +512,35 @@ def main():
         # TODO: These assertions should be done in some better way
         assert "output_dir" in trl_train_args, "output_dir is required"
 
+        lora_config = LoraConfig(
+            r=16,
+            lora_alpha=64,
+            target_modules=[
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "o_proj",
+                "up_proj",
+                "down_proj",
+                "gate_proj",
+            ],
+            task_type="CAUSAL_LM",
+            lora_dropout=0.05,
+            inference_mode=False,
+        )
+
         training_args = GRPOConfig(
             dataloader_num_workers=0,
             shuffle_dataset=False,
             **trl_train_args,
         )
+
         trainer = ArborGRPOTrainer(
             model=args.model,
             args=training_args,
             train_dataset=BlockingQueueDataset(None, None),
             callbacks=[LastStepTimeCallback()],
+            peft_config=lora_config,
             **arbor_train_args,
         )
         # Create client handler
@@ -503,10 +557,15 @@ def main():
 
         # Initialize the dataset with the actual accelerator
         trainer.train_dataset = BlockingQueueDataset(
-            trainer.accelerator, trainer.comms_handler
+            accelerator=trainer.accelerator,
+            comms_handler=trainer.comms_handler,
         )
 
-        command_monitor = CommandMonitor(comms_handler, trainer)
+        command_monitor = CommandMonitor(
+            comms_handler=comms_handler,
+            trainer=trainer,
+            base_model_name=args.model,
+        )
 
         print("Training...")
         trainer.train()

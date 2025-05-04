@@ -198,7 +198,7 @@ class GRPOConfigRequest(BaseModel):
     bf16: Optional[bool] = None
     scale_rewards: Optional[bool] = None
     max_grad_norm: Optional[float] = None
-
+    lora: Optional[bool] = None
     update_interval: Optional[int] = None
     # To name the run
     suffix: Optional[str] = None
