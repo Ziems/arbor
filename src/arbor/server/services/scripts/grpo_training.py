@@ -367,11 +367,12 @@ class CommandMonitor:
                         list(self.trainer.model.peft_config.keys()),
                     )
 
-                    self.trainer.model.save_pretrained(
-                        self.trainer.args.output_dir,
-                        safe_serialization=True,
-                        max_shard_size="5GB",
-                    )
+                    self.trainer.save_model()
+                    # self.trainer.model.save_pretrained(
+                    #     self.trainer.args.output_dir,
+                    #     safe_serialization=True,
+                    #     max_shard_size="5GB",
+                    # )
 
                     # base_model = AutoModelForCausalLM.from_pretrained(
                     #     self.base_model_name
