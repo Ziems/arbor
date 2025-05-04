@@ -379,7 +379,14 @@ class CommandMonitor:
                         #     safe_serialization=True,
                         #     max_shard_size="5GB",
                         # )
-                        merged_model = self.trainer.model.merge_and_unload()
+                        self.trainer.save_model()
+                        model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
+                            self.base_model_name,
+                            self.trainer.args.output_dir,
+                            config=self.trainer.peft_config,
+                        )
+
+                        merged_model = model_to_merge.merge_and_unload()
                         merged_model.save_pretrained(
                             self.trainer.args.output_dir,
                             safe_serialization=True,
@@ -388,7 +395,6 @@ class CommandMonitor:
                         self.trainer.processing_class.save_pretrained(
                             self.trainer.args.output_dir
                         )
-                        self.trainer.model.train()
                         print("[Training Script] Model saved")
                         self.comms_handler.send_status(
                             {
