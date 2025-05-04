@@ -393,10 +393,6 @@ class CommandMonitor:
                         {
                             "status": "model_saved",
                             "output_dir": self.trainer.args.output_dir,
-                            # "lora": {
-                            #     "adapter": f"default={self.trainer.args.output_dir}",
-                            #     "base_model": self.base_model_name,
-                            # },
                         }
                     )
         except Exception as e:
