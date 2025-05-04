@@ -334,75 +334,74 @@ class CommandMonitor:
         if not self.comms_handler:
             return
         try:
-            if self.trainer.accelerator.is_main_process:
-                for command in self.comms_handler.receive_command():
-                    print(f"!!!Received command: {command}")
-                    if (
-                        command.get("command") == "save_model"
-                        and self.trainer.accelerator.is_main_process
+            for command in self.comms_handler.receive_command():
+                print(f"!!!Received command: {command}")
+                if (
+                    command.get("command") == "save_model"
+                    and self.trainer.accelerator.is_main_process
+                ):
+                    print(
+                        f"[Training Script] Instructed to save model at {self.trainer.args.output_dir}"
+                    )
+                    # Wait until data queue is empty before saving
+
+                    while (
+                        time_since_last_step() <= 10
+                        or get_time_since_last_queue_pop() <= 10
                     ):
+                        # print(
+                        # f"Waiting for data queue to empty...{self.comms_handler.get_data_queue_size()}"
+                        # )
+                        print(f"Waiting for steps to finish")
                         print(
-                            f"[Training Script] Instructed to save model at {self.trainer.args.output_dir}"
+                            f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
                         )
-                        # Wait until data queue is empty before saving
+                        print(
+                            f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
+                        )
+                        time.sleep(5)  # Small delay to prevent busy waiting)
+                    print("[Training Script] Saving model...")
+                    # self.trainer.save_model()
 
-                        while (
-                            time_since_last_step() <= 10
-                            or get_time_since_last_queue_pop() <= 10
-                        ):
-                            # print(
-                            # f"Waiting for data queue to empty...{self.comms_handler.get_data_queue_size()}"
-                            # )
-                            print(f"Waiting for steps to finish")
-                            print(
-                                f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
-                            )
-                            print(
-                                f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
-                            )
-                            time.sleep(5)  # Small delay to prevent busy waiting)
-                        print("[Training Script] Saving model...")
-                        # self.trainer.save_model()
+                    # base_model = AutoModelForCausalLM.from_pretrained(
+                    #     self.base_model_name
+                    # ).to(self.trainer.accelerator.device)
 
-                        # base_model = AutoModelForCausalLM.from_pretrained(
-                        #     self.base_model_name
-                        # ).to(self.trainer.accelerator.device)
+                    # _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
+                    #     base_model,
+                    #     self.trainer.args.output_dir,
+                    #     config=self.trainer.peft_config,
+                    # )
+                    # merged_model = _model_to_merge.merge_and_unload()
+                    # merged_model.save_pretrained(
+                    #     self.trainer.args.output_dir,
+                    #     safe_serialization=True,
+                    #     max_shard_size="5GB",
+                    # )
+                    self.trainer.save_model()
+                    model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
+                        self.trainer.args.output_dir,
+                        config=self.trainer.peft_config,
+                    )
 
-                        # _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
-                        #     base_model,
-                        #     self.trainer.args.output_dir,
-                        #     config=self.trainer.peft_config,
-                        # )
-                        # merged_model = _model_to_merge.merge_and_unload()
-                        # merged_model.save_pretrained(
-                        #     self.trainer.args.output_dir,
-                        #     safe_serialization=True,
-                        #     max_shard_size="5GB",
-                        # )
-                        self.trainer.save_model()
-                        model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
-                            self.base_model_name,
-                            self.trainer.args.output_dir,
-                            config=self.trainer.peft_config,
-                        )
-
-                        merged_model = model_to_merge.merge_and_unload()
-                        merged_model.save_pretrained(
-                            self.trainer.args.output_dir,
-                            safe_serialization=True,
-                            max_shard_size="5GB",
-                        )
-                        self.trainer.processing_class.save_pretrained(
-                            self.trainer.args.output_dir
-                        )
-                        print("[Training Script] Model saved")
-                        self.comms_handler.send_status(
-                            {
-                                "status": "model_saved",
-                                "output_dir": self.trainer.args.output_dir,
-                            }
-                        )
+                    merged_model = model_to_merge.merge_and_unload()
+                    merged_model.save_pretrained(
+                        self.trainer.args.output_dir,
+                        safe_serialization=True,
+                        max_shard_size="5GB",
+                    )
+                    self.trainer.processing_class.save_pretrained(
+                        self.trainer.args.output_dir
+                    )
+                    print("[Training Script] Model saved")
+                    self.comms_handler.send_status(
+                        {
+                            "status": "model_saved",
+                            "output_dir": self.trainer.args.output_dir,
+                        }
+                    )
         except Exception as e:
+            print(e)
             self.comms_handler.send_status({"status": "error", "error": str(e)})
 
     def _monitor_broadcasts(self):
