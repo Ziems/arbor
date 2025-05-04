@@ -235,6 +235,7 @@ class InferenceManager:
         url = f"{self.launch_kwargs['api_base']}/update_weights_from_disk"
         response = requests.post(url, json={"model_path": output_dir})
         response_json = response.json()
+        print(f"Response from update_weights_from_disk: {response_json}")
         if response_json.get("success") == True:
             self.restarting = False
             self.current_model = output_dir
