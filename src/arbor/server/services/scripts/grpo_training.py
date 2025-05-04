@@ -12,7 +12,7 @@ from accelerate.utils import broadcast_object_list, gather, gather_object
 from accelerate import Accelerator
 from datasets import load_dataset, Dataset, IterableDataset
 import datasets
-from peft import PeftConfig  # type: ignore
+from peft import PeftConfig, AutoPeftModelForCausalLM  # type: ignore
 import torch
 import torch.distributed as dist
 from torch.utils.data import Dataset, DataLoader
@@ -356,7 +356,18 @@ class CommandMonitor:
                             )
                             time.sleep(5)  # Small delay to prevent busy waiting)
                         print("[Training Script] Saving model...")
-                        self.trainer.save_model()
+                        _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
+                            self.base_model,
+                            self.trainer.model,
+                            config=self.trainer.peft_config,
+                        )
+                        merged_model = _model_to_merge.merge_and_unload()
+                        merged_model.save_pretrained(
+                            self.trainer.args.output_dir,
+                            safe_serialization=True,
+                            max_shard_size="5GB",
+                        )
+                        # self.trainer.save_model()
                         print("[Training Script] Model saved")
                         self.comms_handler.send_status(
                             {
