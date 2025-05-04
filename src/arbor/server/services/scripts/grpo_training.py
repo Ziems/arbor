@@ -310,10 +310,14 @@ class BlockingQueueDataset(Dataset):
 
 class CommandMonitor:
     def __init__(
-        self, comms_handler: ArborScriptCommsHandler, trainer: ArborGRPOTrainer
+        self,
+        comms_handler: ArborScriptCommsHandler,
+        trainer: ArborGRPOTrainer,
+        base_model: PreTrainedModel,
     ):
         self.comms_handler = comms_handler
         self.trainer = trainer
+        self.base_model = base_model
         self.command_thread = threading.Thread(
             target=self._monitor_commands, daemon=True
         )
