@@ -314,11 +314,11 @@ class CommandMonitor:
         self,
         comms_handler: ArborScriptCommsHandler,
         trainer: ArborGRPOTrainer,
-        base_model: PreTrainedModel,
+        base_model_name: str,
     ):
         self.comms_handler = comms_handler
         self.trainer = trainer
-        self.base_model = base_model
+        self.base_model_name = base_model_name
         self.command_thread = threading.Thread(
             target=self._monitor_commands, daemon=True
         )
@@ -363,7 +363,7 @@ class CommandMonitor:
                             time.sleep(5)  # Small delay to prevent busy waiting)
                         print("[Training Script] Saving model...")
                         _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
-                            self.base_model,
+                            self.base_model_name,
                             self.trainer.model,
                             config=self.trainer.peft_config,
                         )
@@ -543,12 +543,10 @@ def main():
             comms_handler=trainer.comms_handler,
         )
 
-        base_model = AutoModelForCausalLM.from_pretrained(args.model)
-
         command_monitor = CommandMonitor(
             comms_handler=comms_handler,
             trainer=trainer,
-            base_model=base_model,
+            base_model_name=args.model,
         )
 
         print("Training...")
