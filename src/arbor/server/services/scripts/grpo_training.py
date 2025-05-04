@@ -509,27 +509,24 @@ def main():
         # TODO: These assertions should be done in some better way
         assert "output_dir" in trl_train_args, "output_dir is required"
 
-        lora_config = None
-        if arbor_train_args.get("lora", False):
-            print("Using LORA")
-            lora_config = LoraConfig(
-                r=16,
-                lora_alpha=64,
-                target_modules=[
-                    "q_proj",
-                    "k_proj",
-                    "v_proj",
-                    "o_proj",
-                    "up_proj",
-                    "down_proj",
-                    "gate_proj",
-                ],
-                task_type="CAUSAL_LM",
-                lora_dropout=0.05,
-                inference_mode=False,
-            )
-            # Super hacky temporary fix to remove lora from the training args
-            del arbor_train_args["lora"]
+        print("Using LORA")
+        lora_config = LoraConfig(
+            r=16,
+            lora_alpha=64,
+            target_modules=[
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "o_proj",
+                "up_proj",
+                "down_proj",
+                "gate_proj",
+            ],
+            task_type="CAUSAL_LM",
+            lora_dropout=0.05,
+            inference_mode=False,
+        )
+        # Super hacky temporary fix to remove lora from the training args
 
         training_args = GRPOConfig(
             dataloader_num_workers=0,
