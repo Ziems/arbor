@@ -374,7 +374,6 @@ class CommandMonitor:
                     # ).to(self.trainer.accelerator.device)
 
                     _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
-                        self.base_model_name,
                         self.trainer.args.output_dir,
                         config=self.trainer.peft_config,
                     )
@@ -390,10 +389,10 @@ class CommandMonitor:
                         {
                             "status": "model_saved",
                             "output_dir": self.trainer.args.output_dir,
-                            # "lora": {
-                            #     "adapter": f"default={self.trainer.args.output_dir}",
-                            #     "base_model": self.base_model_name,
-                            # },
+                            "lora": {
+                                "adapter": f"default={self.trainer.args.output_dir}",
+                                "base_model": self.base_model_name,
+                            },
                         }
                     )
         except Exception as e:
