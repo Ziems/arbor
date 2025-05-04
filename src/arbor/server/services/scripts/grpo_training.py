@@ -369,12 +369,12 @@ class CommandMonitor:
 
                     self.trainer.save_model()
 
-                    base_model = AutoModelForCausalLM.from_pretrained(
-                        self.base_model_name
-                    ).to(self.trainer.accelerator.device)
+                    # base_model = AutoModelForCausalLM.from_pretrained(
+                    #     self.base_model_name
+                    # ).to(self.trainer.accelerator.device)
 
                     _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
-                        base_model,
+                        self.base_model_name,
                         self.trainer.args.output_dir,
                         config=self.trainer.peft_config,
                     )
