@@ -2,8 +2,8 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from arbor.server.core.config import Settings
 from arbor.server.api.models.schemas import JobStatus
+from arbor.server.core.config import Settings
 
 
 class JobEvent:

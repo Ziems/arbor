@@ -1,4 +1,5 @@
 import time
+
 from fastapi import APIRouter, Request
 
 router = APIRouter()
@@ -7,7 +8,7 @@ router = APIRouter()
 @router.post("/completions")
 async def run_inference(
     request: Request,
-):  # TODO: Ideally this should be ChatCompletionRequest
+):
     inference_manager = request.app.state.inference_manager
     raw_json = await request.json()
 
@@ -41,9 +42,7 @@ async def run_inference(
 async def launch_inference(request: Request):
     inference_manager = request.app.state.inference_manager
     raw_json = await request.json()
-    inference_manager.launch(
-        raw_json["model"], raw_json["launch_kwargs"]
-    )  # TODO: This should be done better
+    inference_manager.launch(raw_json["model"], raw_json["launch_kwargs"])
     return {"message": "Inference server launched"}
 
 
