@@ -362,19 +362,31 @@ class CommandMonitor:
                             )
                             time.sleep(5)  # Small delay to prevent busy waiting)
                         print("[Training Script] Saving model...")
-                        self.trainer.save_model()
-                        _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
-                            AutoModelForCausalLM.from_pretrained(
-                                self.base_model_name
-                            ).to(self.trainer.accelerator.device),
-                            self.trainer.model,
-                            config=self.trainer.peft_config,
-                        )
-                        merged_model = _model_to_merge.merge_and_unload()
+                        # self.trainer.save_model()
+
+                        # base_model = AutoModelForCausalLM.from_pretrained(
+                        #     self.base_model_name
+                        # ).to(self.trainer.accelerator.device)
+
+                        # _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
+                        #     base_model,
+                        #     self.trainer.args.output_dir,
+                        #     config=self.trainer.peft_config,
+                        # )
+                        # merged_model = _model_to_merge.merge_and_unload()
+                        # merged_model.save_pretrained(
+                        #     self.trainer.args.output_dir,
+                        #     safe_serialization=True,
+                        #     max_shard_size="5GB",
+                        # )
+                        merged_model = self.trainer.model.merge_and_unload()
                         merged_model.save_pretrained(
                             self.trainer.args.output_dir,
                             safe_serialization=True,
                             max_shard_size="5GB",
+                        )
+                        self.trainer.tokenizer.save_pretrained(
+                            self.trainer.args.output_dir
                         )
                         print("[Training Script] Model saved")
                         self.comms_handler.send_status(
