@@ -12,7 +12,7 @@ from accelerate.utils import broadcast_object_list, gather, gather_object
 from accelerate import Accelerator
 from datasets import load_dataset, Dataset, IterableDataset
 import datasets
-from peft import PeftConfig, AutoPeftModelForCausalLM  # type: ignore
+from peft import PeftConfig, LoraConfig, AutoPeftModelForCausalLM  # type: ignore
 import torch
 import torch.distributed as dist
 from torch.utils.data import Dataset, DataLoader
@@ -30,6 +30,7 @@ from arbor.server.services.comms.comms import (
 )
 from transformers.utils import is_datasets_available
 from transformers.trainer_utils import seed_worker
+from transformers import AutoModelForCausalLM
 from trl import GRPOTrainer, GRPOConfig
 from trl.data_utils import maybe_apply_chat_template
 from trl.import_utils import is_rich_available
@@ -488,16 +489,27 @@ def main():
         # TODO: These assertions should be done in some better way
         assert "output_dir" in trl_train_args, "output_dir is required"
 
+        lora_config = LoraConfig(
+            r=16,
+            lora_alpha=32,
+            lora_dropout=0.05,
+            bias="none",
+            task_type="CAUSAL_LM",
+            inference_mode=False,
+        )
+
         training_args = GRPOConfig(
             dataloader_num_workers=0,
             shuffle_dataset=False,
             **trl_train_args,
         )
+
         trainer = ArborGRPOTrainer(
             model=args.model,
             args=training_args,
             train_dataset=BlockingQueueDataset(None, None),
             callbacks=[LastStepTimeCallback()],
+            peft_config=lora_config,
             **arbor_train_args,
         )
         # Create client handler
