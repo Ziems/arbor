@@ -73,6 +73,7 @@ class InferenceManager:
             command += f" --max-loras-per-batch 1"
             command += f" --lora-backend triton"
             command += f" --disable-radix-cache"
+            command += f" --enable-torch-compile"
         print(f"Running command: {command}")
 
         # We will manually stream & capture logs.
