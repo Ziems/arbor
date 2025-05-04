@@ -362,11 +362,6 @@ class CommandMonitor:
                         time.sleep(5)  # Small delay to prevent busy waiting)
                     print("[Training Script] Saving model...")
 
-                    print(
-                        "All LoRA adapter names:",
-                        list(self.trainer.model.peft_config.keys()),
-                    )
-
                     self.trainer.save_model()
 
                     # base_model = AutoModelForCausalLM.from_pretrained(
@@ -389,10 +384,10 @@ class CommandMonitor:
                         {
                             "status": "model_saved",
                             "output_dir": self.trainer.args.output_dir,
-                            "lora": {
-                                "adapter": f"default={self.trainer.args.output_dir}",
-                                "base_model": self.base_model_name,
-                            },
+                            # "lora": {
+                            #     "adapter": f"default={self.trainer.args.output_dir}",
+                            #     "base_model": self.base_model_name,
+                            # },
                         }
                     )
         except Exception as e:
