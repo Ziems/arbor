@@ -379,6 +379,9 @@ class CommandMonitor:
                         self.trainer.args.output_dir,
                         safe_serialization=True,
                     )
+                    self.trainer.processing_class.save_pretrained(
+                        self.trainer.args.output_dir
+                    )
 
                     print("[Training Script] Model saved")
                     self.comms_handler.send_status(
