@@ -368,36 +368,32 @@ class CommandMonitor:
                     )
 
                     self.trainer.save_model()
-                    # self.trainer.model.save_pretrained(
-                    #     self.trainer.args.output_dir,
-                    #     safe_serialization=True,
-                    #     max_shard_size="5GB",
-                    # )
 
-                    # base_model = AutoModelForCausalLM.from_pretrained(
-                    #     self.base_model_name
-                    # ).to(self.trainer.accelerator.device)
+                    base_model = AutoModelForCausalLM.from_pretrained(
+                        self.base_model_name
+                    ).to(self.trainer.accelerator.device)
 
-                    # _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
-                    #     base_model,
-                    #     self.trainer.args.output_dir,
-                    #     config=self.trainer.peft_config,
-                    # )
-                    # merged_model = _model_to_merge.merge_and_unload()
-                    # merged_model.save_pretrained(
-                    #     self.trainer.args.output_dir,
-                    #     safe_serialization=True,
-                    #     max_shard_size="5GB",
-                    # )
+                    _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
+                        base_model,
+                        self.trainer.args.output_dir,
+                        config=self.trainer.peft_config,
+                    )
+                    merged_model = _model_to_merge.merge_and_unload()
+                    merged_model.save_pretrained(
+                        self.trainer.args.output_dir,
+                        safe_serialization=True,
+                        max_shard_size="5GB",
+                    )
+
                     print("[Training Script] Model saved")
                     self.comms_handler.send_status(
                         {
                             "status": "model_saved",
                             "output_dir": self.trainer.args.output_dir,
-                            "lora": {
-                                "adapter": f"default={self.trainer.args.output_dir}",
-                                "base_model": self.base_model_name,
-                            },
+                            # "lora": {
+                            #     "adapter": f"default={self.trainer.args.output_dir}",
+                            #     "base_model": self.base_model_name,
+                            # },
                         }
                     )
         except Exception as e:
