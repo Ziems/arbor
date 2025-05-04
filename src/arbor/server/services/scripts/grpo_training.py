@@ -491,10 +491,18 @@ def main():
 
         lora_config = LoraConfig(
             r=16,
-            lora_alpha=32,
-            lora_dropout=0.05,
-            bias="none",
+            lora_alpha=64,
+            target_modules=[
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "o_proj",
+                "up_proj",
+                "down_proj",
+                "gate_proj",
+            ],
             task_type="CAUSAL_LM",
+            lora_dropout=0.05,
             inference_mode=False,
         )
 
