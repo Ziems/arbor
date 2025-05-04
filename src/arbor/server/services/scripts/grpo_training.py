@@ -511,6 +511,7 @@ def main():
 
         lora_config = None
         if arbor_train_args.get("lora", False):
+            print("Using LORA")
             lora_config = LoraConfig(
                 r=16,
                 lora_alpha=64,
