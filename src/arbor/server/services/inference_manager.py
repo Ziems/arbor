@@ -242,6 +242,10 @@ class InferenceManager:
             # TODO: Check that the response is successful
         except Exception as e:
             print(f"Error during update_weights_from_disk: {e}")
+            print(f"Full error during update_weights_from_disk: {str(e)}")
+            if hasattr(e, "response") and e.response is not None:
+                print(f"Response status code: {e.response.status_code}")
+                print(f"Response text: {e.response.text}")
             import pdb
 
             pdb.set_trace()
