@@ -385,7 +385,7 @@ class CommandMonitor:
                             safe_serialization=True,
                             max_shard_size="5GB",
                         )
-                        self.trainer.tokenizer.save_pretrained(
+                        self.trainer.processing_class.save_pretrained(
                             self.trainer.args.output_dir
                         )
                         print("[Training Script] Model saved")
