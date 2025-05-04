@@ -70,6 +70,7 @@ class InferenceManager:
         command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --router-balance-abs-threshold 4 --port {port} --host 0.0.0.0"
         if lora_config:
             command += f" --lora-paths {lora_config['adapter']}"
+            command += f" --disable-radix-cache"
         print(f"Running command: {command}")
 
         # We will manually stream & capture logs.
