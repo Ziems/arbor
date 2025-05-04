@@ -71,6 +71,7 @@ class InferenceManager:
         if lora_config:
             command += f" --lora-paths {lora_config['adapter']}"
             command += f" --max-loras-per-batch 1"
+            command += f" --lora-backend triton"
             command += f" --disable-radix-cache"
         print(f"Running command: {command}")
 
