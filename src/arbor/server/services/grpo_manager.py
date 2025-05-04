@@ -59,23 +59,7 @@ class GRPOManager:
 
         # TODO: Here are defaults for training. We can adjust them if we disagree w the huggingface defaults
         default_train_kwargs = {
-            # "use_peft": False,
-            # "num_train_epochs": 5,
-            # "per_device_train_batch_size": 1,
-            # "gradient_accumulation_steps": 8,
-            # "learning_rate": 1e-5,
-            # "max_seq_length": None,
-            # "packing": False, # TODO: Turning this off for now
-            # "bf16": True,
             "output_dir": output_dir,
-            # "beta": 0.04,
-            # "num_iterations": 1,
-            # "temperature": 0.9,
-            # "num_generations": 8,
-            # "scale_rewards": True,
-            # "epsilon_low": 0.2,
-            # "epsilon_high": 0.2,
-            # "update_interval": 25
         }
 
         train_kwargs = request.model_dump(exclude_unset=True)
