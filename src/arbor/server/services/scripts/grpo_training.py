@@ -362,6 +362,7 @@ class CommandMonitor:
                             )
                             time.sleep(5)  # Small delay to prevent busy waiting)
                         print("[Training Script] Saving model...")
+                        self.trainer.save_model()
                         _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
                             self.base_model_name,
                             self.trainer.model,
@@ -373,7 +374,6 @@ class CommandMonitor:
                             safe_serialization=True,
                             max_shard_size="5GB",
                         )
-                        # self.trainer.save_model()
                         print("[Training Script] Model saved")
                         self.comms_handler.send_status(
                             {
