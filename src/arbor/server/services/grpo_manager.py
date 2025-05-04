@@ -88,7 +88,7 @@ class GRPOManager:
         trl_train_kwargs = {
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
         }
-        trl_train_kwargs["gradient_checkpointing_kwargs"] = {}
+        trl_train_kwargs["gradient_checkpointing_kwargs"] = {"use_reentrant": True}
 
         arbor_keys = ["update_interval", "lora"]
         arbor_train_kwargs = {
