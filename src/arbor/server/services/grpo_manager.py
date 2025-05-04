@@ -89,7 +89,7 @@ class GRPOManager:
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
         }
 
-        arbor_keys = ["update_interval"]
+        arbor_keys = ["update_interval", "lora"]
         arbor_train_kwargs = {
             key: train_kwargs[key] for key in arbor_keys if key in train_kwargs
         }
@@ -262,7 +262,9 @@ class GRPOManager:
         self.model_saved_and_reload_requested = True
         self.server_comms_handler.send_command({"command": "save_model"})
         while self.model_saved_and_reload_requested:
-            print("Waiting for model to be saved and reloaded...")
+            print(
+                "Waiting for model to be saved and reloaded... This usually takes 20-30 seconds"
+            )
             time.sleep(5)
         return self.current_model
 

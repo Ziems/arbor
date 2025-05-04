@@ -194,11 +194,11 @@ class GRPOConfigRequest(BaseModel):
     lr_scheduler_type: Optional[str] = None
     max_prompt_length: Optional[int] = None
     max_completion_length: Optional[int] = None
-    gradient_checkpointing_kwargs: Optional[dict] = None
+    gradient_checkpointing_kwargs: Optional[dict] = {}
     bf16: Optional[bool] = None
     scale_rewards: Optional[bool] = None
     max_grad_norm: Optional[float] = None
-
+    lora: Optional[bool] = None
     update_interval: Optional[int] = None
     # To name the run
     suffix: Optional[str] = None
