@@ -220,7 +220,10 @@ class GRPOManager:
                     # There is a case where this status is sent multiple times
                     # We need to make sure we only update the model once
                     if self._should_update_model():
-                        inference_manager.update_model(status["output_dir"])
+                        inference_manager.update_model(
+                            status["output_dir"],
+                            lora_config=status.get("lora", None),
+                        )
                         # self.last_inference_update = self.data_count
                         self.model_saved_and_reload_requested = False
                         self.current_model = status["output_dir"]

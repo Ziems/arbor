@@ -361,6 +361,7 @@ class CommandMonitor:
                         )
                         time.sleep(5)  # Small delay to prevent busy waiting)
                     print("[Training Script] Saving model...")
+
                     # self.trainer.save_model()
 
                     # base_model = AutoModelForCausalLM.from_pretrained(
@@ -379,25 +380,15 @@ class CommandMonitor:
                     #     max_shard_size="5GB",
                     # )
                     self.trainer.save_model()
-                    model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
-                        self.trainer.args.output_dir,
-                        config=self.trainer.peft_config,
-                    )
-
-                    merged_model = model_to_merge.merge_and_unload()
-                    merged_model.save_pretrained(
-                        self.trainer.args.output_dir,
-                        safe_serialization=True,
-                        max_shard_size="5GB",
-                    )
-                    self.trainer.processing_class.save_pretrained(
-                        self.trainer.args.output_dir
-                    )
                     print("[Training Script] Model saved")
                     self.comms_handler.send_status(
                         {
                             "status": "model_saved",
                             "output_dir": self.trainer.args.output_dir,
+                            "lora": {
+                                "adapter": f"default={self.trainer.args.output_dir}",
+                                "base_model": self.base_model_name,
+                            },
                         }
                     )
         except Exception as e:
