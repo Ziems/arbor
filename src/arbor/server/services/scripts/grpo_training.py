@@ -519,7 +519,7 @@ def main():
                 "Setting gradient_checkpointing_kwargs to use_reentrant=False for LORA training"
             )
             trl_train_args["gradient_checkpointing_kwargs"] = {
-                **trl_train_args.get("gradient_checkpointing_kwargs", {}),
+                **(trl_train_args.get("gradient_checkpointing_kwargs") or {}),
                 "use_reentrant": False,
             }
 
