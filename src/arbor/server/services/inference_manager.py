@@ -118,7 +118,7 @@ class InferenceManager:
         # Let the user know server is up
         print(f"Server ready on random port {port}!")
 
-        self.launch_kwargs["api_base"] = f"http://localhost:{port}/v1"
+        self.launch_kwargs["api_base"] = f"http://localhost:{port}"
         self.launch_kwargs["api_key"] = "local"
         self.get_logs = get_logs
         self.process = process
@@ -196,7 +196,7 @@ class InferenceManager:
                 time.sleep(5)
             request_json["model"] = self.current_model
 
-        url = f"{self.launch_kwargs['api_base']}/chat/completions"
+        url = f"{self.launch_kwargs['api_base']}/v1/chat/completions"
         try:
             self.inference_count += 1
             response = requests.post(url, json=request_json)
@@ -221,8 +221,8 @@ class InferenceManager:
             time.sleep(5)
 
         tik = time.time()
-        self.kill()
-        print("Just killed server")
+        # self.kill()
+        # print("Just killed server")
         # Check that output directory exists and was created successfully
         print(f"Checking that output directory {output_dir} exists")
         if not os.path.exists(output_dir):
@@ -231,7 +231,15 @@ class InferenceManager:
             )
 
         print("Launching new server")
-        self.launch(output_dir, self.launch_kwargs)
+        # self.launch(output_dir, self.launch_kwargs)
+        response = requests.post(
+            f"{self.launch_kwargs['api_base']}/update_weights_from_disk",
+            json={"model_path": output_dir},
+        )
+        response_json = response.json()
+        print(f"Response from update_weights_from_disk: {response_json}")
+        # TODO: Check that the response is successful
+
         tok = time.time()
         self.restarting = False
         print(f"Time taken to update model: {tok - tik} seconds")
