@@ -86,6 +86,7 @@ class ArborGRPOTrainer(GRPOTrainer):
             peft_config=peft_config,
             **kwargs,
         )
+        self.peft_config = peft_config
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
         self.update_interval = update_interval
