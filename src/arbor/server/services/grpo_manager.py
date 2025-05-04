@@ -59,23 +59,7 @@ class GRPOManager:
 
         # TODO: Here are defaults for training. We can adjust them if we disagree w the huggingface defaults
         default_train_kwargs = {
-            # "use_peft": False,
-            # "num_train_epochs": 5,
-            # "per_device_train_batch_size": 1,
-            # "gradient_accumulation_steps": 8,
-            # "learning_rate": 1e-5,
-            # "max_seq_length": None,
-            # "packing": False, # TODO: Turning this off for now
-            # "bf16": True,
             "output_dir": output_dir,
-            # "beta": 0.04,
-            # "num_iterations": 1,
-            # "temperature": 0.9,
-            # "num_generations": 8,
-            # "scale_rewards": True,
-            # "epsilon_low": 0.2,
-            # "epsilon_high": 0.2,
-            # "update_interval": 25
         }
 
         train_kwargs = request.model_dump(exclude_unset=True)
@@ -99,6 +83,7 @@ class GRPOManager:
             "gradient_checkpointing_kwargs",
             "bf16",
             "scale_rewards",
+            "max_grad_norm",
         ]
         trl_train_kwargs = {
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
@@ -141,28 +126,39 @@ class GRPOManager:
             "accelerate.commands.launch",
             "--num_processes",
             str(num_processes),
-            script_path,
-            # Comms args
-            "--host",
-            self.server_comms_handler.host,
-            "--command_port",
-            str(self.server_comms_handler.command_port),
-            "--status_port",
-            str(self.server_comms_handler.status_port),
-            "--data_port",
-            str(self.server_comms_handler.data_port),
-            "--broadcast_port",
-            str(self.server_comms_handler.broadcast_port),
-            "--handshake_port",
-            str(self.server_comms_handler.handshake_port),
-            # Training args
-            "--model",
-            self.current_model,
-            "--trl_train_kwargs",
-            json.dumps(trl_train_kwargs),
-            "--arbor_train_kwargs",
-            json.dumps(arbor_train_kwargs),
         ]
+        if self.settings.arbor_config.training.accelerate_config:
+            params.extend(
+                [
+                    "--config_file",
+                    self.settings.arbor_config.training.accelerate_config,
+                ]
+            )
+        params.extend(
+            [
+                script_path,
+                # Comms args
+                "--host",
+                self.server_comms_handler.host,
+                "--command_port",
+                str(self.server_comms_handler.command_port),
+                "--status_port",
+                str(self.server_comms_handler.status_port),
+                "--data_port",
+                str(self.server_comms_handler.data_port),
+                "--broadcast_port",
+                str(self.server_comms_handler.broadcast_port),
+                "--handshake_port",
+                str(self.server_comms_handler.handshake_port),
+                # Training args
+                "--model",
+                self.current_model,
+                "--trl_train_kwargs",
+                json.dumps(trl_train_kwargs),
+                "--arbor_train_kwargs",
+                json.dumps(arbor_train_kwargs),
+            ]
+        )
         print(f"Running following command\n: {' '.join(params)}")
 
         self.training_process = subprocess.Popen(
@@ -220,10 +216,7 @@ class GRPOManager:
                     # There is a case where this status is sent multiple times
                     # We need to make sure we only update the model once
                     if self._should_update_model():
-                        inference_manager.update_model(
-                            status["output_dir"],
-                            lora_config=status.get("lora", None),
-                        )
+                        inference_manager.update_model(status["output_dir"])
                         # self.last_inference_update = self.data_count
                         self.model_saved_and_reload_requested = False
                         self.current_model = status["output_dir"]

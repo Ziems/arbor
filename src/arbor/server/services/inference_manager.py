@@ -44,7 +44,6 @@ class InferenceManager:
     def launch(
         self,
         model: str,
-        lora_config: Optional[Dict[str, Any]] = None,
         launch_kwargs: Optional[Dict[str, Any]] = None,
     ):
         if self.is_server_running():
@@ -65,15 +64,8 @@ class InferenceManager:
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
         n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
         # command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching --guided-decoding-backend xgrammar"
-        if lora_config:
-            model = lora_config["base_model"]
-        command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --router-balance-abs-threshold 4 --port {port} --host 0.0.0.0"
-        if lora_config:
-            command += f" --lora-paths {lora_config['adapter']}"
-            command += f" --max-loras-per-batch 1"
-            command += f" --lora-backend triton"
-            command += f" --disable-radix-cache"
-            command += f" --disable-cuda-graph"
+
+        command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --router-policy round_robin --port {port} --host 0.0.0.0"
         print(f"Running command: {command}")
 
         # We will manually stream & capture logs.
@@ -223,7 +215,7 @@ class InferenceManager:
         finally:
             self.inference_count -= 1
 
-    def update_model(self, output_dir, lora_config: Optional[Dict[str, Any]] = None):
+    def update_model(self, output_dir):
         print("Restarting server with new model...")
         self.restarting = True
 
@@ -246,7 +238,6 @@ class InferenceManager:
         print("Launching new server")
         self.launch(
             output_dir,
-            lora_config=lora_config,
             launch_kwargs=self.launch_kwargs,
         )
         tok = time.time()

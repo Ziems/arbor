@@ -190,13 +190,17 @@ class GRPOConfigRequest(BaseModel):
     per_device_train_batch_size: Optional[int] = None
     learning_rate: Optional[float] = None
     gradient_accumulation_steps: Optional[int] = None
+    gradient_checkpointing: Optional[bool] = None
     lr_scheduler_type: Optional[str] = None
     max_prompt_length: Optional[int] = None
     max_completion_length: Optional[int] = None
+    gradient_checkpointing_kwargs: Optional[dict] = None
+    bf16: Optional[bool] = None
+    scale_rewards: Optional[bool] = None
+    max_grad_norm: Optional[float] = None
 
     update_interval: Optional[int] = None
     lora: Optional[bool] = None
-
     # To name the run
     suffix: Optional[str] = None
 
