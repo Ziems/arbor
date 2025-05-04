@@ -512,7 +512,7 @@ def main():
 
         # TODO: These assertions should be done in some better way
         assert "output_dir" in trl_train_args, "output_dir is required"
-        trl_train_args["gradient_checkpointing_kwargs"] = {"use_reentrant": True}
+        # trl_train_args["gradient_checkpointing_kwargs"] = {"use_reentrant": False}
 
         lora_config = LoraConfig(
             r=16,
