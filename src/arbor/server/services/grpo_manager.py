@@ -269,7 +269,9 @@ class GRPOManager:
         self.model_saved_and_reload_requested = True
         self.server_comms_handler.send_command({"command": "save_model"})
         while self.model_saved_and_reload_requested:
-            print("Waiting for model to be saved and reloaded...")
+            print(
+                "Waiting for model to be saved and reloaded... This usually takes 20-30 seconds"
+            )
             time.sleep(5)
         return self.current_model
 

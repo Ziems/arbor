@@ -362,21 +362,22 @@ class CommandMonitor:
                         time.sleep(5)  # Small delay to prevent busy waiting)
                     print("[Training Script] Saving model...")
 
-                    self.trainer.save_model()
+                    self.trainer.save_model(
+                        output_dir=self.trainer.args.output_dir + "/adapter/"
+                    )
 
                     # base_model = AutoModelForCausalLM.from_pretrained(
                     #     self.base_model_name
                     # ).to(self.trainer.accelerator.device)
 
                     _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
-                        self.trainer.args.output_dir,
+                        self.trainer.args.output_dir + "/adapter/",
                         config=self.trainer.peft_config,
                     )
                     merged_model = _model_to_merge.merge_and_unload()
                     merged_model.save_pretrained(
                         self.trainer.args.output_dir,
                         safe_serialization=True,
-                        max_shard_size="5GB",
                     )
 
                     print("[Training Script] Model saved")
