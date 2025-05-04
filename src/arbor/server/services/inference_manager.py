@@ -232,13 +232,20 @@ class InferenceManager:
 
         print("Launching new server")
         # self.launch(output_dir, self.launch_kwargs)
-        response = requests.post(
-            f"{self.launch_kwargs['api_base']}/update_weights_from_disk",
-            json={"model_path": output_dir},
-        )
-        response_json = response.json()
-        print(f"Response from update_weights_from_disk: {response_json}")
-        # TODO: Check that the response is successful
+        try:
+            response = requests.post(
+                f"{self.launch_kwargs['api_base']}/update_weights_from_disk",
+                json={"model_path": output_dir},
+            )
+            response_json = response.json()
+            print(f"Response from update_weights_from_disk: {response_json}")
+            # TODO: Check that the response is successful
+        except Exception as e:
+            print(f"Error during update_weights_from_disk: {e}")
+            import pdb
+
+            pdb.set_trace()
+            raise
 
         tok = time.time()
         self.restarting = False
