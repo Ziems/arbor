@@ -514,10 +514,17 @@ def main():
 
         # Initialize the dataset with the actual accelerator
         trainer.train_dataset = BlockingQueueDataset(
-            trainer.accelerator, trainer.comms_handler
+            accelerator=trainer.accelerator,
+            comms_handler=trainer.comms_handler,
         )
 
-        command_monitor = CommandMonitor(comms_handler, trainer)
+        base_model = AutoModelForCausalLM.from_pretrained(args.model)
+
+        command_monitor = CommandMonitor(
+            comms_handler=comms_handler,
+            trainer=trainer,
+            base_model=base_model,
+        )
 
         print("Training...")
         trainer.train()
