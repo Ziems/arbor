@@ -104,7 +104,7 @@ class GRPOManager:
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
         }
 
-        arbor_keys = ["update_interval"]
+        arbor_keys = ["update_interval", "lora"]
         arbor_train_kwargs = {
             key: train_kwargs[key] for key in arbor_keys if key in train_kwargs
         }

@@ -362,26 +362,26 @@ class CommandMonitor:
                         time.sleep(5)  # Small delay to prevent busy waiting)
                     print("[Training Script] Saving model...")
 
-                    self.trainer.save_model(
-                        output_dir=self.trainer.args.output_dir + "/adapter/"
-                    )
+                    if self.trainer.peft_config:
 
-                    # base_model = AutoModelForCausalLM.from_pretrained(
-                    #     self.base_model_name
-                    # ).to(self.trainer.accelerator.device)
+                        self.trainer.save_model(
+                            output_dir=self.trainer.args.output_dir + "/adapter/"
+                        )
 
-                    _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
-                        self.trainer.args.output_dir + "/adapter/",
-                        config=self.trainer.peft_config,
-                    )
-                    merged_model = _model_to_merge.merge_and_unload()
-                    merged_model.save_pretrained(
-                        self.trainer.args.output_dir,
-                        safe_serialization=True,
-                    )
-                    self.trainer.processing_class.save_pretrained(
-                        self.trainer.args.output_dir
-                    )
+                        _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
+                            self.trainer.args.output_dir + "/adapter/",
+                            config=self.trainer.peft_config,
+                        )
+                        merged_model = _model_to_merge.merge_and_unload()
+                        merged_model.save_pretrained(
+                            self.trainer.args.output_dir,
+                            safe_serialization=True,
+                        )
+                        self.trainer.processing_class.save_pretrained(
+                            self.trainer.args.output_dir
+                        )
+                    else:
+                        self.trainer.save_model()
 
                     print("[Training Script] Model saved")
                     self.comms_handler.send_status(
@@ -396,7 +396,8 @@ class CommandMonitor:
                     )
         except Exception as e:
             print(e)
-            self.comms_handler.send_status({"status": "error", "error": str(e)})
+            # self.comms_handler.send_status({"status": "error", "error": str(e)})
+            raise e
 
     def _monitor_broadcasts(self):
         """Background thread that monitors for broadcasts from the server."""
@@ -508,22 +509,24 @@ def main():
         # TODO: These assertions should be done in some better way
         assert "output_dir" in trl_train_args, "output_dir is required"
 
-        lora_config = LoraConfig(
-            r=16,
-            lora_alpha=64,
-            target_modules=[
-                "q_proj",
-                "k_proj",
-                "v_proj",
-                "o_proj",
-                "up_proj",
-                "down_proj",
-                "gate_proj",
-            ],
-            task_type="CAUSAL_LM",
-            lora_dropout=0.05,
-            inference_mode=False,
-        )
+        lora_config = None
+        if arbor_train_args.get("lora", False):
+            lora_config = LoraConfig(
+                r=16,
+                lora_alpha=64,
+                target_modules=[
+                    "q_proj",
+                    "k_proj",
+                    "v_proj",
+                    "o_proj",
+                    "up_proj",
+                    "down_proj",
+                    "gate_proj",
+                ],
+                task_type="CAUSAL_LM",
+                lora_dropout=0.05,
+                inference_mode=False,
+            )
 
         training_args = GRPOConfig(
             dataloader_num_workers=0,
