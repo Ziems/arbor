@@ -36,6 +36,12 @@ training:
 ```bash
 python -m arbor.cli serve --arbor-config arbor.yaml
 ```
+
+### 3️⃣ Optimize a DSPy Program
+
+Follow the DSPy tutorials here to see usage examples:
+[DSPy RL Optimization Examples](https://dspy.ai/tutorials/rl_papillon/)
+
 ---
 
 ## 🙏 Acknowledgements
