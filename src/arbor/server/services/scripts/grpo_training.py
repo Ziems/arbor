@@ -54,7 +54,7 @@ class ArborGRPOTrainer(GRPOTrainer):
     def __init__(
         self,
         model: Union[str, PreTrainedModel],
-        scale_rewards: bool = False,
+        scale_rewards: bool = True,
         args: Optional[GRPOConfig] = None,
         train_dataset: Optional[Union[Dataset, IterableDataset]] = None,
         eval_dataset: Optional[Union[Dataset, IterableDataset]] = None,
