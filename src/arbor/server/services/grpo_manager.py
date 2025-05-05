@@ -1,20 +1,20 @@
-import random
-import string
-import time
 import json
+import os
+import random
+import signal
+import string
+import subprocess
+import sys
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
-import os
-import subprocess
-import threading
 from typing import Optional
-import signal
-import sys
 
-from arbor.server.api.models.schemas import GRPORequest, GRPOConfigRequest
+from arbor.server.api.models.schemas import GRPOConfigRequest, GRPORequest
 from arbor.server.core.config import Settings
-from arbor.server.services.inference_manager import InferenceManager
 from arbor.server.services.comms.comms import ArborServerCommsHandler
+from arbor.server.services.inference_manager import InferenceManager
 
 
 class GRPOManager:
@@ -57,7 +57,7 @@ class GRPOManager:
         """Process the config request and return training arguments."""
         name, output_dir = self.make_output_dir(request.model, request.suffix)
 
-        # TODO: Here are defaults for training. We can adjust them if we disagree w the huggingface defaults
+        # Here are defaults for training. We can adjust them if we disagree w the huggingface defaults
         default_train_kwargs = {
             "output_dir": output_dir,
         }

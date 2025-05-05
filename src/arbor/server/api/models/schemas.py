@@ -1,5 +1,6 @@
-from typing import Optional, List, Literal, Generic, TypeVar, Any
 from enum import Enum
+from typing import Any, Generic, List, Literal, Optional, TypeVar
+
 from pydantic import BaseModel, ConfigDict
 
 # Generic type for list items

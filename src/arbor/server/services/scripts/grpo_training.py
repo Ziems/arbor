@@ -1,41 +1,36 @@
-# Borrowed from Will Brown's Verifiers Library
-# TODO: Need proper attribution before release
+###############################################################################
+# Initial Versions of this File Borrowed from Will Brown's Verifiers Library  #
+# https://github.com/willccbb/verifiers                                       #
+###############################################################################
 
-import random
-from typing import Optional, Union, Any, List
+import argparse
 import json
-import os
-import time
+import random
 import threading
+import time
 from functools import lru_cache
-from accelerate.utils import broadcast_object_list, gather, gather_object
-from accelerate import Accelerator
-from datasets import load_dataset, Dataset, IterableDataset
-import datasets
-from peft import PeftConfig, LoraConfig, AutoPeftModelForCausalLM  # type: ignore
+from typing import Any, List, Optional, Union
+
 import torch
-import torch.distributed as dist
-from torch.utils.data import Dataset, DataLoader
+import zmq
+from accelerate import Accelerator
+from accelerate.utils import gather
+from datasets import Dataset, IterableDataset, load_dataset
+from peft import AutoPeftModelForCausalLM, LoraConfig, PeftConfig  # type: ignore
+from torch.utils.data import Dataset
 from transformers import (
     PreTrainedModel,
     PreTrainedTokenizerBase,
     Trainer,
     TrainerCallback,
-    is_wandb_available,
 )
-import argparse
-from arbor.server.services.comms.comms import (
-    ArborServerCommsHandler,
-    ArborScriptCommsHandler,
-)
-from transformers.utils import is_datasets_available
-from transformers.trainer_utils import seed_worker
-from transformers import AutoModelForCausalLM
-from trl import GRPOTrainer, GRPOConfig
+from trl import GRPOConfig, GRPOTrainer
 from trl.data_utils import maybe_apply_chat_template
-from trl.import_utils import is_rich_available
-from trl.trainer.utils import pad
-import zmq
+
+from arbor.server.services.comms.comms import (
+    ArborScriptCommsHandler,
+    ArborServerCommsHandler,
+)
 
 last_step_time = None
 last_queue_pop_time = None
@@ -59,7 +54,7 @@ class ArborGRPOTrainer(GRPOTrainer):
     def __init__(
         self,
         model: Union[str, PreTrainedModel],
-        scale_rewards: bool = False,
+        scale_rewards: bool = True,
         args: Optional[GRPOConfig] = None,
         train_dataset: Optional[Union[Dataset, IterableDataset]] = None,
         eval_dataset: Optional[Union[Dataset, IterableDataset]] = None,
@@ -91,15 +86,6 @@ class ArborGRPOTrainer(GRPOTrainer):
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
         self.update_interval = update_interval
-        # Keeping this for when we switch to vllm
-        # self.sampling_params = SamplingParams(
-        #     max_tokens=self.max_completion_length,
-        #     temperature=self.temperature,
-        #     top_p=self.top_p,
-        #     top_k=-1 if self.top_k is None else self.top_k,
-        #     min_p=0.0 if self.min_p is None else self.min_p,
-        #     repetition_penalty=self.repetition_penalty
-        # )
 
     def _generate_and_score_completions(
         self, batch: List[dict[str, Any]]
@@ -285,7 +271,6 @@ class BlockingQueueDataset(Dataset):
 
         try:
             new_data = self.comms_handler.receive_data()
-            print(f"[rank {rank}] Popping from queue for idx: {idx}")
 
         except Exception as e:
             print(f"[rank {rank}] Error receiving data: {e}")
@@ -297,9 +282,6 @@ class BlockingQueueDataset(Dataset):
         data = self.get_cached_data(idx)
         # Create hash of data to detect if processes are using the same idx for the same data
         data_hash = format(abs(hash(str(data))) % (16**8), "08x")
-        print(
-            f"[rank {self.accelerator.process_index}] idx: {idx} data hash: {data_hash}"
-        )
 
         if data is None:
             return None
@@ -336,7 +318,7 @@ class CommandMonitor:
             return
         try:
             for command in self.comms_handler.receive_command():
-                print(f"!!!Received command: {command}")
+                print(f"Main process received command: {command}")
                 if (
                     command.get("command") == "save_model"
                     and self.trainer.accelerator.is_main_process
