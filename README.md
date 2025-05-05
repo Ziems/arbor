@@ -11,9 +11,7 @@
 Install Arbor via pip:
 
 ```bash
-git clone https://github.com/Ziems/arbor
-cd arbor
-pip install -e .
+pip install git+https://github.com/Ziems/arbor.git
 ```
 
 ---
