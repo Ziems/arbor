@@ -38,3 +38,10 @@ training:
 ```bash
 python -m arbor.cli serve --arbor-config arbor.yaml
 ```
+---
+
+## 🙏 Acknowledgements
+
+Arbor builds on the shoulders of great work. We extend our thanks to:
+- **[Will Brown's Verifiers library](https://github.com/willccbb/verifiers)**
+- **[Hugging Face TRL library](https://github.com/huggingface/trl)**
