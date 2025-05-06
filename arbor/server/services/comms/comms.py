@@ -1,9 +1,10 @@
-import zmq
+import os
 import queue
+import socket
 import threading
 import time
-import socket
-import os
+
+import zmq
 
 
 class ArborServerCommsHandler:

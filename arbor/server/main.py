@@ -1,5 +1,6 @@
 from fastapi import FastAPI
-from arbor.server.api.routes import files, jobs, inference, grpo
+
+from arbor.server.api.routes import files, grpo, inference, jobs
 
 app = FastAPI(title="Arbor API")
 

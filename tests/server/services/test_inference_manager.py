@@ -1,19 +1,21 @@
-import pytest
 from enum import Enum
-from pydantic import BaseModel
-from fastapi.testclient import TestClient
+from pathlib import Path
+
+import pytest
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from openai import OpenAI
+from pydantic import BaseModel
+
 from arbor.server.api.routes.files import router
 from arbor.server.services.file_manager import FileManager
-from pathlib import Path
-from openai import OpenAI
 
 
 @pytest.fixture(scope="module")
 def server(tmp_path_factory):
     """Set up a test server with configured dependencies"""
-    from arbor.server.main import app
     from arbor.server.core.config import Settings
+    from arbor.server.main import app
     from arbor.server.services.inference_manager import InferenceManager
     from arbor.server.services.job_manager import JobManager
 

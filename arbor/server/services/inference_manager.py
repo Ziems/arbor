@@ -1,13 +1,15 @@
-import threading
 import os
-import subprocess
-import socket
-import time
-import requests
 import signal
+import socket
+import subprocess
 import sys
-from typing import Optional, Dict, Any
+import threading
+import time
 from datetime import datetime
+from typing import Any, Dict, Optional
+
+import requests
+
 from arbor.server.core.config import Settings
 
 

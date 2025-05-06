@@ -3,3 +3,9 @@ repos:
     rev: 24.4.2  # Use the latest Black version
     hooks:
       - id: black
+
+  - repo: https://github.com/pycqa/isort
+    rev: 6.0.1
+    hooks:
+      - id: isort
+        args: ["--profile", "black", "--filter-files"]

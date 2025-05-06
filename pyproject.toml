@@ -1,6 +1,6 @@
 [project]
 name = "arbor-ai"
-version = "0.1.4"
+version = "0.1.7"
 description = "A framework for fine-tuning and managing language models"
 authors = [
     {name = "Noah Ziems", email = "nziems2@nd.edu"}
@@ -21,7 +21,7 @@ dependencies = [
     "setuptools (>=76.0.0,<77.0.0)",
     "pyzmq>=26.4.0",
     "pyyaml>=6.0.2",
-    "sglang>=0.4.5.post3",
+    "sglang[all]>=0.4.6.post1",
     "sglang-router"
 ]
 
@@ -30,6 +30,16 @@ arbor = "arbor.cli:cli"
 
 [dependency-groups]
 dev = [
-    "black>=25.1.0",
-    "pre-commit>=4.2.0",
+    "black",
+    "pre-commit",
+    "isort"
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["arbor", "arbor.*"]
+exclude = ["tests", "tests.*"]
+
+[project.urls]
+Homepage = "https://github.com/Ziems/arbor"
+Issues = "https://github.com/Ziems/arbor/issues"
