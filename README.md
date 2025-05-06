@@ -4,7 +4,7 @@
 
 **A framework for optimizing DSPy programs with RL.**
 
-[![PyPI Downloads](https://static.pepy.tech/badge/dspy/month)](https://pepy.tech/projects/arbor-ai)
+[![PyPI Downloads](https://static.pepy.tech/badge/arbor-ai/month)](https://pepy.tech/projects/arbor-ai)
 
 ---
 
