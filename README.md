@@ -11,7 +11,7 @@
 Install Arbor via pip:
 
 ```bash
-pip install git+https://github.com/Ziems/arbor.git
+pip install arbor-ai
 ```
 
 ---
