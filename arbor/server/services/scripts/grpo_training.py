@@ -1,44 +1,60 @@
-# Borrowed from Will Brown's Verifiers Library
-# TODO: Need proper attribution before release
+###############################################################################
+# Initial Versions of this File Borrowed from Will Brown's Verifiers Library  #
+# https://github.com/willccbb/verifiers                                       #
+###############################################################################
 
-import random
-from typing import Optional, Union, Any, List
+import argparse
 import json
-import os
-import time
+import random
 import threading
+import time
 from functools import lru_cache
-from accelerate.utils import broadcast_object_list, gather, gather_object
-from accelerate import Accelerator
-from datasets import load_dataset, Dataset, IterableDataset
-from peft import PeftConfig  # type: ignore
+from typing import Any, List, Optional, Union
+
 import torch
+import zmq
+from accelerate import Accelerator
+from accelerate.utils import gather
+from datasets import Dataset, IterableDataset, load_dataset
+from peft import AutoPeftModelForCausalLM, LoraConfig, PeftConfig  # type: ignore
 from torch.utils.data import Dataset
 from transformers import (
     PreTrainedModel,
     PreTrainedTokenizerBase,
     Trainer,
     TrainerCallback,
-    is_wandb_available,
 )
-import argparse
+from trl import GRPOConfig, GRPOTrainer
+from trl.data_utils import maybe_apply_chat_template
+
 from arbor.server.services.comms.comms import (
-    ArborServerCommsHandler,
     ArborScriptCommsHandler,
+    ArborServerCommsHandler,
 )
 
-from trl import GRPOTrainer, GRPOConfig
-from trl.data_utils import maybe_apply_chat_template
-from trl.import_utils import is_rich_available
-from trl.trainer.utils import pad
-import zmq
+last_step_time = None
+last_queue_pop_time = None
+
+
+def time_since_last_step():
+    global last_step_time
+    if last_step_time is None:
+        return float("inf")
+    return time.time() - last_step_time
+
+
+def get_time_since_last_queue_pop():
+    global last_queue_pop_time
+    if last_queue_pop_time is None:
+        return float("inf")
+    return time.time() - last_queue_pop_time
 
 
 class ArborGRPOTrainer(GRPOTrainer):
     def __init__(
         self,
         model: Union[str, PreTrainedModel],
-        scale_rewards: bool = False,
+        scale_rewards: bool = True,
         args: Optional[GRPOConfig] = None,
         train_dataset: Optional[Union[Dataset, IterableDataset]] = None,
         eval_dataset: Optional[Union[Dataset, IterableDataset]] = None,
@@ -50,6 +66,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         peft_config: Optional["PeftConfig"] = None,
         comms_handler: Optional[ArborScriptCommsHandler] = None,
         update_interval: Optional[int] = 5,
+        lora: Optional[bool] = False,
         **kwargs,
     ):
 
@@ -65,18 +82,10 @@ class ArborGRPOTrainer(GRPOTrainer):
             peft_config=peft_config,
             **kwargs,
         )
+        self.peft_config = peft_config
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
         self.update_interval = update_interval
-        # Keeping this for when we switch to vllm
-        # self.sampling_params = SamplingParams(
-        #     max_tokens=self.max_completion_length,
-        #     temperature=self.temperature,
-        #     top_p=self.top_p,
-        #     top_k=-1 if self.top_k is None else self.top_k,
-        #     min_p=0.0 if self.min_p is None else self.min_p,
-        #     repetition_penalty=self.repetition_penalty
-        # )
 
     def _generate_and_score_completions(
         self, batch: List[dict[str, Any]]
@@ -130,9 +139,17 @@ class ArborGRPOTrainer(GRPOTrainer):
             completion_ids["attention_mask"],
         )
 
-        # if self.max_prompt_length is not None:
-        #     prompt_ids = prompt_ids[:, -self.max_prompt_length :]
-        #     prompt_mask = prompt_mask[:, -self.max_prompt_length :]
+        if self.max_prompt_length is not None:
+            if prompt_ids.shape[1] > self.max_prompt_length:
+                print(f"Truncating prompt to {self.max_prompt_length} tokens")
+            prompt_ids = prompt_ids[:, -self.max_prompt_length :]
+            prompt_mask = prompt_mask[:, -self.max_prompt_length :]
+
+        if self.max_completion_length is not None:
+            if completion_ids.shape[1] > self.max_completion_length:
+                print(f"Truncating completion to {self.max_completion_length} tokens")
+            completion_ids = completion_ids[:, : self.max_completion_length]
+            completion_mask = completion_mask[:, : self.max_completion_length]
 
         # Keeping this for when we switch to vllm
         # if self.state.global_step != self._last_loaded_step:
@@ -141,6 +158,10 @@ class ArborGRPOTrainer(GRPOTrainer):
 
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B, P+C)
+
+        print(
+            f"prompt_completion_ids.shape (after truncation, if enabled): {prompt_completion_ids.shape}, prompt_ids.shape: {prompt_ids.shape}, completion_ids.shape: {completion_ids.shape}"
+        )
 
         logits_to_keep = completion_ids.size(1)
 
@@ -211,12 +232,21 @@ class ArborGRPOTrainer(GRPOTrainer):
         }
 
 
+class LastStepTimeCallback(TrainerCallback):
+    "A callback that prints a message at the beginning of training"
+
+    def on_step_end(self, args, state, control, **kwargs):
+        global last_step_time
+        print(f"Time since last step: {time_since_last_step()}")
+        last_step_time = time.time()
+
+
 class BlockingQueueDataset(Dataset):
     def __init__(
         self,
         accelerator: Accelerator,
         comms_handler: ArborScriptCommsHandler,
-        size=1000,
+        size=10_000,  # Just a random number
         maxsize=100,
     ):
         self.size = size
@@ -229,22 +259,29 @@ class BlockingQueueDataset(Dataset):
         return self.size
 
     def _get_data(self, idx):
+        rank = self.accelerator.process_index
+        world_size = self.accelerator.num_processes
+
         if self.accelerator.is_main_process:
-            # print(f"Main process {self.accelerator.process_index} getting new data")
-            new_data = (
-                self.comms_handler.receive_data()
-            )  # This blocks until data is available
-            print(f"Main process {self.accelerator.process_index} got new data")
-            if idx not in self.completion_counters:
-                self.completion_counters[idx] = 0
-            return broadcast_object_list([new_data])[0]
-        else:
-            # print(f"Other process {self.accelerator.process_index} waiting for data")
-            return broadcast_object_list([None])[0]
+            global last_queue_pop_time
+            last_queue_pop_time = time.time()
+
+        if idx not in self.completion_counters:
+            self.completion_counters[idx] = 0
+
+        try:
+            new_data = self.comms_handler.receive_data()
+
+        except Exception as e:
+            print(f"[rank {rank}] Error receiving data: {e}")
+            new_data = None
+
+        return new_data
 
     def __getitem__(self, idx):
-        # print(f"Process {self.accelerator.process_index} getting item {idx}")
         data = self.get_cached_data(idx)
+        # Create hash of data to detect if processes are using the same idx for the same data
+        data_hash = format(abs(hash(str(data))) % (16**8), "08x")
 
         if data is None:
             return None
@@ -252,17 +289,19 @@ class BlockingQueueDataset(Dataset):
         counter = self.completion_counters.get(idx, 0)
         item = data[counter]
         self.completion_counters[idx] = (counter + 1) % len(data)
-
-        # print(f"Process {self.accelerator.process_index} got item {item['completion']['content'][:50]}")
         return item
 
 
 class CommandMonitor:
     def __init__(
-        self, comms_handler: ArborScriptCommsHandler, trainer: ArborGRPOTrainer
+        self,
+        comms_handler: ArborScriptCommsHandler,
+        trainer: ArborGRPOTrainer,
+        base_model_name: str,
     ):
         self.comms_handler = comms_handler
         self.trainer = trainer
+        self.base_model_name = base_model_name
         self.command_thread = threading.Thread(
             target=self._monitor_commands, daemon=True
         )
@@ -278,29 +317,68 @@ class CommandMonitor:
         if not self.comms_handler:
             return
         try:
-            if self.trainer.accelerator.is_main_process:
-                for command in self.comms_handler.receive_command():
-                    print(f"!!!Received command: {command}")
-                    if (
-                        command.get("command") == "save_model"
-                        and self.trainer.accelerator.is_main_process
+            for command in self.comms_handler.receive_command():
+                print(f"Main process received command: {command}")
+                if (
+                    command.get("command") == "save_model"
+                    and self.trainer.accelerator.is_main_process
+                ):
+                    print(
+                        f"[Training Script] Instructed to save model at {self.trainer.args.output_dir}"
+                    )
+                    # Wait until data queue is empty before saving
+
+                    while (
+                        time_since_last_step() <= 10
+                        or get_time_since_last_queue_pop() <= 10
                     ):
-                        print(f"!!!Saving model at {self.trainer.args.output_dir}")
-                        # Wait until data queue is empty before saving
-                        while not self.comms_handler.is_data_queue_empty():
-                            # TODO: This blocks any other commands from being processed...Maybe worth fixing...
-                            print(
-                                f"Waiting for data queue to empty...{self.comms_handler.get_data_queue_size()}"
-                            )
-                            time.sleep(0.5)  # Small delay to prevent busy waiting
-                        self.trainer.save_model()
-                        self.comms_handler.send_status(
-                            {
-                                "status": "model_saved",
-                                "output_dir": self.trainer.args.output_dir,
-                            }
+                        # print(
+                        # f"Waiting for data queue to empty...{self.comms_handler.get_data_queue_size()}"
+                        # )
+                        print(f"Waiting for steps to finish")
+                        print(
+                            f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
                         )
+                        print(
+                            f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
+                        )
+                        time.sleep(5)  # Small delay to prevent busy waiting)
+                    print("[Training Script] Saving model...")
+
+                    if self.trainer.peft_config:
+
+                        self.trainer.save_model(
+                            output_dir=self.trainer.args.output_dir + "/adapter/"
+                        )
+
+                        # base_model = AutoModelForCausalLM.from_pretrained(
+                        #     self.base_model_name
+                        # ).to(self.trainer.accelerator.device)
+
+                        _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
+                            self.trainer.args.output_dir + "/adapter/",
+                            config=self.trainer.peft_config,
+                        )
+                        merged_model = _model_to_merge.merge_and_unload()
+                        merged_model.save_pretrained(
+                            self.trainer.args.output_dir,
+                            safe_serialization=True,
+                        )
+                        self.trainer.processing_class.save_pretrained(
+                            self.trainer.args.output_dir
+                        )
+                    else:
+                        self.trainer.save_model()
+
+                    print("[Training Script] Model saved")
+                    self.comms_handler.send_status(
+                        {
+                            "status": "model_saved",
+                            "output_dir": self.trainer.args.output_dir,
+                        }
+                    )
         except Exception as e:
+            print(e)
             self.comms_handler.send_status({"status": "error", "error": str(e)})
 
     def _monitor_broadcasts(self):
@@ -332,6 +410,7 @@ def main():
     pipe_args.add_argument("--status_port", type=int, required=True)
     pipe_args.add_argument("--data_port", type=int, required=True)
     pipe_args.add_argument("--broadcast_port", type=int, required=True)
+    pipe_args.add_argument("--handshake_port", type=int, required=True)
 
     training_args = parser.add_argument_group("Training arguments")
     training_args.add_argument(
@@ -361,6 +440,7 @@ def main():
         args.status_port = server_comms_handler.status_port
         args.data_port = server_comms_handler.data_port
         args.broadcast_port = server_comms_handler.broadcast_port
+        args.handshake_port = server_comms_handler.handshake_port
 
         def debug_data_generator():
             tldr_dataset = load_dataset("trl-lib/tldr", split="train")
@@ -407,16 +487,52 @@ def main():
     try:
         trl_train_args = {**(args.trl_train_kwargs or {})}
         arbor_train_args = {**(args.arbor_train_kwargs or {})}
-        trl_train_args["bf16"] = True
 
         # TODO: These assertions should be done in some better way
         assert "output_dir" in trl_train_args, "output_dir is required"
+        if "gradient_checkpointing_kwargs" in trl_train_args and arbor_train_args.get(
+            "lora", False
+        ):
+            print(
+                "Setting gradient_checkpointing_kwargs to use_reentrant=False for LORA training"
+            )
+            trl_train_args["gradient_checkpointing_kwargs"] = {
+                **(trl_train_args.get("gradient_checkpointing_kwargs") or {}),
+                "use_reentrant": False,
+            }
 
-        training_args = GRPOConfig(**trl_train_args)
+        lora_config = None
+        if arbor_train_args.get("lora", False):
+            print("Using LORA for PEFT")
+            lora_config = LoraConfig(
+                r=16,
+                lora_alpha=64,
+                target_modules=[
+                    "q_proj",
+                    "k_proj",
+                    "v_proj",
+                    "o_proj",
+                    "up_proj",
+                    "down_proj",
+                    "gate_proj",
+                ],
+                task_type="CAUSAL_LM",
+                lora_dropout=0.05,
+                inference_mode=False,
+            )
+
+        training_args = GRPOConfig(
+            dataloader_num_workers=0,
+            shuffle_dataset=False,
+            **trl_train_args,
+        )
+
         trainer = ArborGRPOTrainer(
             model=args.model,
             args=training_args,
             train_dataset=BlockingQueueDataset(None, None),
+            callbacks=[LastStepTimeCallback()],
+            peft_config=lora_config,
             **arbor_train_args,
         )
         # Create client handler
@@ -426,16 +542,22 @@ def main():
             status_port=args.status_port,
             data_port=args.data_port,
             broadcast_port=args.broadcast_port,
+            handshake_port=args.handshake_port,
             is_main_process=trainer.accelerator.is_main_process,
         )
         trainer.comms_handler = comms_handler
 
         # Initialize the dataset with the actual accelerator
         trainer.train_dataset = BlockingQueueDataset(
-            trainer.accelerator, trainer.comms_handler
+            accelerator=trainer.accelerator,
+            comms_handler=trainer.comms_handler,
         )
 
-        command_monitor = CommandMonitor(comms_handler, trainer)
+        command_monitor = CommandMonitor(
+            comms_handler=comms_handler,
+            trainer=trainer,
+            base_model_name=args.model,
+        )
 
         print("Training...")
         trainer.train()

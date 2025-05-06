@@ -1,20 +1,20 @@
-import random
-import string
-import time
 import json
+import os
+import random
+import signal
+import string
+import subprocess
+import sys
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
-import os
-import subprocess
-import threading
 from typing import Optional
-import signal
-import sys
 
-from arbor.server.api.models.schemas import GRPORequest, GRPOConfigRequest
+from arbor.server.api.models.schemas import GRPOConfigRequest, GRPORequest
 from arbor.server.core.config import Settings
-from arbor.server.services.inference_manager import InferenceManager
 from arbor.server.services.comms.comms import ArborServerCommsHandler
+from arbor.server.services.inference_manager import InferenceManager
 
 
 class GRPOManager:
@@ -25,6 +25,7 @@ class GRPOManager:
         self.train_kwargs = None
         self.server_comms_handler = None
         self.status_thread = None
+        self.model_saved_and_reload_requested = False
 
         self.data_count = 0
         self.last_inference_update = 0
@@ -56,43 +57,39 @@ class GRPOManager:
         """Process the config request and return training arguments."""
         name, output_dir = self.make_output_dir(request.model, request.suffix)
 
-        # TODO: Here are defaults for training. We can adjust them if we disagree w the huggingface defaults
+        # Here are defaults for training. We can adjust them if we disagree w the huggingface defaults
         default_train_kwargs = {
-            # "use_peft": False,
-            # "num_train_epochs": 5,
-            # "per_device_train_batch_size": 1,
-            # "gradient_accumulation_steps": 8,
-            # "learning_rate": 1e-5,
-            # "max_seq_length": None,
-            # "packing": False, # TODO: Turning this off for now
-            # "bf16": True,
             "output_dir": output_dir,
-            # "beta": 0.04,
-            # "num_iterations": 1,
-            # "temperature": 0.9, # TODO: This should match vLLM
-            # "num_generations": 8,
-            # "scale_rewards": True,
-            # "epsilon_low": 0.2,
-            # "epsilon_high": 0.2,
-            # "update_interval": 25
         }
 
         train_kwargs = request.model_dump(exclude_unset=True)
         return {**default_train_kwargs, **(train_kwargs or {})}
 
     def process_training_args(self, train_kwargs: dict) -> tuple[dict, dict]:
+        # NOTE: These also need to be in the GRPOConfigRequest
         trl_keys = [
             "output_dir",
             "temperature",
             "beta",
             "num_iterations",
             "num_generations",
+            "per_device_train_batch_size",
+            "learning_rate",
+            "gradient_accumulation_steps",
+            "gradient_checkpointing",
+            "lr_scheduler_type",
+            "max_prompt_length",
+            "max_completion_length",
+            "gradient_checkpointing_kwargs",
+            "bf16",
+            "scale_rewards",
+            "max_grad_norm",
         ]
         trl_train_kwargs = {
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
         }
 
-        arbor_keys = ["update_interval"]
+        arbor_keys = ["update_interval", "lora"]
         arbor_train_kwargs = {
             key: train_kwargs[key] for key in arbor_keys if key in train_kwargs
         }
@@ -104,6 +101,7 @@ class GRPOManager:
     ):
         """Initialize the training process with ZMQ-based communication."""
         self.train_kwargs = self.find_training_args(request)
+
         trl_train_kwargs, arbor_train_kwargs = self.process_training_args(
             self.train_kwargs
         )
@@ -120,44 +118,87 @@ class GRPOManager:
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.training.gpu_ids
 
+        num_processes = self.settings.arbor_config.training.gpu_ids.count(",") + 1
+
         params = [
             "python",
             "-m",
             "accelerate.commands.launch",
             "--num_processes",
-            str(self.settings.arbor_config.training.num_processes),
-            script_path,
-            # Comms args
-            "--host",
-            self.server_comms_handler.host,
-            "--command_port",
-            str(self.server_comms_handler.command_port),
-            "--status_port",
-            str(self.server_comms_handler.status_port),
-            "--data_port",
-            str(self.server_comms_handler.data_port),
-            "--broadcast_port",
-            str(self.server_comms_handler.broadcast_port),
-            # Training args
-            "--model",
-            self.current_model,
-            "--trl_train_kwargs",
-            json.dumps(trl_train_kwargs),
-            "--arbor_train_kwargs",
-            json.dumps(arbor_train_kwargs),
+            str(num_processes),
         ]
+        if self.settings.arbor_config.training.accelerate_config:
+            params.extend(
+                [
+                    "--config_file",
+                    self.settings.arbor_config.training.accelerate_config,
+                ]
+            )
+        params.extend(
+            [
+                script_path,
+                # Comms args
+                "--host",
+                self.server_comms_handler.host,
+                "--command_port",
+                str(self.server_comms_handler.command_port),
+                "--status_port",
+                str(self.server_comms_handler.status_port),
+                "--data_port",
+                str(self.server_comms_handler.data_port),
+                "--broadcast_port",
+                str(self.server_comms_handler.broadcast_port),
+                "--handshake_port",
+                str(self.server_comms_handler.handshake_port),
+                # Training args
+                "--model",
+                self.current_model,
+                "--trl_train_kwargs",
+                json.dumps(trl_train_kwargs),
+                "--arbor_train_kwargs",
+                json.dumps(arbor_train_kwargs),
+            ]
+        )
         print(f"Running following command\n: {' '.join(params)}")
 
         self.training_process = subprocess.Popen(
             params,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             env=my_env,
         )
+
+        # A threading.Event to control printing after the server is ready.
+        stop_printing_event = threading.Event()
+        logs_buffer = []
+
+        def _tail_process(proc, buffer, stop_event):
+            while True:
+                line = proc.stdout.readline()
+                if not line and proc.poll() is not None:
+                    # Process ended and no new line
+                    break
+                if line:
+                    buffer.append(line)
+                    # Print only if stop_event is not set
+                    if not stop_event.is_set():
+                        print(f"[GRPO LOG] {line}", end="")
+
+        # Start a background thread to read from the process continuously
+        thread = threading.Thread(
+            target=_tail_process,
+            args=(self.training_process, logs_buffer, stop_printing_event),
+            daemon=True,
+        )
+        thread.start()
 
         # Start status handling thread
         self.status_thread = threading.Thread(
             target=self._handle_status_updates, args=(inference_manager,), daemon=True
         )
         self.status_thread.start()
+        self.server_comms_handler.wait_for_clients(num_processes)
 
         # Launch the inference server
         print("Launching inference server...")
@@ -176,7 +217,8 @@ class GRPOManager:
                     # We need to make sure we only update the model once
                     if self._should_update_model():
                         inference_manager.update_model(status["output_dir"])
-                        self.last_inference_update = self.data_count
+                        # self.last_inference_update = self.data_count
+                        self.model_saved_and_reload_requested = False
                         self.current_model = status["output_dir"]
                         print("Model update complete")
                 elif status["status"] == "error":
@@ -209,9 +251,21 @@ class GRPOManager:
 
         # We tell the script to save the model. The script will let us know when it's done via the status update handler
         # Then we'll actually run the update_model function in the inference manager and finally update the last_inference_update variable
-        if self._should_update_model():
-            self.server_comms_handler.send_command({"command": "save_model"})
+        # if self._should_update_model():
+        #     self.server_comms_handler.send_command({"command": "save_model"})
 
+        return self.current_model
+
+    def update_model(self, request, inference_manager: InferenceManager):
+        # THIS IS HACKY AND NEEDS TO BE FIXED BEFORE RELEASE
+        inference_manager.restarting = True
+        self.model_saved_and_reload_requested = True
+        self.server_comms_handler.send_command({"command": "save_model"})
+        while self.model_saved_and_reload_requested:
+            print(
+                "Waiting for model to be saved and reloaded... This usually takes 20-30 seconds"
+            )
+            time.sleep(5)
         return self.current_model
 
     def terminate(self, inference_manager: InferenceManager):
@@ -249,7 +303,8 @@ class GRPOManager:
                 return None
 
     def _should_update_model(self):
-        return (
-            self.data_count - self.last_inference_update
-            >= self.train_kwargs["update_interval"]
-        )
+        # return (
+        #     self.data_count - self.last_inference_update
+        #     >= self.train_kwargs["update_interval"]
+        # )
+        return self.model_saved_and_reload_requested

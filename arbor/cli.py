@@ -1,13 +1,13 @@
 import click
 import uvicorn
 
-from arbor.server.main import app
 from arbor.server.core.config import Settings
+from arbor.server.main import app
 from arbor.server.services.file_manager import FileManager
+from arbor.server.services.grpo_manager import GRPOManager
+from arbor.server.services.inference_manager import InferenceManager
 from arbor.server.services.job_manager import JobManager
 from arbor.server.services.training_manager import TrainingManager
-from arbor.server.services.inference_manager import InferenceManager
-from arbor.server.services.grpo_manager import GRPOManager
 
 
 @click.group()
@@ -44,11 +44,11 @@ def create_app(arbor_config_path: str):
     return app
 
 
-def start_server(host="0.0.0.0", port=8000, storage_path="./storage", timeout=10):
+def start_server(host="0.0.0.0", port=7453, storage_path="./storage", timeout=10):
     """Start the Arbor API server with a single function call"""
+    import socket
     import threading
     import time
-    import socket
     from contextlib import closing
 
     def is_port_in_use(port):
@@ -89,7 +89,7 @@ def stop_server(server):
 
 @cli.command()
 @click.option("--host", default="0.0.0.0", help="Host to bind to")
-@click.option("--port", default=8000, help="Port to bind to")
+@click.option("--port", default=7453, help="Port to bind to")
 @click.option("--arbor-config", required=True, help="Path to the Arbor config file")
 def serve(host, port, arbor_config):
     """Start the Arbor API server"""

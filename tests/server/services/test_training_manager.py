@@ -1,12 +1,14 @@
 # Overall test
 import time
+from multiprocessing import Process
+from pathlib import Path
+
+import pytest
 import requests
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from pathlib import Path
-import pytest
-from multiprocessing import Process
 import uvicorn
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
 from arbor.server.main import app
 
 
@@ -17,8 +19,8 @@ def run_server():
 @pytest.fixture(scope="module")
 def server(tmp_path_factory):
     """Set up a test server with configured dependencies"""
-    from arbor.server.main import app
     from arbor.server.core.config import Settings
+    from arbor.server.main import app
     from arbor.server.services.file_manager import FileManager
     from arbor.server.services.job_manager import JobManager
     from arbor.server.services.training_manager import TrainingManager

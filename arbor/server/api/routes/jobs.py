@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Request, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+
 from arbor.server.api.models.schemas import (
-    JobStatusModel,
     FineTuneRequest,
-    JobStatus,
-    PaginatedResponse,
-    JobEventModel,
     JobCheckpointModel,
+    JobEventModel,
+    JobStatus,
+    JobStatusModel,
+    PaginatedResponse,
 )
 from arbor.server.services.job_manager import JobStatus
 

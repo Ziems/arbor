@@ -1,12 +1,13 @@
 import pytest
-from arbor.server.services.job_manager import (
-    JobManager,
-    Job,
-    JobStatus,
-    JobEvent,
-    JobCheckpoint,
-)
+
 from arbor.server.core.config import Settings
+from arbor.server.services.job_manager import (
+    Job,
+    JobCheckpoint,
+    JobEvent,
+    JobManager,
+    JobStatus,
+)
 
 
 @pytest.fixture

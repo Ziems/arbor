@@ -1,19 +1,19 @@
+import json
 import os
-import time
 import random
 import string
-import json
-from typing import Literal
+import subprocess
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
-import threading
-import subprocess
+from typing import Literal
 
 from arbor.server.api.models.schemas import FineTuneRequest
-from arbor.server.services.job_manager import Job, JobStatus, JobEvent
-from arbor.server.services.file_manager import FileManager
 from arbor.server.core.config import Settings
 from arbor.server.services.comms.comms import ArborServerCommsHandler
+from arbor.server.services.file_manager import FileManager
+from arbor.server.services.job_manager import Job, JobEvent, JobStatus
 
 
 class TrainingManager:
@@ -199,7 +199,7 @@ class TrainingManager:
                 AutoTokenizer,
                 TrainingArguments,
             )
-            from trl import setup_chat_format, DPOConfig, DPOTrainer
+            from trl import DPOConfig, DPOTrainer, setup_chat_format
 
             device = train_kwargs.get("device", None)
             if device is None:
@@ -256,17 +256,6 @@ class TrainingManager:
                 num_train_epochs=train_kwargs["num_train_epochs"],
             )
 
-            # TODO: set these training parameters
-            # f_divergence_type: str = "reverse_kl"
-            # label_pad_token_id: int = -100
-            # max_length: Optional[int] = None
-            # beta: float = 0.1
-            # padding_value: Optional[int] = None
-            # label_smoothing: float = 0.0
-            # reference_free: bool = False
-            # max_length: Optional[int] = None
-            # truncation_mode: str = "keep_end"
-
             trainer = DPOTrainer(
                 model=model,
                 args=dpo_args,
@@ -300,13 +289,8 @@ class TrainingManager:
             if job.status == JobStatus.PENDING_CANCEL:
                 job.status = JobStatus.CANCELLED
                 job.add_event(JobEvent(level="info", message="Training cancelled"))
-                import gc
 
-                del model
-                del tokenizer
-                del trainer
-                gc.collect()
-                torch.cuda.empty_cache()
+                _cleanup(model, tokenizer, trainer)
                 raise Exception(
                     "Training cancelled"
                 )  # not sure if this should be raised or just return None
@@ -342,14 +326,7 @@ class TrainingManager:
                     dpo_args.output_dir, safe_serialization=True, max_shard_size="5GB"
                 )
 
-            # Clean up! (TODO: This should be a function because its used when cancelling as well)
-            import gc
-
-            del model
-            del tokenizer
-            del trainer
-            gc.collect()
-            torch.cuda.empty_cache()
+            _cleanup(model, tokenizer, trainer)
 
             job.status = JobStatus.SUCCEEDED
             job.fine_tuned_model = dpo_args.output_dir
@@ -480,7 +457,6 @@ class TrainingManager:
                 args=sft_config,
                 train_dataset=tokenized_dataset,
                 peft_config=peft_config,
-                callbacks=[PauseTrainingCallback(job)],
             )
 
             # Train!
@@ -509,13 +485,9 @@ class TrainingManager:
             if job.status == JobStatus.PENDING_CANCEL:
                 job.status = JobStatus.CANCELLED
                 job.add_event(JobEvent(level="info", message="Training cancelled"))
-                import gc
 
-                del model
-                del tokenizer
-                del trainer
-                gc.collect()
-                torch.cuda.empty_cache()
+                _cleanup(model, tokenizer, trainer)
+
                 raise Exception(
                     "Training cancelled"
                 )  # not sure if this should be raised or just return None
@@ -551,14 +523,7 @@ class TrainingManager:
                     sft_config.output_dir, safe_serialization=True, max_shard_size="5GB"
                 )
 
-            # Clean up! (TODO: This should be a function because its used when cancelling as well)
-            import gc
-
-            del model
-            del tokenizer
-            del trainer
-            gc.collect()
-            torch.cuda.empty_cache()
+            _cleanup(model, tokenizer, trainer)
 
             job.status = JobStatus.SUCCEEDED
             job.fine_tuned_model = sft_config.output_dir
@@ -664,3 +629,15 @@ def encode_sft_example(example, tokenizer, max_seq_length):
         "labels": labels.flatten(),
         "attention_mask": attention_mask.flatten(),
     }
+
+
+def _cleanup(model, tokenizer, trainer):
+    import gc
+
+    import torch
+
+    del model
+    del tokenizer
+    del trainer
+    gc.collect()
+    torch.cuda.empty_cache()

@@ -1,16 +1,18 @@
 import time
+from multiprocessing import Process
+from pathlib import Path
+
+import pytest
 import requests
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from pathlib import Path
-import pytest
-from multiprocessing import Process
 import uvicorn
+from openai import OpenAI
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
 from arbor.server.main import app
 
 # Make sure to run "uv run arbor serve --arbor-config arbor.yaml --port 8001" in another terminal
 
-from openai import OpenAI
 
 base_url = "http://localhost:8001/v1"
 

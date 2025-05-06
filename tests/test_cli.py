@@ -1,8 +1,10 @@
+import time
+from pathlib import Path
+
 import pytest
 import requests
-import time
+
 from arbor.cli import start_server, stop_server
-from pathlib import Path
 
 
 @pytest.fixture(scope="module")

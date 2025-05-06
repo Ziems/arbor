@@ -1,6 +1,8 @@
-from pydantic import BaseModel, ConfigDict
-import yaml
 from pathlib import Path
+from typing import Optional
+
+import yaml
+from pydantic import BaseModel, ConfigDict
 
 
 class InferenceConfig(BaseModel):
@@ -9,7 +11,7 @@ class InferenceConfig(BaseModel):
 
 class TrainingConfig(BaseModel):
     gpu_ids: str = "0"
-    num_processes: int = 1
+    accelerate_config: Optional[str] = None
 
 
 class ArborConfig(BaseModel):

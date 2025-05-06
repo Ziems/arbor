@@ -1,12 +1,13 @@
-from fastapi import APIRouter, Request, BackgroundTasks
-import subprocess
 import os
+import subprocess
+
+from fastapi import APIRouter, BackgroundTasks, Request
 
 from arbor.server.api.models.schemas import (
-    GRPOStepResponse,
-    GRPORequest,
     GRPOConfigRequest,
     GRPOConfigResponse,
+    GRPORequest,
+    GRPOStepResponse,
     GRPOTerminateRequest,
     GRPOTerminateResponse,
 )
@@ -32,6 +33,14 @@ def run_grpo_step(
 
     current_model = grpo_manager.grpo_step(grpo_request, inference_manager)
 
+    return GRPOStepResponse(status="success", current_model=current_model)
+
+
+@router.post("/update_model", response_model=GRPOStepResponse)
+def update_model(request: Request):
+    grpo_manager = request.app.state.grpo_manager
+    inference_manager = request.app.state.inference_manager
+    current_model = grpo_manager.update_model(request, inference_manager)
     return GRPOStepResponse(status="success", current_model=current_model)
 
 
