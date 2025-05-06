@@ -49,3 +49,15 @@ Follow the DSPy tutorials here to see usage examples:
 Arbor builds on the shoulders of great work. We extend our thanks to:
 - **[Will Brown's Verifiers library](https://github.com/willccbb/verifiers)**
 - **[Hugging Face TRL library](https://github.com/huggingface/trl)**
+
+## 📚 Citation
+
+If you use this code in your research, please cite:
+
+```bibtex
+@misc{ziems2025arbor,
+  title={Arbor: Open Source Language Model Post Training},
+  author={Ziems, Noah and Agrawal, Lakshya A and Soylu, Dilara and Lai, Liheng and Miller, Isaac and Qian, Chen and Jiang, Meng and Khattab, Omar},
+  year={2025}
+}
+```
