@@ -14,14 +14,14 @@ dependencies = [
     "python-multipart",
     "pydantic-settings",
     "torch",
-    "transformers",
+    "transformers==4.48.3",
     "trl",
     "peft",
     "ray>=2.9",
     "setuptools (>=76.0.0,<77.0.0)",
     "pyzmq>=26.4.0",
     "pyyaml>=6.0.2",
-    "sglang==0.4.5.post3",
+    "sglang[all]==0.4.4.post3",
     "sglang-router"
 ]
 
