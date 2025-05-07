@@ -61,8 +61,8 @@ class InferenceManager:
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
         n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
-        # command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching --guided-decoding-backend xgrammar"
-        command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --router-policy round_robin --port {port} --host 0.0.0.0"
+        command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching"
+        # command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --router-policy round_robin --port {port} --host 0.0.0.0"
         print(f"Running command: {command}")
 
         # We will manually stream & capture logs.
@@ -136,8 +136,6 @@ class InferenceManager:
 
         process = self.process
         thread = self.thread
-
-        terminate_process(process)
 
         # Clear references first
         self.process = None
