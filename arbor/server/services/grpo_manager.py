@@ -279,8 +279,8 @@ class GRPOManager:
             self.server_comms_handler.send_broadcast({"message": "terminate"})
 
             # Wait for training process to finish
-            if self.training_process:
-                self.training_process.wait(timeout=30)
+            # if self.training_process:
+            #     self.training_process.wait(timeout=30)
 
         except Exception as e:
             print(f"Error during termination: {e}")
@@ -288,6 +288,16 @@ class GRPOManager:
             # Clean up ZMQ connections
             if self.server_comms_handler:
                 self.server_comms_handler.close()
+
+            # Reinitialize incase we want to start a new training run
+            self.training_process = None
+            self.current_model = None
+            self.server_comms_handler = None
+            self.status_thread = None
+            self.model_saved_and_reload_requested = False
+
+            self.data_count = 0
+            self.last_inference_update = 0
 
             if self.train_kwargs and "output_dir" in self.train_kwargs:
                 print(
@@ -297,9 +307,12 @@ class GRPOManager:
                     print(
                         f"Warning: Output directory {self.train_kwargs['output_dir']} does not exist"
                     )
-                return self.train_kwargs["output_dir"]
+                output_dir = self.train_kwargs["output_dir"]
+                self.train_kwargs = None
+                return output_dir
             else:
                 print("Training terminated, no output directory specified")
+                self.train_kwargs = None
                 return None
 
     def _should_update_model(self):
