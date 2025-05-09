@@ -276,11 +276,13 @@ class GRPOManager:
                 inference_manager.kill()
 
             # Send termination command through REQ socket
-            self.server_comms_handler.send_broadcast({"message": "terminate"})
+            # self.server_comms_handler.send_broadcast({"message": "terminate"})
+            self.training_process.terminate()
+            print("Waiting for training process to finish")
 
             # Wait for training process to finish
-            # if self.training_process:
-            #     self.training_process.wait(timeout=30)
+            if self.training_process:
+                self.training_process.wait(timeout=30)
 
         except Exception as e:
             print(f"Error during termination: {e}")
@@ -288,6 +290,11 @@ class GRPOManager:
             # Clean up ZMQ connections
             if self.server_comms_handler:
                 self.server_comms_handler.close()
+
+            # Force kill training process if still running
+            if self.training_process and self.training_process.poll() is None:
+                self.training_process.kill()
+                self.training_process.wait()
 
             # Reinitialize incase we want to start a new training run
             self.training_process = None
