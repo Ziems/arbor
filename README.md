@@ -30,6 +30,7 @@ inference:
 training:
   gpu_ids: '1, 2'
 ```
+Which will use the `GPU:0` for inference with `GPU:1` and `GPU:2` reserved for training. We generally recommend splitting the GPUs roughly evenly between inference and training.
 
 ### 2️⃣ Start the Server
 
