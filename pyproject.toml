@@ -1,6 +1,6 @@
 [project]
 name = "arbor-ai"
-version = "0.1.7"
+version = "0.1.8"
 description = "A framework for fine-tuning and managing language models"
 authors = [
     {name = "Noah Ziems", email = "nziems2@nd.edu"}
@@ -21,7 +21,7 @@ dependencies = [
     "setuptools (>=76.0.0,<77.0.0)",
     "pyzmq>=26.4.0",
     "pyyaml>=6.0.2",
-    "sglang[all]>=0.4.6.post1",
+    "sglang[all]>=0.4.5.post3",
     "sglang-router"
 ]
 
