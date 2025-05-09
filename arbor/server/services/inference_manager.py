@@ -199,7 +199,7 @@ class InferenceManager:
         url = f"{self.launch_kwargs['api_base']}/chat/completions"
         try:
             self.inference_count += 1
-            response = requests.post(url, json=request_json, timeout=30)
+            response = requests.post(url, json=request_json)
             return response.json()
         except requests.exceptions.ConnectionError:
             print("Server disconnected...ignoring")
