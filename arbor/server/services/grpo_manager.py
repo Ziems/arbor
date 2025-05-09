@@ -2,6 +2,7 @@ import json
 import os
 import random
 import signal
+import socket
 import string
 import subprocess
 import sys
@@ -120,12 +121,17 @@ class GRPOManager:
 
         num_processes = self.settings.arbor_config.training.gpu_ids.count(",") + 1
 
+        # This is the port for the accelerate main process
+        main_process_port = get_free_port()
+
         params = [
             "python",
             "-m",
             "accelerate.commands.launch",
             "--num_processes",
             str(num_processes),
+            "--main_process_port",
+            str(main_process_port),
         ]
         if self.settings.arbor_config.training.accelerate_config:
             params.extend(
@@ -328,3 +334,12 @@ class GRPOManager:
         #     >= self.train_kwargs["update_interval"]
         # )
         return self.model_saved_and_reload_requested
+
+
+def get_free_port() -> int:
+    """
+    Return a free TCP port on localhost.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("localhost", 0))
+        return s.getsockname()[1]
