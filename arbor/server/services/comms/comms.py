@@ -49,10 +49,15 @@ class ArborServerCommsHandler:
             yield status
 
     def close(self):
+        self.command_socket.setsockopt(zmq.LINGER, 0)
         self.command_socket.close()
+        self.status_socket.setsockopt(zmq.LINGER, 0)
         self.status_socket.close()
+        self.data_socket.setsockopt(zmq.LINGER, 0)
         self.data_socket.close()
+        self.broadcast_socket.setsockopt(zmq.LINGER, 0)
         self.broadcast_socket.close()
+        self.handshake_socket.setsockopt(zmq.LINGER, 0)
         self.handshake_socket.close()
         self.context.term()
 

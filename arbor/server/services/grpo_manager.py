@@ -276,7 +276,9 @@ class GRPOManager:
                 inference_manager.kill()
 
             # Send termination command through REQ socket
-            self.server_comms_handler.send_broadcast({"message": "terminate"})
+            # self.server_comms_handler.send_broadcast({"message": "terminate"})
+            self.training_process.terminate()
+            print("Waiting for training process to finish")
 
             # Wait for training process to finish
             if self.training_process:
@@ -289,6 +291,21 @@ class GRPOManager:
             if self.server_comms_handler:
                 self.server_comms_handler.close()
 
+            # Force kill training process if still running
+            if self.training_process and self.training_process.poll() is None:
+                self.training_process.kill()
+                self.training_process.wait()
+
+            # Reinitialize incase we want to start a new training run
+            self.training_process = None
+            self.current_model = None
+            self.server_comms_handler = None
+            self.status_thread = None
+            self.model_saved_and_reload_requested = False
+
+            self.data_count = 0
+            self.last_inference_update = 0
+
             if self.train_kwargs and "output_dir" in self.train_kwargs:
                 print(
                     f"Training completed. Model saved to {self.train_kwargs['output_dir']}"
@@ -297,9 +314,12 @@ class GRPOManager:
                     print(
                         f"Warning: Output directory {self.train_kwargs['output_dir']} does not exist"
                     )
-                return self.train_kwargs["output_dir"]
+                output_dir = self.train_kwargs["output_dir"]
+                self.train_kwargs = None
+                return output_dir
             else:
                 print("Training terminated, no output directory specified")
+                self.train_kwargs = None
                 return None
 
     def _should_update_model(self):
