@@ -66,7 +66,7 @@ class InferenceManager:
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
         n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
         # command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching"
-        command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --port {port} --host 0.0.0.0"
+        command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --port {port} --host 0.0.0.0 --disable-radix-cache"
         print(f"Running command: {command}")
 
         # We will manually stream & capture logs.
@@ -201,40 +201,24 @@ class InferenceManager:
             request_json["model"] = self.current_model
 
         url = f"{self.launch_kwargs['api_base']}/chat/completions"
-        max_retries = 3
-        retry_count = 0
-        timeout = aiohttp.ClientTimeout(total=60)  # 1 minute timeout
-
-        while retry_count < max_retries:
-            try:
-                self.inference_count += 1
-                session = await self._ensure_session()
-                async with session.post(
-                    url, json=request_json, timeout=timeout
-                ) as response:
-                    content = await response.content.read()
-                    return json.loads(content)
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                retry_count += 1
-                print(
-                    f"Attempt {retry_count}/{max_retries} failed: {type(e).__name__}: {str(e)}"
-                )
-                # Try to close and recreate the session on error
-                if self._session:
-                    await self._session.close()
-                    self._session = None
-
-                if retry_count == max_retries:
-                    print("Max retries reached, giving up")
-                    return None
-
-                # Wait before retrying (exponential backoff)
-                await asyncio.sleep(2**retry_count)
-            except Exception as e:
-                print(f"Error during inference: {e}")
-                raise
-            finally:
-                self.inference_count -= 1
+        try:
+            self.inference_count += 1
+            session = await self._ensure_session()
+            async with session.post(url, json=request_json) as response:
+                content = await response.content.read()
+                return json.loads(content)
+        except aiohttp.ClientError as e:
+            print(f"Connection error: {type(e).__name__}: {str(e)}")
+            # Try to close and recreate the session on error
+            if self._session:
+                await self._session.close()
+                self._session = None
+            return None
+        except Exception as e:
+            print(f"Error during inference: {e}")
+            raise
+        finally:
+            self.inference_count -= 1
 
     def update_model(self, output_dir):
         print("Restarting server with new model...")
