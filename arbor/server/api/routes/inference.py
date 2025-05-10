@@ -33,7 +33,7 @@ async def run_inference(
         raw_json["model"] = inference_manager.current_model
 
     # forward the request to the inference server
-    completion = inference_manager.run_inference(raw_json)
+    completion = await inference_manager.run_inference(raw_json)
 
     return completion
 

@@ -1,3 +1,5 @@
+import asyncio
+import json
 import os
 import signal
 import socket
@@ -8,6 +10,7 @@ import time
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+import aiohttp
 import requests
 
 from arbor.server.core.config import Settings
@@ -23,6 +26,7 @@ class InferenceManager:
         self._shutting_down = False
         self.current_model = None
         self.inference_count = 0
+        self._session = None
         # Set up signal handler for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -62,7 +66,7 @@ class InferenceManager:
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
         n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
         # command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching"
-        command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --router-policy round_robin --port {port} --host 0.0.0.0"
+        command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --port {port} --host 0.0.0.0 --disable-radix-cache"
         print(f"Running command: {command}")
 
         # We will manually stream & capture logs.
@@ -171,7 +175,7 @@ class InferenceManager:
 
         print("Server killed.")
 
-    def run_inference(self, request_json: dict):
+    async def run_inference(self, request_json: dict):
         model = request_json["model"]
         prefixes = ["openai/", "huggingface/", "local:", "arbor:"]
         for prefix in prefixes:
@@ -193,16 +197,22 @@ class InferenceManager:
         if self.restarting:
             while self.restarting:
                 print("Inference is paused while server is restarting...")
-                time.sleep(5)
+                await asyncio.sleep(5)
             request_json["model"] = self.current_model
 
         url = f"{self.launch_kwargs['api_base']}/chat/completions"
         try:
             self.inference_count += 1
-            response = requests.post(url, json=request_json)
-            return response.json()
-        except requests.exceptions.ConnectionError:
-            print("Server disconnected...ignoring")
+            session = await self._ensure_session()
+            async with session.post(url, json=request_json) as response:
+                content = await response.content.read()
+                return json.loads(content)
+        except aiohttp.ClientError as e:
+            print(f"Connection error: {type(e).__name__}: {str(e)}")
+            # Try to close and recreate the session on error
+            if self._session:
+                await self._session.close()
+                self._session = None
             return None
         except Exception as e:
             print(f"Error during inference: {e}")
@@ -214,11 +224,19 @@ class InferenceManager:
         print("Restarting server with new model...")
         self.restarting = True
 
-        while self.inference_count > 0:
-            print(
-                f"Waiting for inference requests to finish... {self.inference_count} remaining"
-            )
-            time.sleep(5)
+        # Close existing session and reset inference count
+        if self._session:
+            # Create a new event loop if one doesn't exist
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+            # Run the session closure in the event loop
+            loop.run_until_complete(self._session.close())
+            self._session = None
+        self.inference_count = 0
 
         tik = time.time()
         self.kill()
@@ -235,6 +253,14 @@ class InferenceManager:
         tok = time.time()
         self.restarting = False
         print(f"Time taken to update model: {tok - tik} seconds")
+
+    async def _ensure_session(self):
+        if self._session is None or self._session.closed:
+            timeout = aiohttp.ClientTimeout(
+                total=None
+            )  # No timeout...If it hangs, this might be the issue.
+            self._session = aiohttp.ClientSession(timeout=timeout)
+        return self._session
 
 
 def get_free_port() -> int:
