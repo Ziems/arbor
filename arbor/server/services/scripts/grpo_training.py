@@ -351,10 +351,6 @@ class CommandMonitor:
                             output_dir=self.trainer.args.output_dir + "/adapter/"
                         )
 
-                        # base_model = AutoModelForCausalLM.from_pretrained(
-                        #     self.base_model_name
-                        # ).to(self.trainer.accelerator.device)
-
                         _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
                             self.trainer.args.output_dir + "/adapter/",
                             config=self.trainer.peft_config,

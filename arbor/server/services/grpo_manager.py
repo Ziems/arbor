@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import random
@@ -263,8 +264,12 @@ class GRPOManager:
         return self.current_model
 
     def update_model(self, request, inference_manager: InferenceManager):
-        # THIS IS HACKY AND NEEDS TO BE FIXED BEFORE RELEASE
+        if inference_manager._session:
+            asyncio.create_task(inference_manager._session.close())
+            inference_manager._session = None
+        inference_manager.inference_count = 0
         inference_manager.restarting = True
+
         self.model_saved_and_reload_requested = True
         self.server_comms_handler.send_command({"command": "save_model"})
         while self.model_saved_and_reload_requested:

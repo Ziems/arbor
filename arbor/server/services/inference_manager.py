@@ -224,11 +224,11 @@ class InferenceManager:
         print("Restarting server with new model...")
         self.restarting = True
 
-        while self.inference_count > 0:
-            print(
-                f"Waiting for inference requests to finish... {self.inference_count} remaining"
-            )
-            time.sleep(5)
+        # Close existing session and reset inference count
+        if self._session:
+            asyncio.create_task(self._session.close())
+            self._session = None
+        self.inference_count = 0
 
         tik = time.time()
         self.kill()
