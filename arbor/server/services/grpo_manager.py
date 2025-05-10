@@ -265,8 +265,17 @@ class GRPOManager:
 
     def update_model(self, request, inference_manager: InferenceManager):
         if inference_manager._session:
-            asyncio.create_task(inference_manager._session.close())
+            # Create a new event loop if one doesn't exist
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+            # Run the session closure in the event loop
+            loop.run_until_complete(inference_manager._session.close())
             inference_manager._session = None
+
         inference_manager.inference_count = 0
         inference_manager.restarting = True
 

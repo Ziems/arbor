@@ -226,7 +226,15 @@ class InferenceManager:
 
         # Close existing session and reset inference count
         if self._session:
-            asyncio.create_task(self._session.close())
+            # Create a new event loop if one doesn't exist
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+            # Run the session closure in the event loop
+            loop.run_until_complete(self._session.close())
             self._session = None
         self.inference_count = 0
 
