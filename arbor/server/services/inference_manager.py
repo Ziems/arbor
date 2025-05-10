@@ -204,7 +204,7 @@ class InferenceManager:
             self.inference_count += 1
             session = await self._ensure_session()
             async with session.post(url, json=request_json) as response:
-                return await response.json()
+                return await response.text()
         except aiohttp.ClientError as e:
             print(f"Connection error: {type(e).__name__}: {str(e)}")
             # Try to close and recreate the session on error
