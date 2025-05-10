@@ -205,8 +205,12 @@ class InferenceManager:
             session = await self._ensure_session()
             async with session.post(url, json=request_json) as response:
                 return await response.json()
-        except aiohttp.ClientError:
-            print("Server disconnected...ignoring")
+        except aiohttp.ClientError as e:
+            print(f"Connection error: {type(e).__name__}: {str(e)}")
+            # Try to close and recreate the session on error
+            if self._session:
+                await self._session.close()
+                self._session = None
             return None
         except Exception as e:
             print(f"Error during inference: {e}")
