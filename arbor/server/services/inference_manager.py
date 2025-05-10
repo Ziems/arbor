@@ -25,6 +25,7 @@ class InferenceManager:
         self._shutting_down = False
         self.current_model = None
         self.inference_count = 0
+        self._session = None
         # Set up signal handler for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -201,9 +202,9 @@ class InferenceManager:
         url = f"{self.launch_kwargs['api_base']}/chat/completions"
         try:
             self.inference_count += 1
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=request_json) as response:
-                    return await response.json()
+            session = await self._ensure_session()
+            async with session.post(url, json=request_json) as response:
+                return await response.json()
         except aiohttp.ClientError:
             print("Server disconnected...ignoring")
             return None
@@ -238,6 +239,11 @@ class InferenceManager:
         tok = time.time()
         self.restarting = False
         print(f"Time taken to update model: {tok - tik} seconds")
+
+    async def _ensure_session(self):
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
 
 
 def get_free_port() -> int:
