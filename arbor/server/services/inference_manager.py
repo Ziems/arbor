@@ -21,11 +21,9 @@ class InferenceManager:
         self.settings = settings
         self.process = None
         self.launch_kwargs = {}
-        self.last_activity = None
         self.restarting = False
         self._shutting_down = False
         self.current_model = None
-        self.inference_count = 0
         self._session = None
         # Set up signal handler for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -145,14 +143,13 @@ class InferenceManager:
         self.process = None
         self.thread = None
         self.get_logs = None
-        self.last_activity = None
 
         try:
             # Handle nested signal case
             if self._shutting_down:
                 process.kill()  # Go straight to SIGKILL if we're shutting down
             else:
-                process.terminate()  # Try SIGTERM first
+                terminate_process(process)
                 try:
                     process.wait(timeout=10)
                 except subprocess.TimeoutExpired:
@@ -188,9 +185,6 @@ class InferenceManager:
             model = self.current_model
             request_json["model"] = model
 
-        # Update last_activity timestamp
-        self.last_activity = datetime.now()
-
         if self.process is None or self.launch_kwargs.get("api_base") is None:
             raise RuntimeError("Server is not running. Please launch it first.")
 
@@ -202,7 +196,6 @@ class InferenceManager:
 
         url = f"{self.launch_kwargs['api_base']}/chat/completions"
         try:
-            self.inference_count += 1
             session = await self._ensure_session()
             async with session.post(url, json=request_json) as response:
                 content = await response.content.read()
@@ -217,8 +210,6 @@ class InferenceManager:
         except Exception as e:
             print(f"Error during inference: {e}")
             raise
-        finally:
-            self.inference_count -= 1
 
     def update_model(self, output_dir):
         print("Restarting server with new model...")
@@ -236,7 +227,6 @@ class InferenceManager:
             # Run the session closure in the event loop
             loop.run_until_complete(self._session.close())
             self._session = None
-        self.inference_count = 0
 
         tik = time.time()
         self.kill()
@@ -257,7 +247,7 @@ class InferenceManager:
     async def _ensure_session(self):
         if self._session is None or self._session.closed:
             timeout = aiohttp.ClientTimeout(
-                total=None
+                total=30
             )  # No timeout...If it hangs, this might be the issue.
             self._session = aiohttp.ClientSession(timeout=timeout)
         return self._session

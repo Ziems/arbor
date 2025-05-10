@@ -29,8 +29,6 @@ class GRPOManager:
         self.status_thread = None
         self.model_saved_and_reload_requested = False
 
-        self.data_count = 0
-        self.last_inference_update = 0
         # Set up signal handler
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -224,7 +222,6 @@ class GRPOManager:
                     # We need to make sure we only update the model once
                     if self._should_update_model():
                         inference_manager.update_model(status["output_dir"])
-                        # self.last_inference_update = self.data_count
                         self.model_saved_and_reload_requested = False
                         self.current_model = status["output_dir"]
                         print("Model update complete")
@@ -244,15 +241,12 @@ class GRPOManager:
             time.sleep(5)
 
         while self._should_update_model():
-            print(
-                f"Waiting for model update. Data count: {self.data_count}, Last inference update: {self.last_inference_update}"
-            )
+            print(f"Waiting for model update.")
             time.sleep(5)
 
         try:
             # Send the batch to the training process
             self.server_comms_handler.send_data(request.batch)
-            self.data_count += 1
         except Exception as e:
             print(f"Failed to send batch to training process: {e}")
 
@@ -276,7 +270,6 @@ class GRPOManager:
             loop.run_until_complete(inference_manager._session.close())
             inference_manager._session = None
 
-        inference_manager.inference_count = 0
         inference_manager.restarting = True
 
         self.model_saved_and_reload_requested = True
@@ -323,9 +316,6 @@ class GRPOManager:
             self.status_thread = None
             self.model_saved_and_reload_requested = False
 
-            self.data_count = 0
-            self.last_inference_update = 0
-
             if self.train_kwargs and "output_dir" in self.train_kwargs:
                 print(
                     f"Training completed. Model saved to {self.train_kwargs['output_dir']}"
@@ -343,10 +333,6 @@ class GRPOManager:
                 return None
 
     def _should_update_model(self):
-        # return (
-        #     self.data_count - self.last_inference_update
-        #     >= self.train_kwargs["update_interval"]
-        # )
         return self.model_saved_and_reload_requested
 
 
