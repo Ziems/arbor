@@ -171,7 +171,7 @@ class InferenceManager:
 
         print("Server killed.")
 
-    def run_inference(self, request_json: dict):
+    async def run_inference(self, request_json: dict):
         model = request_json["model"]
         prefixes = ["openai/", "huggingface/", "local:", "arbor:"]
         for prefix in prefixes:
@@ -199,7 +199,7 @@ class InferenceManager:
         url = f"{self.launch_kwargs['api_base']}/chat/completions"
         try:
             self.inference_count += 1
-            response = requests.post(url, json=request_json)
+            response = await requests.post(url, json=request_json)
             return response.json()
         except requests.exceptions.ConnectionError:
             print("Server disconnected...ignoring")
