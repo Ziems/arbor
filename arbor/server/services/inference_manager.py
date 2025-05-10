@@ -248,7 +248,7 @@ class InferenceManager:
 
     async def _ensure_session(self):
         if self._session is None or self._session.closed:
-            timeout = aiohttp.ClientTimeout(total=30)  # 30 second timeout
+            timeout = aiohttp.ClientTimeout(total=300)  # 30 second timeout
             self._session = aiohttp.ClientSession(timeout=timeout)
         return self._session
 
