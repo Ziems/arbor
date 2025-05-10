@@ -1,3 +1,4 @@
+import asyncio
 import os
 import signal
 import socket
@@ -8,6 +9,7 @@ import time
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+import aiohttp
 import requests
 
 from arbor.server.core.config import Settings
@@ -193,15 +195,16 @@ class InferenceManager:
         if self.restarting:
             while self.restarting:
                 print("Inference is paused while server is restarting...")
-                time.sleep(5)
+                await asyncio.sleep(5)
             request_json["model"] = self.current_model
 
         url = f"{self.launch_kwargs['api_base']}/chat/completions"
         try:
             self.inference_count += 1
-            response = await requests.post(url, json=request_json)
-            return response.json()
-        except requests.exceptions.ConnectionError:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=request_json) as response:
+                    return await response.json()
+        except aiohttp.ClientError:
             print("Server disconnected...ignoring")
             return None
         except Exception as e:
