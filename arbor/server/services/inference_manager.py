@@ -201,24 +201,40 @@ class InferenceManager:
             request_json["model"] = self.current_model
 
         url = f"{self.launch_kwargs['api_base']}/chat/completions"
-        try:
-            self.inference_count += 1
-            session = await self._ensure_session()
-            async with session.post(url, json=request_json) as response:
-                content = await response.content.read()
-                return json.loads(content)
-        except aiohttp.ClientError as e:
-            print(f"Connection error: {type(e).__name__}: {str(e)}")
-            # Try to close and recreate the session on error
-            if self._session:
-                await self._session.close()
-                self._session = None
-            return None
-        except Exception as e:
-            print(f"Error during inference: {e}")
-            raise
-        finally:
-            self.inference_count -= 1
+        max_retries = 3
+        retry_count = 0
+        timeout = aiohttp.ClientTimeout(total=60)  # 1 minute timeout
+
+        while retry_count < max_retries:
+            try:
+                self.inference_count += 1
+                session = await self._ensure_session()
+                async with session.post(
+                    url, json=request_json, timeout=timeout
+                ) as response:
+                    content = await response.content.read()
+                    return json.loads(content)
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                retry_count += 1
+                print(
+                    f"Attempt {retry_count}/{max_retries} failed: {type(e).__name__}: {str(e)}"
+                )
+                # Try to close and recreate the session on error
+                if self._session:
+                    await self._session.close()
+                    self._session = None
+
+                if retry_count == max_retries:
+                    print("Max retries reached, giving up")
+                    return None
+
+                # Wait before retrying (exponential backoff)
+                await asyncio.sleep(2**retry_count)
+            except Exception as e:
+                print(f"Error during inference: {e}")
+                raise
+            finally:
+                self.inference_count -= 1
 
     def update_model(self, output_dir):
         print("Restarting server with new model...")
