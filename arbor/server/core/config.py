@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 from typing import Optional
 
 import yaml
@@ -21,7 +22,7 @@ class ArborConfig(BaseModel):
 
 class Settings(BaseModel):
 
-    STORAGE_PATH: str = "./storage"
+    STORAGE_PATH: str = "./storage" + str(time.time())
     INACTIVITY_TIMEOUT: int = 30  # 5 seconds
     arbor_config: ArborConfig
 
