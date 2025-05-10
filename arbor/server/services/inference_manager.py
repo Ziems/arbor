@@ -200,6 +200,9 @@ class InferenceManager:
             async with session.post(url, json=request_json) as response:
                 content = await response.content.read()
                 return json.loads(content)
+        except asyncio.TimeoutError:
+            print("Request timed out. Returning empty response.")
+            return {"choices": [{"message": {"content": ""}}]}
         except aiohttp.ClientError as e:
             print(f"Connection error: {type(e).__name__}: {str(e)}")
             # Try to close and recreate the session on error
