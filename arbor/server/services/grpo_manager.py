@@ -264,6 +264,13 @@ class GRPOManager:
 
     def update_model(self, request, inference_manager: InferenceManager):
         # THIS IS HACKY AND NEEDS TO BE FIXED BEFORE RELEASE
+
+        while inference_manager.inference_count > 0:
+            print(
+                f"Waiting for inference requests to finish... {self.inference_count} remaining"
+            )
+            time.sleep(5)
+
         inference_manager.restarting = True
         self.model_saved_and_reload_requested = True
         self.server_comms_handler.send_command({"command": "save_model"})
