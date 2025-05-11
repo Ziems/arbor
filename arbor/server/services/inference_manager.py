@@ -66,7 +66,7 @@ class InferenceManager:
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
         n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
         # command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching"
-        command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --port {port} --host 0.0.0.0"
+        command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --port {port} --host 0.0.0.0 --disable-radix-cache"
         print(f"Running command: {command}")
 
         # We will manually stream & capture logs.
@@ -224,11 +224,19 @@ class InferenceManager:
         print("Restarting server with new model...")
         self.restarting = True
 
-        while self.inference_count > 0:
-            print(
-                f"Waiting for inference requests to finish... {self.inference_count} remaining"
-            )
-            time.sleep(5)
+        # Close existing session and reset inference count
+        if self._session:
+            # Create a new event loop if one doesn't exist
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+            # Run the session closure in the event loop
+            loop.run_until_complete(self._session.close())
+            self._session = None
+        self.inference_count = 0
 
         tik = time.time()
         self.kill()
