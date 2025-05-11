@@ -200,6 +200,7 @@ class GRPOConfigRequest(BaseModel):
     scale_rewards: Optional[bool] = None
     max_grad_norm: Optional[float] = None
     report_to: Optional[str] = None
+    log_completions: Optional[bool] = None
     # Arbor specific
     lora: Optional[bool] = None
     update_interval: Optional[int] = None
