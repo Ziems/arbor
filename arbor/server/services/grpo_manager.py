@@ -212,10 +212,13 @@ class GRPOManager:
 
         # Launch the inference server
         print("Launching inference server...")
-        launch_kwargs = {
-            k: v for k, v in arbor_train_kwargs.items() if k in ["max_context_length"]
-        }
-        inference_manager.launch(self.current_model, launch_kwargs)
+        # launch_kwargs = {
+        #     k: v for k, v in arbor_train_kwargs.items() if k in ["max_context_length"]
+        # }
+        inference_manager.launch_kwargs["max_context_length"] = arbor_train_kwargs.get(
+            "max_context_length", None
+        )
+        inference_manager.launch(self.current_model)
 
     def _handle_status_updates(self, inference_manager: InferenceManager):
         """Handle status updates from training process using ZMQ SUB socket"""
