@@ -299,8 +299,8 @@ class GRPOManager:
                 inference_manager.kill()
 
             # Send termination command through REQ socket
-            # self.server_comms_handler.send_broadcast({"message": "terminate"})
-            self.training_process.terminate()
+            self.server_comms_handler.send_broadcast({"message": "terminate"})
+            # self.training_process.terminate()
             print("Waiting for training process to finish")
 
             # Wait for training process to finish

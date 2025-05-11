@@ -425,6 +425,7 @@ class CommandMonitor:
                             "process_id": self.trainer.accelerator.process_index,
                         }
                     )
+                    self.trainer.accelerator.end_training()
         except Exception as e:
             self.comms_handler.send_status({"status": "error", "error": str(e)})
 
