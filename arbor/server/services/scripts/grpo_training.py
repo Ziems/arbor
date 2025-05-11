@@ -255,7 +255,9 @@ class ArborGRPOTrainer(GRPOTrainer):
                     }
                     df = pd.DataFrame(table)
                     wandb.log({"completions": wandb.Table(dataframe=df)})  # type: ignore
-
+                else:
+                    print(f"args report_to: {self.args.report_to}")
+                    print(f"wandb.run: {wandb.run}")
         return {
             "prompt_ids": prompt_ids,
             "prompt_mask": prompt_mask,
