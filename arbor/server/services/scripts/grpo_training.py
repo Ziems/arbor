@@ -70,6 +70,8 @@ class ArborGRPOTrainer(GRPOTrainer):
         peft_config: Optional["PeftConfig"] = None,
         comms_handler: Optional[ArborScriptCommsHandler] = None,
         lora: Optional[bool] = False,
+        # We do nothing with max_context_length right now
+        max_context_length: Optional[int] = None,
         **kwargs,
     ):
 
