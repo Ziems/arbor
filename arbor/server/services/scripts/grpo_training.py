@@ -241,13 +241,6 @@ class ArborGRPOTrainer(GRPOTrainer):
             rewards_to_log = rewards.tolist()
 
             if self.accelerator.is_main_process:
-                # if is_rich_available():
-                #     print_prompt_completions_sample(
-                #         [str(prompts_to_log[0][-1]["content"])],
-                #         [completions_to_log[0]],
-                #         [rewards_to_log[0]],
-                #         self.state.global_step,
-                #     )
                 if self.args.report_to and "wandb" in self.args.report_to and wandb.run is not None:  # type: ignore
                     import pandas as pd
 
