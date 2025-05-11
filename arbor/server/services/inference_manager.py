@@ -215,7 +215,7 @@ class InferenceManager:
                 self._session = None
             return None
         except json.decoder.JSONDecodeError:
-            print(f"Error during inference: {content}")
+            print(f"JSON Decode Error during inference: {content}")
             return {}
         except Exception as e:
             print(f"Error during inference: {e}")
