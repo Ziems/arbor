@@ -152,7 +152,7 @@ class InferenceManager:
             if self._shutting_down:
                 process.kill()  # Go straight to SIGKILL if we're shutting down
             else:
-                process.terminate()  # Try SIGTERM first
+                terminate_process(process)
                 try:
                     process.wait(timeout=10)
                 except subprocess.TimeoutExpired:
