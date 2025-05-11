@@ -203,8 +203,8 @@ class GRPOConfigRequest(BaseModel):
     log_completions: Optional[bool] = None
     logging_steps: Optional[int] = None
     # Arbor specific
+    max_context_length: Optional[int] = None
     lora: Optional[bool] = None
-    update_interval: Optional[int] = None
     # To name the run
     suffix: Optional[str] = None
 

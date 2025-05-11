@@ -68,6 +68,8 @@ class InferenceManager:
         # command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching"
         command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --port {port} --host 0.0.0.0 --disable-radix-cache"
         print(f"Running command: {command}")
+        if launch_kwargs.get("max_context_length"):
+            command += f" --context-length {launch_kwargs['max_context_length']}"
 
         # We will manually stream & capture logs.
         process = subprocess.Popen(

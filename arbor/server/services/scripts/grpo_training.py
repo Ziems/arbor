@@ -69,8 +69,9 @@ class ArborGRPOTrainer(GRPOTrainer):
         ] = (None, None),
         peft_config: Optional["PeftConfig"] = None,
         comms_handler: Optional[ArborScriptCommsHandler] = None,
-        update_interval: Optional[int] = 5,
         lora: Optional[bool] = False,
+        # We do nothing with max_context_length right now
+        max_context_length: Optional[int] = None,
         **kwargs,
     ):
 
@@ -89,7 +90,6 @@ class ArborGRPOTrainer(GRPOTrainer):
         self.peft_config = peft_config
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
-        self.update_interval = update_interval
 
     def _generate_and_score_completions(
         self, batch: List[dict[str, Any]]
@@ -418,13 +418,15 @@ class CommandMonitor:
             for broadcast in self.comms_handler.receive_broadcast():
                 print(f"!!!Received broadcast: {broadcast}")
                 if broadcast.get("message") == "terminate":
-                    self.trainer.control.should_training_stop = True
-                    self.comms_handler.send_status(
-                        {
-                            "status": "Received termination command",
-                            "process_id": self.trainer.accelerator.process_index,
-                        }
-                    )
+                    # self.trainer.control.should_training_stop = True
+                    # self.comms_handler.send_status(
+                    #     {
+                    #         "status": "Received termination command",
+                    #         "process_id": self.trainer.accelerator.process_index,
+                    #     }
+                    # )
+                    if self.trainer.accelerator.is_main_process:
+                        self.trainer.accelerator.end_training()
         except Exception as e:
             self.comms_handler.send_status({"status": "error", "error": str(e)})
 
