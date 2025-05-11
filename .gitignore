@@ -40,6 +40,7 @@ ENV/
 *.log
 /test_storage/
 /storage/
+/wandb/
 
 # OS specific
 .DS_Store
