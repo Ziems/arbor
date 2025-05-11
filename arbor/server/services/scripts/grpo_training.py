@@ -69,7 +69,6 @@ class ArborGRPOTrainer(GRPOTrainer):
         ] = (None, None),
         peft_config: Optional["PeftConfig"] = None,
         comms_handler: Optional[ArborScriptCommsHandler] = None,
-        update_interval: Optional[int] = 5,
         lora: Optional[bool] = False,
         **kwargs,
     ):
@@ -89,7 +88,6 @@ class ArborGRPOTrainer(GRPOTrainer):
         self.peft_config = peft_config
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
-        self.update_interval = update_interval
 
     def _generate_and_score_completions(
         self, batch: List[dict[str, Any]]
