@@ -216,7 +216,10 @@ class InferenceManager:
             return None
         except json.decoder.JSONDecodeError:
             print(f"JSON Decode Error during inference: {content}")
-            return {}
+            return {
+                "error": "JSON Decode Error",
+                "content": content if content else "Content is null",
+            }
         except Exception as e:
             print(f"Error during inference: {e}")
             raise
