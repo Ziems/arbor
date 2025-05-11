@@ -22,7 +22,8 @@ dependencies = [
     "pyzmq>=26.4.0",
     "pyyaml>=6.0.2",
     "sglang[all]>=0.4.5.post3",
-    "sglang-router"
+    "sglang-router",
+    "wandb"
 ]
 
 [project.scripts]

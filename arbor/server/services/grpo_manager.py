@@ -86,6 +86,7 @@ class GRPOManager:
             "bf16",
             "scale_rewards",
             "max_grad_norm",
+            "report_to",
         ]
         trl_train_kwargs = {
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
