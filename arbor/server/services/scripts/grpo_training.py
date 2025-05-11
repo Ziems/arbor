@@ -94,6 +94,10 @@ class ArborGRPOTrainer(GRPOTrainer):
     def _generate_and_score_completions(
         self, batch: List[dict[str, Any]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
+        print(f"[Training] Processing batch of size {len(batch)}")
+        if not batch:
+            print("[Training] Empty batch received")
+            return None
         device = self.accelerator.device
 
         # Process prompts and completions
@@ -313,15 +317,14 @@ class BlockingQueueDataset(Dataset):
 
     def __getitem__(self, idx):
         data = self.get_cached_data(idx)
-        # Create hash of data to detect if processes are using the same idx for the same data
-        data_hash = format(abs(hash(str(data))) % (16**8), "08x")
-
+        print(f"[Dataset] Getting item {idx}, data: {data is not None}")
         if data is None:
+            print("[Dataset] Returning None due to no data")
             return None
-
         counter = self.completion_counters.get(idx, 0)
         item = data[counter]
         self.completion_counters[idx] = (counter + 1) % len(data)
+        print(f"[Dataset] Returning item {counter} from batch")
         return item
 
 
