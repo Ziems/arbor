@@ -244,6 +244,8 @@ class ArborGRPOTrainer(GRPOTrainer):
                 if self.args.report_to and "wandb" in self.args.report_to and wandb.run is not None:  # type: ignore
                     import pandas as pd
 
+                    print(f"Logging completions to wandb")
+
                     # For logging
                     table = {
                         "step": [str(self.state.global_step)] * len(rewards),
