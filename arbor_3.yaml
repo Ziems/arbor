@@ -1,0 +1,5 @@
+inference:
+  gpu_ids: '4'
+
+training:
+  gpu_ids: '5'
