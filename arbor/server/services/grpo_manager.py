@@ -88,6 +88,7 @@ class GRPOManager:
             "max_grad_norm",
             "report_to",
             "log_completions",
+            "logging_steps",
         ]
         trl_train_kwargs = {
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
