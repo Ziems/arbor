@@ -247,6 +247,7 @@ class InferenceManager:
         tik = time.time()
         self.kill()
         print("Just killed server")
+        time.sleep(5)
         # Check that output directory exists and was created successfully
         print(f"Checking that output directory {output_dir} exists")
         if not os.path.exists(output_dir):
