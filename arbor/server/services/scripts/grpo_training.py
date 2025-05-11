@@ -253,6 +253,8 @@ class ArborGRPOTrainer(GRPOTrainer):
                     }
                     df = pd.DataFrame(table)
                     wandb.log({"completions": wandb.Table(dataframe=df)})  # type: ignore
+        else:
+            print(f"Global step: {self.state.global_step}")
         return {
             "prompt_ids": prompt_ids,
             "prompt_mask": prompt_mask,
