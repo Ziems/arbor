@@ -16,6 +16,7 @@ from typing import Optional
 from arbor.server.api.models.schemas import (
     GRPOConfigRequest,
     GRPORequest,
+    GRPOUpdateModelRequest,
 )
 from arbor.server.core.config import Settings
 from arbor.server.services.comms.comms import ArborServerCommsHandler
@@ -276,7 +277,11 @@ class GRPOManager:
             "last_checkpoint": self.last_checkpoint,
         }
 
-    def update_model(self, request, inference_manager: InferenceManager):
+    def update_model(
+        self,
+        update_model_request: GRPOUpdateModelRequest,
+        inference_manager: InferenceManager,
+    ):
         if inference_manager._session:
             # Create a new event loop if one doesn't exist
             try:
@@ -299,18 +304,14 @@ class GRPOManager:
                 "Waiting for model to be saved and reloaded... This usually takes 20-30 seconds"
             )
             time.sleep(5)
-        import pdb
 
-        pdb.set_trace()
-        if (
-            "checkpoint_name" in request
-            and request["checkpoint_name"] is not None
-            and request["checkpoint_name"] != ""
-        ):
+        if update_model_request.checkpoint_name:
             print("Requested to save checkpoint")
             if os.path.isdir(self.current_model):
                 checkpoint_dir = os.path.join(
-                    self.current_model, "checkpoints", request["checkpoint_name"]
+                    self.current_model,
+                    "checkpoints",
+                    update_model_request.checkpoint_name,
                 )
                 os.makedirs(checkpoint_dir, exist_ok=True)
                 for item in os.listdir(self.current_model):
@@ -320,8 +321,9 @@ class GRPOManager:
                         subprocess.run(["cp", "-r", src, dst])
                     else:
                         subprocess.run(["cp", src, dst])
-                self.checkpoints[request["checkpoint_name"]] = checkpoint_dir
-                self.last_checkpoint = request["checkpoint_name"]
+                self.checkpoints[update_model_request.checkpoint_name] = checkpoint_dir
+                self.last_checkpoint = update_model_request.checkpoint_name
+
         print(
             {
                 "current_model": self.current_model,

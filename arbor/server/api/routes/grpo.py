@@ -10,6 +10,7 @@ from arbor.server.api.models.schemas import (
     GRPOStepResponse,
     GRPOTerminateRequest,
     GRPOTerminateResponse,
+    GRPOUpdateModelRequest,
 )
 
 router = APIRouter()
@@ -37,10 +38,12 @@ def run_grpo_step(
 
 
 @router.post("/update_model", response_model=GRPOStepResponse)
-def update_model(request: Request):
+def update_model(request: Request, grpo_update_model_request: GRPOUpdateModelRequest):
     grpo_manager = request.app.state.grpo_manager
     inference_manager = request.app.state.inference_manager
-    update_model_data = grpo_manager.update_model(request, inference_manager)
+    update_model_data = grpo_manager.update_model(
+        grpo_update_model_request, inference_manager
+    )
     return GRPOStepResponse(status="success", **update_model_data)
 
 

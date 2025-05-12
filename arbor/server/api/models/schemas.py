@@ -209,6 +209,11 @@ class GRPOConfigRequest(BaseModel):
     suffix: Optional[str] = None
 
 
+class GRPOUpdateModelRequest(BaseModel):
+    model: str
+    checkpoint_name: Optional[str] = None
+
+
 class GRPOConfigResponse(BaseModel):
     status: str
 
