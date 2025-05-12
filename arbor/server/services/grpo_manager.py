@@ -86,12 +86,15 @@ class GRPOManager:
             "bf16",
             "scale_rewards",
             "max_grad_norm",
+            "report_to",
+            "log_completions",
+            "logging_steps",
         ]
         trl_train_kwargs = {
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
         }
 
-        arbor_keys = ["update_interval", "lora"]
+        arbor_keys = ["max_context_length", "lora"]
         arbor_train_kwargs = {
             key: train_kwargs[key] for key in arbor_keys if key in train_kwargs
         }
@@ -209,6 +212,12 @@ class GRPOManager:
 
         # Launch the inference server
         print("Launching inference server...")
+        # launch_kwargs = {
+        #     k: v for k, v in arbor_train_kwargs.items() if k in ["max_context_length"]
+        # }
+        inference_manager.launch_kwargs["max_context_length"] = arbor_train_kwargs.get(
+            "max_context_length", None
+        )
         inference_manager.launch(self.current_model)
 
     def _handle_status_updates(self, inference_manager: InferenceManager):
@@ -296,8 +305,8 @@ class GRPOManager:
                 inference_manager.kill()
 
             # Send termination command through REQ socket
-            # self.server_comms_handler.send_broadcast({"message": "terminate"})
-            self.training_process.terminate()
+            self.server_comms_handler.send_broadcast({"message": "terminate"})
+            # self.training_process.terminate()
             print("Waiting for training process to finish")
 
             # Wait for training process to finish
@@ -343,10 +352,6 @@ class GRPOManager:
                 return None
 
     def _should_update_model(self):
-        # return (
-        #     self.data_count - self.last_inference_update
-        #     >= self.train_kwargs["update_interval"]
-        # )
         return self.model_saved_and_reload_requested
 
 

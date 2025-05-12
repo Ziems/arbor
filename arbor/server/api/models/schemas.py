@@ -199,8 +199,12 @@ class GRPOConfigRequest(BaseModel):
     bf16: Optional[bool] = None
     scale_rewards: Optional[bool] = None
     max_grad_norm: Optional[float] = None
+    report_to: Optional[str] = None
+    log_completions: Optional[bool] = None
+    logging_steps: Optional[int] = None
+    # Arbor specific
+    max_context_length: Optional[int] = None
     lora: Optional[bool] = None
-    update_interval: Optional[int] = None
     # To name the run
     suffix: Optional[str] = None
 

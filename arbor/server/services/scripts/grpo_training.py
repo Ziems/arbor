@@ -14,7 +14,7 @@ from typing import Any, List, Optional, Union
 import torch
 import zmq
 from accelerate import Accelerator
-from accelerate.utils import gather
+from accelerate.utils import gather, gather_object
 from datasets import Dataset, IterableDataset, load_dataset
 from peft import AutoPeftModelForCausalLM, LoraConfig, PeftConfig  # type: ignore
 from torch.utils.data import Dataset
@@ -23,6 +23,7 @@ from transformers import (
     PreTrainedTokenizerBase,
     Trainer,
     TrainerCallback,
+    is_wandb_available,
 )
 from trl import GRPOConfig, GRPOTrainer
 from trl.data_utils import maybe_apply_chat_template
@@ -31,6 +32,9 @@ from arbor.server.services.comms.comms import (
     ArborScriptCommsHandler,
     ArborServerCommsHandler,
 )
+
+if is_wandb_available():
+    import wandb
 
 last_step_time = None
 last_queue_pop_time = None
@@ -65,8 +69,9 @@ class ArborGRPOTrainer(GRPOTrainer):
         ] = (None, None),
         peft_config: Optional["PeftConfig"] = None,
         comms_handler: Optional[ArborScriptCommsHandler] = None,
-        update_interval: Optional[int] = 5,
         lora: Optional[bool] = False,
+        # We do nothing with max_context_length right now
+        max_context_length: Optional[int] = None,
         **kwargs,
     ):
 
@@ -85,7 +90,6 @@ class ArborGRPOTrainer(GRPOTrainer):
         self.peft_config = peft_config
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
-        self.update_interval = update_interval
 
     def _generate_and_score_completions(
         self, batch: List[dict[str, Any]]
@@ -220,6 +224,35 @@ class ArborGRPOTrainer(GRPOTrainer):
         advantages = advantages[process_slice]
 
         ## Logged Metrics Removed Here
+        # Log the metrics
+        mode = "eval" if self.control.should_evaluate else "train"
+
+        completion_length = self.accelerator.gather_for_metrics(completion_mask.sum(1)).float().mean().item()  # type: ignore
+        self._metrics[mode]["completion_length"].append(completion_length)
+        self._metrics[mode]["reward"].append(rewards.mean().item())
+        self._metrics[mode]["reward_std"].append(std_grouped_rewards.mean().item())  # type: ignore
+
+        if (
+            self.log_completions
+            and self.state.global_step % self.args.logging_steps == 0
+        ):
+            prompts_to_log = gather_object(prompt_texts)
+            completions_to_log = gather_object(completion_texts)
+            rewards_to_log = rewards.tolist()
+
+            if self.accelerator.is_main_process:
+                if self.args.report_to and "wandb" in self.args.report_to and wandb.run is not None:  # type: ignore
+                    import pandas as pd
+
+                    # For logging
+                    table = {
+                        "step": [str(self.state.global_step)] * len(rewards),
+                        "prompt": prompts_to_log,
+                        "completion": completions_to_log,
+                        "reward": rewards_to_log,
+                    }
+                    df = pd.DataFrame(table)
+                    wandb.log({"completions": wandb.Table(dataframe=df)})  # type: ignore
 
         return {
             "prompt_ids": prompt_ids,
@@ -385,13 +418,15 @@ class CommandMonitor:
             for broadcast in self.comms_handler.receive_broadcast():
                 print(f"!!!Received broadcast: {broadcast}")
                 if broadcast.get("message") == "terminate":
-                    self.trainer.control.should_training_stop = True
-                    self.comms_handler.send_status(
-                        {
-                            "status": "Received termination command",
-                            "process_id": self.trainer.accelerator.process_index,
-                        }
-                    )
+                    # self.trainer.control.should_training_stop = True
+                    # self.comms_handler.send_status(
+                    #     {
+                    #         "status": "Received termination command",
+                    #         "process_id": self.trainer.accelerator.process_index,
+                    #     }
+                    # )
+                    if self.trainer.accelerator.is_main_process:
+                        self.trainer.accelerator.end_training()
         except Exception as e:
             self.comms_handler.send_status({"status": "error", "error": str(e)})
 
