@@ -227,13 +227,3 @@ class GRPOStepResponse(BaseModel):
     current_model: str
     checkpoints: dict[str, str]
     last_checkpoint: Optional[str] = None
-
-
-class GRPOCheckpointRequest(BaseModel):
-    checkpoint_name: str
-
-
-class GRPOCheckpointResponse(BaseModel):
-    status: str
-    model: str
-    checkpoint_name: str

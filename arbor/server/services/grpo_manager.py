@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Optional
 
 from arbor.server.api.models.schemas import (
-    GRPOCheckpointRequest,
     GRPOConfigRequest,
     GRPORequest,
 )
@@ -32,7 +31,6 @@ class GRPOManager:
         self.server_comms_handler = None
         self.status_thread = None
         self.model_saved_and_reload_requested = False
-        self.saving_checkpoint = False
 
         self.checkpoints = {}
         self.data_count = 0
@@ -243,12 +241,6 @@ class GRPOManager:
                         self.model_saved_and_reload_requested = False
                         self.current_model = status["output_dir"]
                         print("Model update complete")
-                elif status["status"] == "checkpoint_saved":
-                    print("Received checkpoint saved status")
-                    self.checkpoints[status["checkpoint_name"]] = status["output_dir"]
-                    self.last_checkpoint = status["checkpoint_name"]
-                    self.saving_checkpoint = False
-                    print("Checkpoint saved")
                 elif status["status"] == "error":
                     print(f"Training error: {status.get('error', 'Unknown error')}")
                 elif status["status"] == "terminated":
@@ -270,10 +262,6 @@ class GRPOManager:
             )
             time.sleep(5)
 
-        while self.saving_checkpoint:
-            print("Saving checkpoint, pausing GRPO steps until checkpoint is saved...")
-            time.sleep(5)
-
         try:
             # Send the batch to the training process
             self.server_comms_handler.send_data(request.batch)
@@ -281,7 +269,11 @@ class GRPOManager:
         except Exception as e:
             print(f"Failed to send batch to training process: {e}")
 
-        return self.current_model
+        return {
+            "current_model": self.current_model,
+            "checkpoints": self.checkpoints,
+            "last_checkpoint": self.last_checkpoint,
+        }
 
     def update_model(self, request, inference_manager: InferenceManager):
         if inference_manager._session:
@@ -327,20 +319,6 @@ class GRPOManager:
                 self.last_checkpoint = request["checkpoint_name"]
         return {
             "current_model": self.current_model,
-            "checkpoints": self.checkpoints,
-            "last_checkpoint": self.last_checkpoint,
-        }
-
-    def checkpoint(self, request: GRPOCheckpointRequest):
-        self.saving_checkpoint = True
-        self.server_comms_handler.send_command(
-            {"command": "save_checkpoint", "checkpoint_name": request.checkpoint_name}
-        )
-        while self.saving_checkpoint:
-            print("Waiting for checkpoint to be saved...")
-            time.sleep(5)
-        return {
-            "status": "success",
             "checkpoints": self.checkpoints,
             "last_checkpoint": self.last_checkpoint,
         }
