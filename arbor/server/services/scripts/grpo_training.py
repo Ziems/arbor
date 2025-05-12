@@ -359,15 +359,10 @@ class CommandMonitor:
                     print(
                         f"[Training Script] Instructed to save model at {self.trainer.args.output_dir}"
                     )
-                    # Wait until data queue is empty before saving
-
                     while (
                         time_since_last_step() <= 10
                         or get_time_since_last_queue_pop() <= 10
                     ):
-                        # print(
-                        # f"Waiting for data queue to empty...{self.comms_handler.get_data_queue_size()}"
-                        # )
                         print(f"Waiting for steps to finish")
                         print(
                             f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
@@ -375,15 +370,12 @@ class CommandMonitor:
                         print(
                             f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
                         )
-                        time.sleep(5)  # Small delay to prevent busy waiting)
+                        time.sleep(5)
                     print("[Training Script] Saving model...")
-
                     if self.trainer.peft_config:
-
                         self.trainer.save_model(
                             output_dir=self.trainer.args.output_dir + "/adapter/"
                         )
-
                         _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
                             self.trainer.args.output_dir + "/adapter/",
                             config=self.trainer.peft_config,
@@ -406,6 +398,56 @@ class CommandMonitor:
                             "output_dir": self.trainer.args.output_dir,
                         }
                     )
+                elif command.get("command") == "save_checkpoint":
+                    print(
+                        f"[Training Script] Instructed to save checkpoint {command.get('checkpoint_name')}"
+                    )
+                    while (
+                        time_since_last_step() <= 10
+                        or get_time_since_last_queue_pop() <= 10
+                    ):
+                        print(f"Waiting for steps to finish")
+                        print(
+                            f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
+                        )
+                        print(
+                            f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
+                        )
+                        time.sleep(5)
+                    if self.trainer.peft_config:
+                        self.trainer.save_model(
+                            output_dir=self.trainer.args.output_dir
+                            + f"/checkpoints/{command.get('checkpoint_name')}/adapter/"
+                        )
+                        _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
+                            self.trainer.args.output_dir
+                            + f"/checkpoints/{command.get('checkpoint_name')}/adapter/",
+                            config=self.trainer.peft_config,
+                        )
+                        merged_model = _model_to_merge.merge_and_unload()
+                        merged_model.save_pretrained(
+                            self.trainer.args.output_dir
+                            + f"/checkpoints/{command.get('checkpoint_name')}/",
+                            safe_serialization=True,
+                        )
+                        self.trainer.processing_class.save_pretrained(
+                            self.trainer.args.output_dir
+                            + f"/checkpoints/{command.get('checkpoint_name')}/"
+                        )
+                    else:
+                        self.trainer.save_model(
+                            output_dir=self.trainer.args.output_dir
+                            + f"/checkpoints/{command.get('checkpoint_name')}/"
+                        )
+                    self.comms_handler.send_status(
+                        {
+                            "status": "checkpoint_saved",
+                            "checkpoint_name": command.get("checkpoint_name"),
+                            "output_dir": self.trainer.args.output_dir
+                            + f"/checkpoints/{command.get('checkpoint_name')}/",
+                        }
+                    )
+
         except Exception as e:
             print(e)
             self.comms_handler.send_status({"status": "error", "error": str(e)})

@@ -225,3 +225,13 @@ class GRPOTerminateResponse(BaseModel):
 class GRPOStepResponse(BaseModel):
     status: str
     current_model: str
+
+
+class GRPOCheckpointRequest(BaseModel):
+    checkpoint_name: str
+
+
+class GRPOCheckpointResponse(BaseModel):
+    status: str
+    model: str
+    checkpoint_name: str
