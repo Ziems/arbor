@@ -282,7 +282,11 @@ class GRPOManager:
         except Exception as e:
             print(f"Failed to send batch to training process: {e}")
 
-        return self.current_model
+        return {
+            "current_model": self.current_model,
+            "checkpoints": self.checkpoints,
+            "last_checkpoint": self.last_checkpoint,
+        }
 
     def update_model(self, request, inference_manager: InferenceManager):
         if inference_manager._session:
