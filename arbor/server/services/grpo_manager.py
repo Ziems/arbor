@@ -305,6 +305,10 @@ class GRPOManager:
             )
             time.sleep(5)
 
+        import pdb
+
+        pdb.set_trace()
+
         if update_model_request.checkpoint_name:
             print("Requested to save checkpoint")
             if os.path.isdir(self.current_model):
