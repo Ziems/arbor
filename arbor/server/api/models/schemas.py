@@ -210,7 +210,6 @@ class GRPOConfigRequest(BaseModel):
 
 
 class GRPOUpdateModelRequest(BaseModel):
-    model: str
     checkpoint_name: Optional[str] = None
 
 
