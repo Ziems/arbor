@@ -304,6 +304,7 @@ class GRPOManager:
             and request["checkpoint_name"]
             and request["checkpoint_name"] != ""
         ):
+            print("Requested to save checkpoint")
             if os.path.isdir(self.current_model):
                 checkpoint_dir = os.path.join(
                     self.current_model, "checkpoints", request["checkpoint_name"]
@@ -318,6 +319,13 @@ class GRPOManager:
                         subprocess.run(["cp", src, dst])
                 self.checkpoints[request["checkpoint_name"]] = checkpoint_dir
                 self.last_checkpoint = request["checkpoint_name"]
+        print(
+            {
+                "current_model": self.current_model,
+                "checkpoints": self.checkpoints,
+                "last_checkpoint": self.last_checkpoint,
+            }
+        )
         return {
             "current_model": self.current_model,
             "checkpoints": self.checkpoints,
