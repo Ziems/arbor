@@ -299,9 +299,12 @@ class GRPOManager:
                 "Waiting for model to be saved and reloaded... This usually takes 20-30 seconds"
             )
             time.sleep(5)
+        import pdb
+
+        pdb.set_trace()
         if (
             "checkpoint_name" in request
-            and request["checkpoint_name"]
+            and request["checkpoint_name"] is not None
             and request["checkpoint_name"] != ""
         ):
             print("Requested to save checkpoint")
