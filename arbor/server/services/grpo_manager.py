@@ -33,6 +33,7 @@ class GRPOManager:
         self.model_saved_and_reload_requested = False
 
         self.checkpoints = {}
+        self.last_checkpoint = None
         self.data_count = 0
         self.last_inference_update = 0
         # Set up signal handler
