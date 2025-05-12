@@ -35,6 +35,7 @@ class GRPOManager:
         self.saving_checkpoint = False
 
         self.checkpoints = {}
+        self.last_checkpoint = None
         self.data_count = 0
         self.last_inference_update = 0
         # Set up signal handler
@@ -306,7 +307,11 @@ class GRPOManager:
                 "Waiting for model to be saved and reloaded... This usually takes 20-30 seconds"
             )
             time.sleep(5)
-        return self.current_model
+        return {
+            "current_model": self.current_model,
+            "checkpoints": self.checkpoints,
+            "last_checkpoint": self.last_checkpoint,
+        }
 
     def checkpoint(self, request: GRPOCheckpointRequest):
         self.saving_checkpoint = True
@@ -317,7 +322,7 @@ class GRPOManager:
             print("Waiting for checkpoint to be saved...")
             time.sleep(5)
         return {
-            "status": "success",
+            "current_model": self.current_model,
             "checkpoints": self.checkpoints,
             "last_checkpoint": self.last_checkpoint,
         }

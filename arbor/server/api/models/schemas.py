@@ -225,6 +225,8 @@ class GRPOTerminateResponse(BaseModel):
 class GRPOStepResponse(BaseModel):
     status: str
     current_model: str
+    checkpoints: dict[str, str]
+    last_checkpoint: str
 
 
 class GRPOCheckpointRequest(BaseModel):
@@ -233,5 +235,6 @@ class GRPOCheckpointRequest(BaseModel):
 
 class GRPOCheckpointResponse(BaseModel):
     status: str
-    model: str
-    checkpoint_name: str
+    current_model: str
+    checkpoints: dict[str, str]
+    last_checkpoint: str
