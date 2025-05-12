@@ -306,7 +306,30 @@ class GRPOManager:
                 "Waiting for model to be saved and reloaded... This usually takes 20-30 seconds"
             )
             time.sleep(5)
-        return self.current_model
+        if (
+            "checkpoint_name" in request
+            and request["checkpoint_name"]
+            and request["checkpoint_name"] != ""
+        ):
+            if os.path.isdir(self.current_model):
+                checkpoint_dir = os.path.join(
+                    self.current_model, "checkpoints", request["checkpoint_name"]
+                )
+                os.makedirs(checkpoint_dir, exist_ok=True)
+                for item in os.listdir(self.current_model):
+                    src = os.path.join(self.current_model, item)
+                    dst = os.path.join(checkpoint_dir, item)
+                    if os.path.isdir(src):
+                        subprocess.run(["cp", "-r", src, dst])
+                    else:
+                        subprocess.run(["cp", src, dst])
+                self.checkpoints[request["checkpoint_name"]] = checkpoint_dir
+                self.last_checkpoint = request["checkpoint_name"]
+        return {
+            "current_model": self.current_model,
+            "checkpoints": self.checkpoints,
+            "last_checkpoint": self.last_checkpoint,
+        }
 
     def checkpoint(self, request: GRPOCheckpointRequest):
         self.saving_checkpoint = True
