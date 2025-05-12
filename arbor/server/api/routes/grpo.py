@@ -41,15 +41,9 @@ def run_grpo_step(
 def update_model(request: Request, grpo_update_model_request: GRPOUpdateModelRequest):
     grpo_manager = request.app.state.grpo_manager
     inference_manager = request.app.state.inference_manager
-    try:
-        update_model_data = grpo_manager.update_model(
-            grpo_update_model_request, inference_manager
-        )
-    except Exception as e:
-        import pdb
-
-        pdb.set_trace()
-        return GRPOStepResponse(status="error", error=str(e))
+    update_model_data = grpo_manager.update_model(
+        grpo_update_model_request, inference_manager
+    )
     return GRPOStepResponse(status="success", **update_model_data)
 
 

@@ -319,6 +319,8 @@ class GRPOManager:
                 )
                 os.makedirs(checkpoint_dir, exist_ok=True)
                 for item in os.listdir(self.current_model):
+                    if item == "checkpoints":
+                        continue
                     src = os.path.join(self.current_model, item)
                     dst = os.path.join(checkpoint_dir, item)
                     if os.path.isdir(src):
