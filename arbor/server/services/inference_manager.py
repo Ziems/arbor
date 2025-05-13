@@ -59,7 +59,7 @@ class InferenceManager:
             if model.startswith(prefix):
                 model = model[len(prefix) :]
 
-        print(f"Grabbing a free port to launch an SGLang server for model {model}")
+        print(f"Grabbing a free port to launch a vLLM server for model {model}")
         self.server_port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
         my_env = os.environ.copy()
@@ -104,15 +104,6 @@ class InferenceManager:
             daemon=True,
         )
         thread.start()
-
-        # Wait until the server is ready (or times out)
-        base_url = f"http://localhost:{self.server_port}"
-        try:
-            wait_for_server(base_url, timeout=timeout)
-        except TimeoutError:
-            # If the server doesn't come up, we might want to kill it:
-            process.kill()
-            raise
 
         # Once server is ready, we tell the thread to stop printing further lines.
         # stop_printing_event.set()
@@ -199,7 +190,7 @@ class InferenceManager:
         # Update last_activity timestamp
         self.last_activity = datetime.now()
 
-        if self.process is None or self.launch_kwargs.get("api_base") is None:
+        if self.process is None:
             raise RuntimeError("Server is not running. Please launch it first.")
 
         try:
