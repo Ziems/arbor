@@ -129,6 +129,8 @@ class GRPOManager:
         # Start the training process with ZMQ ports
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.training.gpu_ids
+        # WandB can block the training process for login, so we silence it
+        my_env["WANDB_SILENT"] = "true"
 
         num_processes = self.settings.arbor_config.training.gpu_ids.count(",") + 1
 
