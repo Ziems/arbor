@@ -1,4 +1,5 @@
-import time
+import json
+import uuid
 
 from fastapi import APIRouter, Request
 
@@ -12,25 +13,16 @@ async def run_inference(
     inference_manager = request.app.state.inference_manager
     raw_json = await request.json()
 
-    prefixes = ["openai/", "huggingface/", "local:", "arbor:"]
-    for prefix in prefixes:
-        if raw_json["model"].startswith(prefix):
-            raw_json["model"] = raw_json["model"][len(prefix) :]
+    # Generate a random hex ID
+    request_id = str(uuid.uuid4())
+    # Create requests directory if it doesn't exist
+    with open(f"{request.app.state.log_dir}/inference_requests.jsonl", "a") as f:
+        f.write(json.dumps({"id": request_id, "request": raw_json}) + "\n")
 
     # if a server isnt running, launch one
-    if (
-        not inference_manager.is_server_running()
-        and not inference_manager.is_server_restarting()
-    ):
+    if not inference_manager.is_server_running():
         print("No model is running, launching model...")
         inference_manager.launch(raw_json["model"])
-
-    if inference_manager.is_server_restarting():
-        print("Waiting for server to finish restarting...")
-        while inference_manager.is_server_restarting():
-            time.sleep(5)
-        # Update the model in the request
-        raw_json["model"] = inference_manager.current_model
 
     # forward the request to the inference server
     completion = await inference_manager.run_inference(raw_json)

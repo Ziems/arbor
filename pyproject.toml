@@ -21,8 +21,7 @@ dependencies = [
     "setuptools (>=76.0.0,<77.0.0)",
     "pyzmq>=26.4.0",
     "pyyaml>=6.0.2",
-    "sglang[all]>=0.4.5.post3",
-    "sglang-router",
+    "vllm",
     "wandb"
 ]
 

@@ -14,6 +14,7 @@ import aiohttp
 import requests
 
 from arbor.server.core.config import Settings
+from arbor.server.services.inference.vllm_client import VLLMClient
 
 
 class InferenceManager:
@@ -22,11 +23,13 @@ class InferenceManager:
         self.process = None
         self.launch_kwargs = {}
         self.last_activity = None
-        self.restarting = False
         self._shutting_down = False
         self.current_model = None
         self.inference_count = 0
         self._session = None
+        self.server_port = None
+        self.group_port = None
+        self.vllm_client = None
         # Set up signal handler for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -44,9 +47,6 @@ class InferenceManager:
     def is_server_running(self):
         return self.process is not None
 
-    def is_server_restarting(self):
-        return self.restarting
-
     def launch(self, model: str, launch_kwargs: Optional[Dict[str, Any]] = None):
         if self.is_server_running():
             print("Server is already launched.")
@@ -60,16 +60,15 @@ class InferenceManager:
                 model = model[len(prefix) :]
 
         print(f"Grabbing a free port to launch an SGLang server for model {model}")
-        port = get_free_port()
+        self.server_port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
         n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
         # command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching"
-        command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --port {port} --host 0.0.0.0 --disable-radix-cache"
+        # command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --port {port} --host 0.0.0.0 --disable-radix-cache"
+        command = f"python -m arbor.server.services.inference.vllm_serve --model {model} --port {self.server_port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching True"
         print(f"Running command: {command}")
-        if launch_kwargs.get("max_context_length"):
-            command += f" --context-length {launch_kwargs['max_context_length']}"
 
         # We will manually stream & capture logs.
         process = subprocess.Popen(
@@ -82,7 +81,7 @@ class InferenceManager:
 
         # A threading.Event to control printing after the server is ready.
         # This will store *all* lines (both before and after readiness).
-        print(f"SGLang server process started with PID {process.pid}.")
+        print(f"vLLM server process started with PID {process.pid}.")
         stop_printing_event = threading.Event()
         logs_buffer = []
 
@@ -96,7 +95,7 @@ class InferenceManager:
                     buffer.append(line)
                     # Print only if stop_event is not set
                     if not stop_event.is_set():
-                        print(f"[SGLang LOG] {line}", end="")
+                        print(f"[vLLM LOG] {line}", end="")
 
         # Start a background thread to read from the process continuously
         thread = threading.Thread(
@@ -107,7 +106,7 @@ class InferenceManager:
         thread.start()
 
         # Wait until the server is ready (or times out)
-        base_url = f"http://localhost:{port}"
+        base_url = f"http://localhost:{self.server_port}"
         try:
             wait_for_server(base_url, timeout=timeout)
         except TimeoutError:
@@ -116,7 +115,7 @@ class InferenceManager:
             raise
 
         # Once server is ready, we tell the thread to stop printing further lines.
-        stop_printing_event.set()
+        # stop_printing_event.set()
 
         # A convenience getter so the caller can see all logs so far (and future).
         def get_logs() -> str:
@@ -124,18 +123,23 @@ class InferenceManager:
             return "".join(logs_buffer)
 
         # Let the user know server is up
-        print(f"Server ready on random port {port}!")
+        print(f"Server ready on random port {self.server_port}!")
 
-        self.launch_kwargs["api_base"] = f"http://localhost:{port}/v1"
-        self.launch_kwargs["api_key"] = "local"
+        # self.launch_kwargs["api_base"] = f"http://localhost:{port}/v1"
+        # self.launch_kwargs["api_key"] = "local"
         self.get_logs = get_logs
         self.process = process
         self.thread = thread
         self.current_model = model
 
-    def kill(self):
-        from sglang.utils import terminate_process
+        # Get another free port for weight sync group communication
+        self.group_port = get_free_port()
+        self.vllm_client = VLLMClient(
+            server_port=self.server_port, group_port=self.group_port
+        )
+        self.vllm_client.init_communicator()
 
+    def kill(self):
         if self.process is None:
             print("No running server to kill.")
             return
@@ -150,11 +154,12 @@ class InferenceManager:
         self.last_activity = None
 
         try:
+            self.vllm_client.close_communicator()
             # Handle nested signal case
             if self._shutting_down:
                 process.kill()  # Go straight to SIGKILL if we're shutting down
             else:
-                terminate_process(process)
+                process.terminate()
                 try:
                     process.wait(timeout=10)
                 except subprocess.TimeoutExpired:
@@ -184,6 +189,7 @@ class InferenceManager:
             if model.startswith(prefix):
                 model = model[len(prefix) :]
         print(f"Running inference for model {model}")
+
         # Monkeypatch:
         if model != self.current_model:
             print(f"Model changed from {model} to {self.current_model}")
@@ -196,72 +202,69 @@ class InferenceManager:
         if self.process is None or self.launch_kwargs.get("api_base") is None:
             raise RuntimeError("Server is not running. Please launch it first.")
 
-        if self.restarting:
-            while self.restarting:
-                print("Inference is paused while server is restarting...")
-                await asyncio.sleep(5)
-            request_json["model"] = self.current_model
-
-        url = f"{self.launch_kwargs['api_base']}/chat/completions"
         try:
             self.inference_count += 1
-            session = await self._ensure_session()
-            async with session.post(url, json=request_json) as response:
-                content = await response.content.read()
-                return json.loads(content)
-        except aiohttp.ClientError as e:
-            print(f"Connection error: {type(e).__name__}: {str(e)}")
-            # Try to close and recreate the session on error
-            if self._session:
-                await self._session.close()
-                self._session = None
-            return None
-        except json.decoder.JSONDecodeError:
-            print(f"JSON Decode Error during inference: {content}")
-            return {
-                "error": "JSON Decode Error",
-                "content": content if content else "Content is null",
+
+            # Preprocess request_json
+            if "response_format" in request_json:
+                if "json_schema" in request_json["response_format"]:
+                    request_json["guided_decoding_json"] = request_json[
+                        "response_format"
+                    ]["json_schema"]
+                    del request_json["response_format"]
+                else:
+                    print(
+                        f"JSON schema not found in response_format: {request_json['response_format']}"
+                    )
+                    raise ValueError(
+                        "Unsupported response_format: json_schema is required"
+                    )
+
+            # Define supported vLLM chat parameters
+            supported_keys = {
+                "messages",
+                "n",
+                "repetition_penalty",
+                "temperature",
+                "top_p",
+                "top_k",
+                "min_p",
+                "max_tokens",
+                "stop",
+                "include_stop_str_in_output",
+                "skip_special_tokens",
+                "spaces_between_special_tokens",
             }
+            unsupported_keys = {
+                "model",
+            }
+
+            # remove the keys that are not supported
+            for key in unsupported_keys:
+                if key in request_json:
+                    del request_json[key]
+
+            # Assert that all keys in request_json are supported
+            uncategorized_keys = set(request_json.keys()) - supported_keys
+            if uncategorized_keys:
+                raise ValueError(
+                    f"Unsupported parameters: {uncategorized_keys}. Supported parameters are: {supported_keys}"
+                )
+            # Only include keys that are both supported and present in request_json
+            vllm_params = {
+                key: request_json[key] for key in supported_keys if key in request_json
+            }
+            # Call chat method with filtered parameters
+            completion = self.vllm_client.chat(**vllm_params)
+            import pdb
+
+            pdb.set_trace()
+            return completion
         except Exception as e:
             print(f"Error during inference: {e}")
             raise
         finally:
             self.inference_count -= 1
-
-    def update_model(self, output_dir):
-        print("Restarting server with new model...")
-        self.restarting = True
-
-        # Close existing session and reset inference count
-        if self._session:
-            # Create a new event loop if one doesn't exist
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
-            # Run the session closure in the event loop
-            loop.run_until_complete(self._session.close())
-            self._session = None
-        self.inference_count = 0
-
-        tik = time.time()
-        self.kill()
-        print("Just killed server")
-        time.sleep(5)
-        # Check that output directory exists and was created successfully
-        print(f"Checking that output directory {output_dir} exists")
-        if not os.path.exists(output_dir):
-            raise RuntimeError(
-                f"Failed to save model - output directory {output_dir} does not exist"
-            )
-
-        print("Launching new server")
-        self.launch(output_dir, self.launch_kwargs)
-        tok = time.time()
-        self.restarting = False
-        print(f"Time taken to update model: {tok - tik} seconds")
 
     async def _ensure_session(self):
         if self._session is None or self._session.closed:

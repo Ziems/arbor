@@ -1,3 +1,6 @@
+import os
+from datetime import datetime
+
 import click
 import uvicorn
 
@@ -8,6 +11,14 @@ from arbor.server.services.grpo_manager import GRPOManager
 from arbor.server.services.inference_manager import InferenceManager
 from arbor.server.services.job_manager import JobManager
 from arbor.server.services.training_manager import TrainingManager
+
+
+def make_log_dir(storage_path: str):
+    # Create a timestamped log directory under the storage path
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_dir = os.path.join(storage_path, "logs", timestamp)
+    os.makedirs(log_dir, exist_ok=True)
+    return log_dir
 
 
 @click.group()
@@ -26,6 +37,7 @@ def create_app(arbor_config_path: str):
     """
     # Create new settings instance with overrides
     settings = Settings.load_from_yaml(arbor_config_path)
+    app.state.log_dir = make_log_dir(settings.arbor_config.storage_path)
 
     # Initialize services with settings
     file_manager = FileManager(settings=settings)
