@@ -37,7 +37,7 @@ def create_app(arbor_config_path: str):
     """
     # Create new settings instance with overrides
     settings = Settings.load_from_yaml(arbor_config_path)
-    app.state.log_dir = make_log_dir(settings.arbor_config.storage_path)
+    app.state.log_dir = make_log_dir(settings.STORAGE_PATH)
 
     # Initialize services with settings
     file_manager = FileManager(settings=settings)
