@@ -273,10 +273,9 @@ class InferenceManager:
                 key: request_json[key] for key in supported_keys if key in request_json
             }
             # Call chat method with filtered parameters
-            # completion = self.vllm_client.chat(**vllm_params)
-            completion = self.vllm_client.chat(
-                [conversation], guided_decoding_json=json_schema, max_tokens=2000
-            )
+            completion = self.vllm_client.chat(**vllm_params)
+
+            # TODO: Post processing
             import pdb
 
             pdb.set_trace()
