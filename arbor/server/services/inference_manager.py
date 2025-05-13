@@ -128,7 +128,7 @@ class InferenceManager:
         self.vllm_client = VLLMClient(
             server_port=self.server_port,
             group_port=self.group_port,
-            connection_timeout=180,  # 3 minutes
+            connection_timeout=300,  # 5 minutes
         )
         self.vllm_client.init_communicator()
 
@@ -212,6 +212,8 @@ class InferenceManager:
                     raise ValueError(
                         "Unsupported response_format: json_schema is required"
                     )
+
+            request_json["messages"] = [request_json["messages"]]
 
             # Define supported vLLM chat parameters
             supported_keys = {
