@@ -186,7 +186,7 @@ class InferenceManager:
         print(f"Running inference for model {model}")
         # Monkeypatch:
         if model != self.current_model:
-            print(f"MONKEYPATCH: Model changed from {model} to {self.current_model}")
+            print(f"Model changed from {model} to {self.current_model}")
             model = self.current_model
             request_json["model"] = model
 
