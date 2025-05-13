@@ -1,5 +1,3 @@
-import asyncio
-import json
 import os
 import signal
 import socket
@@ -8,10 +6,12 @@ import sys
 import threading
 import time
 from datetime import datetime
+from enum import Enum
 from typing import Any, Dict, Optional
 
 import aiohttp
 import requests
+from pydantic import BaseModel
 
 from arbor.server.core.config import Settings
 from arbor.server.services.inference.vllm_client import VLLMClient
@@ -215,6 +215,29 @@ class InferenceManager:
 
             request_json["messages"] = [request_json["messages"]]
 
+            conversation = [
+                {"role": "system", "content": "You are a helpful assistant"},
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hello! How can I assist you today?"},
+                {
+                    "role": "user",
+                    "content": "Generate a JSON with reasoning, new_notes, and titles",
+                },
+            ]
+
+            class CarType(str, Enum):
+                sedan = "sedan"
+                suv = "SUV"
+                truck = "Truck"
+                coupe = "Coupe"
+
+            class CarDescription(BaseModel):
+                brand: str
+                model: str
+                car_type: CarType
+
+            json_schema = CarDescription.model_json_schema()
+
             # Define supported vLLM chat parameters
             supported_keys = {
                 "messages",
@@ -250,7 +273,10 @@ class InferenceManager:
                 key: request_json[key] for key in supported_keys if key in request_json
             }
             # Call chat method with filtered parameters
-            completion = self.vllm_client.chat(**vllm_params)
+            # completion = self.vllm_client.chat(**vllm_params)
+            completion = self.vllm_client.chat(
+                [conversation], guided_decoding_json=json_schema, max_tokens=2000
+            )
             import pdb
 
             pdb.set_trace()
