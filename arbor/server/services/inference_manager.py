@@ -126,7 +126,9 @@ class InferenceManager:
         # Get another free port for weight sync group communication
         self.group_port = get_free_port()
         self.vllm_client = VLLMClient(
-            server_port=self.server_port, group_port=self.group_port
+            server_port=self.server_port,
+            group_port=self.group_port,
+            connection_timeout=180,  # 3 minutes
         )
         self.vllm_client.init_communicator()
 
