@@ -12,6 +12,7 @@ from functools import lru_cache
 from typing import Any, List, Optional, Union
 
 import torch
+import trl.extras.vllm_client
 import zmq
 from accelerate import Accelerator
 from accelerate.utils import gather, gather_object
@@ -32,6 +33,9 @@ from arbor.server.services.comms.comms import (
     ArborScriptCommsHandler,
     ArborServerCommsHandler,
 )
+from arbor.server.services.inference.vllm_client import VLLMClient
+
+trl.extras.vllm_client.VLLMClient = VLLMClient
 
 if is_wandb_available():
     import wandb
@@ -74,7 +78,6 @@ class ArborGRPOTrainer(GRPOTrainer):
         max_context_length: Optional[int] = None,
         **kwargs,
     ):
-
         super().__init__(
             model=model,
             reward_funcs=[],
@@ -155,10 +158,12 @@ class ArborGRPOTrainer(GRPOTrainer):
             completion_ids = completion_ids[:, : self.max_completion_length]
             completion_mask = completion_mask[:, : self.max_completion_length]
 
-        # Keeping this for when we switch to vllm
-        # if self.state.global_step != self._last_loaded_step:
-        #     self._move_model_to_vllm()
-        #     self._last_loaded_step = self.state.global_step
+        # Update the inference model if we've done a step
+        # TODO: This should be done maybe at the end of the step
+        if self.state.global_step != self._last_loaded_step:
+            print("Updating inference model...")
+            self._move_model_to_vllm()
+            self._last_loaded_step = self.state.global_step
 
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B, P+C)
@@ -642,6 +647,7 @@ def main():
         comms_handler.send_status({"status": "error", "error": str(e)})
         raise e
     finally:
+        trainer.accelerator.end_training()
         comms_handler.close()
 
 

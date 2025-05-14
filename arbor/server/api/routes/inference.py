@@ -27,6 +27,9 @@ async def run_inference(
     # forward the request to the inference server
     completion = await inference_manager.run_inference(raw_json)
 
+    with open(f"{request.app.state.log_dir}/inference_responses.jsonl", "a") as f:
+        f.write(json.dumps({"id": request_id, "response": completion}) + "\n")
+
     return completion
 
 
