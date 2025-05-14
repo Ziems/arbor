@@ -202,6 +202,7 @@ class GRPOConfigRequest(BaseModel):
     report_to: Optional[str] = None
     log_completions: Optional[bool] = None
     logging_steps: Optional[int] = None
+    mask_truncated_completions: Optional[bool] = None
     # Arbor specific
     max_context_length: Optional[int] = None
     lora: Optional[bool] = None

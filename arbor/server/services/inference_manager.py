@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import random
 import signal
 import socket
 import subprocess
@@ -47,7 +48,12 @@ class InferenceManager:
     def is_server_restarting(self):
         return self.restarting
 
-    def launch(self, model: str, launch_kwargs: Optional[Dict[str, Any]] = None):
+    def launch(
+        self,
+        model: str,
+        launch_kwargs: Optional[Dict[str, Any]] = None,
+        max_retries: int = 3,
+    ):
         if self.is_server_running():
             print("Server is already launched.")
             return
@@ -59,79 +65,112 @@ class InferenceManager:
             if model.startswith(prefix):
                 model = model[len(prefix) :]
 
-        print(f"Grabbing a free port to launch an SGLang server for model {model}")
-        port = get_free_port()
-        timeout = launch_kwargs.get("timeout", 1800)
-        my_env = os.environ.copy()
-        my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
-        n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
-        # command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching"
-        command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --port {port} --host 0.0.0.0 --disable-radix-cache"
-        print(f"Running command: {command}")
-        if launch_kwargs.get("max_context_length"):
-            command += f" --context-length {launch_kwargs['max_context_length']}"
+        retries = 0
+        while retries < max_retries:
+            try:
+                print(
+                    f"Attempt {retries + 1} of {max_retries} to launch server for model {model}"
+                )
+                print(
+                    f"Grabbing a free port to launch an SGLang server for model {model}"
+                )
+                port = get_free_port()
+                timeout = launch_kwargs.get("timeout", 1800)
+                my_env = os.environ.copy()
+                my_env["CUDA_VISIBLE_DEVICES"] = (
+                    self.settings.arbor_config.inference.gpu_ids
+                )
+                n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
+                # command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching"
+                command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --port {port} --host 0.0.0.0 --disable-radix-cache"
+                print(f"Running command: {command}")
+                if launch_kwargs.get("max_context_length"):
+                    command += (
+                        f" --context-length {launch_kwargs['max_context_length']}"
+                    )
 
-        # We will manually stream & capture logs.
-        process = subprocess.Popen(
-            command.replace("\\\n", " ").replace("\\", " ").split(),
-            text=True,
-            stdout=subprocess.PIPE,  # We'll read from pipe
-            stderr=subprocess.STDOUT,  # Merge stderr into stdout
-            env=my_env,
-        )
+                # We will manually stream & capture logs.
+                process = subprocess.Popen(
+                    command.replace("\\\n", " ").replace("\\", " ").split(),
+                    text=True,
+                    stdout=subprocess.PIPE,  # We'll read from pipe
+                    stderr=subprocess.STDOUT,  # Merge stderr into stdout
+                    env=my_env,
+                )
 
-        # A threading.Event to control printing after the server is ready.
-        # This will store *all* lines (both before and after readiness).
-        print(f"SGLang server process started with PID {process.pid}.")
-        stop_printing_event = threading.Event()
-        logs_buffer = []
+                # A threading.Event to control printing after the server is ready.
+                # This will store *all* lines (both before and after readiness).
+                print(f"SGLang server process started with PID {process.pid}.")
+                stop_printing_event = threading.Event()
+                logs_buffer = []
 
-        def _tail_process(proc, buffer, stop_event):
-            while True:
-                line = proc.stdout.readline()
-                if not line and proc.poll() is not None:
-                    # Process ended and no new line
-                    break
-                if line:
-                    buffer.append(line)
-                    # Print only if stop_event is not set
-                    if not stop_event.is_set():
-                        print(f"[SGLang LOG] {line}", end="")
+                def _tail_process(proc, buffer, stop_event):
+                    while True:
+                        line = proc.stdout.readline()
+                        if not line and proc.poll() is not None:
+                            # Process ended and no new line
+                            break
+                        if line:
+                            buffer.append(line)
+                            # Print only if stop_event is not set
+                            if not stop_event.is_set():
+                                print(f"[SGLang LOG] {line}", end="")
 
-        # Start a background thread to read from the process continuously
-        thread = threading.Thread(
-            target=_tail_process,
-            args=(process, logs_buffer, stop_printing_event),
-            daemon=True,
-        )
-        thread.start()
+                # Start a background thread to read from the process continuously
+                thread = threading.Thread(
+                    target=_tail_process,
+                    args=(process, logs_buffer, stop_printing_event),
+                    daemon=True,
+                )
+                thread.start()
 
-        # Wait until the server is ready (or times out)
-        base_url = f"http://localhost:{port}"
-        try:
-            wait_for_server(base_url, timeout=timeout)
-        except TimeoutError:
-            # If the server doesn't come up, we might want to kill it:
-            process.kill()
-            raise
+                # Wait until the server is ready (or times out)
+                base_url = f"http://localhost:{port}"
+                try:
+                    wait_for_server(base_url, timeout=timeout)
+                except TimeoutError:
+                    # If the server doesn't come up, we might want to kill it:
+                    process.kill()
+                    raise
 
-        # Once server is ready, we tell the thread to stop printing further lines.
-        stop_printing_event.set()
+                # Once server is ready, we tell the thread to stop printing further lines.
+                stop_printing_event.set()
 
-        # A convenience getter so the caller can see all logs so far (and future).
-        def get_logs() -> str:
-            # Join them all into a single string, or you might return a list
-            return "".join(logs_buffer)
+                # A convenience getter so the caller can see all logs so far (and future).
+                def get_logs() -> str:
+                    # Join them all into a single string, or you might return a list
+                    return "".join(logs_buffer)
 
-        # Let the user know server is up
-        print(f"Server ready on random port {port}!")
+                # Let the user know server is up
+                print(f"Server ready on random port {port}!")
 
-        self.launch_kwargs["api_base"] = f"http://localhost:{port}/v1"
-        self.launch_kwargs["api_key"] = "local"
-        self.get_logs = get_logs
-        self.process = process
-        self.thread = thread
-        self.current_model = model
+                self.launch_kwargs["api_base"] = f"http://localhost:{port}/v1"
+                self.launch_kwargs["api_key"] = "local"
+                self.get_logs = get_logs
+                self.process = process
+                self.thread = thread
+                self.current_model = model
+
+                # If we get here, the launch was successful
+                return
+
+            except Exception as e:
+                retries += 1
+                print(
+                    f"Failed to launch server (attempt {retries} of {max_retries}): {str(e)}"
+                )
+                # Clean up any failed processes
+                if "process" in locals():
+                    try:
+                        process.kill()
+                    except:
+                        pass
+                if retries == max_retries:
+                    raise Exception(
+                        f"Failed to launch server after {max_retries} attempts"
+                    ) from e
+                # Wait a bit before retrying
+                time.sleep(min(2**retries, 30))  # Exponential backoff, max 30 seconds
 
     def kill(self):
         from sglang.utils import terminate_process

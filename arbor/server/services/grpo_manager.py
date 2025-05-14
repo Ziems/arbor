@@ -97,6 +97,7 @@ class GRPOManager:
             "log_completions",
             "logging_steps",
             "generation_batch_size",
+            "mask_truncated_completions",
         ]
         trl_train_kwargs = {
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
