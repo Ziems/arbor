@@ -22,7 +22,7 @@ class ArborConfig(BaseModel):
 
 class Settings(BaseModel):
 
-    STORAGE_PATH: str = "./storage" + str(time.time())
+    STORAGE_PATH: str = "./storage"
     INACTIVITY_TIMEOUT: int = 30  # 5 seconds
     arbor_config: ArborConfig
 
