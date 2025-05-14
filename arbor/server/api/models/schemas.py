@@ -207,6 +207,7 @@ class GRPOConfigRequest(BaseModel):
     lora: Optional[bool] = None
     # To name the run
     suffix: Optional[str] = None
+    generation_batch_size: Optional[int] = None
 
 
 class GRPOConfigResponse(BaseModel):

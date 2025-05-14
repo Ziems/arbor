@@ -11,9 +11,9 @@ client = OpenAI(
 )
 
 num_generations = 4
-grad_accum_steps = 8
-context_length = 2500 # 6000
-current_model =  "qwen/qwen3-8b" # "meta-llama/Llama-3.1-8B-Instruct"
+grad_accum_steps = 40
+context_length = 8000
+current_model =  "qwen/qwen3-8b" # "meta-llama/Llama-3.1-8B-Instruct" #
 
 def initialize_grpo(
     model, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/initialize"
@@ -90,6 +90,7 @@ def initialize_grpo(
         # 'log_completions': True,
         # 'logging_steps': 100,
         'max_context_length': 6000,
+        'generation_batch_size': num_generations,
     })
     response = requests.post(url, headers=headers, json=data)
     return response
