@@ -14,7 +14,7 @@ from typing import Any, List, Optional, Union
 import torch
 import zmq
 from accelerate import Accelerator
-from accelerate.utils import gather, gather_object
+from accelerate.utils import broadcast_object_list, gather, gather_object
 from datasets import Dataset, IterableDataset, load_dataset
 from peft import AutoPeftModelForCausalLM, LoraConfig, PeftConfig  # type: ignore
 from torch.utils.data import Dataset
@@ -159,6 +159,21 @@ class ArborGRPOTrainer(GRPOTrainer):
         # if self.state.global_step != self._last_loaded_step:
         #     self._move_model_to_vllm()
         #     self._last_loaded_step = self.state.global_step
+
+        prompt_ids = broadcast_object_list(prompt_ids)
+        prompt_mask = broadcast_object_list(prompt_mask)
+        completion_ids = broadcast_object_list(completion_ids)
+        completion_mask = broadcast_object_list(completion_mask)
+
+        process_slice = slice(
+            self.accelerator.process_index * len(batch),
+            (self.accelerator.process_index + 1) * len(batch),
+        )
+
+        prompt_ids = prompt_ids[process_slice]
+        prompt_mask = prompt_mask[process_slice]
+        completion_ids = completion_ids[process_slice]
+        completion_mask = completion_mask[process_slice]
 
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B, P+C)
