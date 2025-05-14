@@ -382,11 +382,19 @@ class GRPOManager:
                     )
                 output_dir = self.train_kwargs["output_dir"]
                 self.train_kwargs = None
-                return output_dir
+                return {
+                    "current_model": self.current_model,
+                    "checkpoints": self.checkpoints,
+                    "last_checkpoint": self.last_checkpoint,
+                }
             else:
                 print("Training terminated, no output directory specified")
                 self.train_kwargs = None
-                return None
+                return {
+                    "current_model": self.current_model,
+                    "checkpoints": self.checkpoints,
+                    "last_checkpoint": self.last_checkpoint,
+                }
 
     def _should_update_model(self):
         return self.model_saved_and_reload_requested
