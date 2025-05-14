@@ -337,6 +337,11 @@ class GRPOManager:
 
     def terminate(self, inference_manager: InferenceManager):
         """Clean up resources and save the final model."""
+        termination_data = {
+            "current_model": self.current_model,
+            "checkpoints": self.checkpoints,
+            "last_checkpoint": self.last_checkpoint,
+        }
         try:
             # Stop the inference server
             if inference_manager.process is not None:
@@ -383,19 +388,11 @@ class GRPOManager:
                     )
                 output_dir = self.train_kwargs["output_dir"]
                 self.train_kwargs = None
-                return {
-                    "current_model": self.current_model,
-                    "checkpoints": self.checkpoints,
-                    "last_checkpoint": self.last_checkpoint,
-                }
             else:
                 print("Training terminated, no output directory specified")
                 self.train_kwargs = None
-                return {
-                    "current_model": self.current_model,
-                    "checkpoints": self.checkpoints,
-                    "last_checkpoint": self.last_checkpoint,
-                }
+
+        return termination_data
 
     def _should_update_model(self):
         return self.model_saved_and_reload_requested
