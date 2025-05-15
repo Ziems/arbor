@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from itertools import chain
 from multiprocessing import Pipe, Process
 from multiprocessing.connection import Connection
-from typing import Optional
+from typing import Literal, Optional
 
 import torch
 from trl import TrlParser
@@ -519,6 +519,10 @@ def main(script_args: ScriptArguments):
         ]
         return {"completion_ids": completion_ids}
 
+    class ResponseFormat(BaseModel):
+        type: Literal["json_schema", "json_object"]
+        json_schema: Optional[dict] = None
+
     class ChatRequest(BaseModel):
         messages: list[list[dict[str, str]]]
         n: int = 1
@@ -528,7 +532,7 @@ def main(script_args: ScriptArguments):
         top_k: int = -1
         min_p: float = 0.0
         max_tokens: int = 16
-        guided_decoding_json: Optional[dict] = None
+        response_format: Optional[ResponseFormat] = None
         stop: Optional[list[str]] = None
         include_stop_str_in_output: bool = False
         skip_special_tokens: bool = True
@@ -552,8 +556,17 @@ def main(script_args: ScriptArguments):
         """
 
         # Guided decoding, if enabled
-        if request.guided_decoding_json is not None:
-            guided_decoding = GuidedDecodingParams(json=request.guided_decoding_json)
+        if request.response_format is not None:
+            if request.response_format.type == "json_schema":
+                guided_decoding = GuidedDecodingParams(
+                    json=request.response_format.json_schema
+                )
+            elif request.response_format.type == "json_object":
+                guided_decoding = GuidedDecodingParams(json_object=True)
+            else:
+                raise ValueError(
+                    f"Invalid response format type: {request.response_format.type}"
+                )
         else:
             guided_decoding = None
 

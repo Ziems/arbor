@@ -96,6 +96,8 @@ class GRPOManager:
             "report_to",
             "log_completions",
             "logging_steps",
+            "generation_batch_size",
+            "mask_truncated_completions",
         ]
         trl_train_kwargs = {
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
@@ -119,6 +121,17 @@ class GRPOManager:
         )
 
         self.current_model = request.model
+
+        # The inference server has to be launched before the training process
+        # Launch the inference server
+        # launch_kwargs = {
+        #     k: v for k, v in arbor_train_kwargs.items() if k in ["max_context_length"]
+        # }
+        inference_manager.launch_kwargs["max_context_length"] = arbor_train_kwargs.get(
+            "max_context_length", None
+        )
+        print("Launching inference server...")
+        inference_manager.launch(self.current_model)
 
         # Initialize ZMQ socket manager - no need for connection acceptance thread anymore
         self.server_comms_handler = ArborServerCommsHandler()
@@ -219,16 +232,6 @@ class GRPOManager:
         self.status_thread.start()
         self.server_comms_handler.wait_for_clients(num_processes)
 
-        # Launch the inference server
-        print("Launching inference server...")
-        # launch_kwargs = {
-        #     k: v for k, v in arbor_train_kwargs.items() if k in ["max_context_length"]
-        # }
-        inference_manager.launch_kwargs["max_context_length"] = arbor_train_kwargs.get(
-            "max_context_length", None
-        )
-        inference_manager.launch(self.current_model)
-
     def _handle_status_updates(self, inference_manager: InferenceManager):
         """Handle status updates from training process using ZMQ SUB socket"""
         print("Starting status update handler...")
@@ -243,7 +246,6 @@ class GRPOManager:
                     if self._should_update_model():
                         inference_manager.update_model(status["output_dir"])
                         # self.last_inference_update = self.data_count
-                        self.model_saved_and_reload_requested = False
                         self.current_model = status["output_dir"]
                         print("Model update complete")
                 elif status["status"] == "checkpoint_saved":
@@ -263,15 +265,6 @@ class GRPOManager:
     def grpo_step(
         self, request: GRPORequest, inference_manager: InferenceManager
     ) -> str:
-        while inference_manager.is_server_restarting():
-            print("Inferece manager restarting, waiting for GRPO step")
-            time.sleep(5)
-
-        while self._should_update_model():
-            print(
-                f"Waiting for model update. Data count: {self.data_count}, Last inference update: {self.last_inference_update}"
-            )
-            time.sleep(5)
 
         while self.saving_checkpoint:
             print("Saving checkpoint, pausing GRPO steps until checkpoint is saved...")
@@ -291,6 +284,11 @@ class GRPOManager:
         }
 
     def update_model(self, request, inference_manager: InferenceManager):
+        return {
+            "current_model": self.current_model,
+            "checkpoints": self.checkpoints,
+            "last_checkpoint": self.last_checkpoint,
+        }
         if inference_manager._session:
             # Create a new event loop if one doesn't exist
             try:
@@ -335,6 +333,11 @@ class GRPOManager:
 
     def terminate(self, inference_manager: InferenceManager):
         """Clean up resources and save the final model."""
+        termination_data = {
+            "current_model": self.current_model,
+            "checkpoints": self.checkpoints,
+            "last_checkpoint": self.last_checkpoint,
+        }
         try:
             # Stop the inference server
             if inference_manager.process is not None:
@@ -381,14 +384,11 @@ class GRPOManager:
                     )
                 output_dir = self.train_kwargs["output_dir"]
                 self.train_kwargs = None
-                return output_dir
             else:
                 print("Training terminated, no output directory specified")
                 self.train_kwargs = None
-                return None
 
-    def _should_update_model(self):
-        return self.model_saved_and_reload_requested
+        return termination_data
 
 
 def get_free_port() -> int:

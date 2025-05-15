@@ -130,7 +130,6 @@ class InferenceManager:
             group_port=self.group_port,
             connection_timeout=300,  # 5 minutes
         )
-        self.vllm_client.init_communicator()
 
     def kill(self):
         if self.process is None:
@@ -199,20 +198,6 @@ class InferenceManager:
             self.inference_count += 1
 
             # Preprocess request_json
-            if "response_format" in request_json:
-                if "json_schema" in request_json["response_format"]:
-                    request_json["guided_decoding_json"] = request_json[
-                        "response_format"
-                    ]["json_schema"]
-                    del request_json["response_format"]
-                else:
-                    print(
-                        f"JSON schema not found in response_format: {request_json['response_format']}"
-                    )
-                    raise ValueError(
-                        "Unsupported response_format: json_schema is required"
-                    )
-
             request_json["messages"] = [request_json["messages"]]
 
             conversation = [
@@ -252,6 +237,7 @@ class InferenceManager:
                 "include_stop_str_in_output",
                 "skip_special_tokens",
                 "spaces_between_special_tokens",
+                "response_format",
             }
             unsupported_keys = {
                 "model",
@@ -274,12 +260,9 @@ class InferenceManager:
             }
             # Call chat method with filtered parameters
             completion = self.vllm_client.chat(**vllm_params)
+            response = _make_response(completion, model)
 
-            # TODO: Post processing
-            import pdb
-
-            pdb.set_trace()
-            return completion
+            return response
         except Exception as e:
             print(f"Error during inference: {e}")
             raise
@@ -329,3 +312,33 @@ def wait_for_server(base_url: str, timeout: int = None) -> None:
         except requests.exceptions.RequestException:
             # Server not up yet, wait and retry
             time.sleep(1)
+
+
+def _make_response(completion, model):
+    template = {
+        "id": "dummy-id-1234567890abcdef",
+        "object": "chat.completion",
+        "created": 1747263344,
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": completion["responses"][0]["outputs"][0]["text"],
+                    "reasoning_content": None,
+                    "tool_calls": None,
+                },
+                "logprobs": None,
+                "finish_reason": "stop",
+                "matched_stop": 151645,
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 272,
+            "total_tokens": 647,
+            "completion_tokens": 375,
+            "prompt_tokens_details": None,
+        },
+    }
+    return template
