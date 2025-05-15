@@ -182,6 +182,10 @@ class GRPOManager:
                 str(self.server_comms_handler.broadcast_port),
                 "--handshake_port",
                 str(self.server_comms_handler.handshake_port),
+                "--vllm_server_port",
+                str(inference_manager.server_port),
+                "--vllm_group_port",
+                str(inference_manager.group_port),
                 # Training args
                 "--model",
                 self.current_model,

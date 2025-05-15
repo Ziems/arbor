@@ -146,7 +146,6 @@ class InferenceManager:
         self.last_activity = None
 
         try:
-            self.vllm_client.close_communicator()
             # Handle nested signal case
             if self._shutting_down:
                 process.kill()  # Go straight to SIGKILL if we're shutting down

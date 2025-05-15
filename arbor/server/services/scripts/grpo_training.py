@@ -75,6 +75,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         comms_handler: Optional[ArborScriptCommsHandler] = None,
         lora: Optional[bool] = False,
         # We do nothing with max_context_length right now
+        vllm_group_port: Optional[int] = None,
         max_context_length: Optional[int] = None,
         **kwargs,
     ):
@@ -93,6 +94,33 @@ class ArborGRPOTrainer(GRPOTrainer):
         self.peft_config = peft_config
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
+
+        self.vllm_client = None
+        args.use_vllm = True
+        self.use_vllm = True
+        if self.accelerator.is_main_process:
+            print(
+                f"Initializing vLLM client with server port {args.vllm_server_port} and group port {vllm_group_port}"
+            )
+            self.vllm_client = VLLMClient(
+                args.vllm_server_host,
+                args.vllm_server_port,
+                group_port=vllm_group_port,
+                connection_timeout=args.vllm_server_timeout,
+            )
+            self.vllm_client.init_communicator()
+
+        # vLLM specific sampling arguments
+        self.guided_decoding_regex = args.vllm_guided_decoding_regex
+
+        self._last_loaded_step = (
+            -1
+        )  # tag to avoid useless loading during grad accumulation
+
+        # When using vLLM, the main process is responsible for loading the model weights. This can cause process
+        # desynchronization and seems to lead to DeepSpeed hanging during initialization. To prevent this, we
+        # synchronize all processes after vLLM has been fully initialized.
+        self.accelerator.wait_for_everyone()
 
     def _generate_and_score_completions(
         self, batch: List[dict[str, Any]]
@@ -489,6 +517,9 @@ def main():
     pipe_args.add_argument("--data_port", type=int, required=True)
     pipe_args.add_argument("--broadcast_port", type=int, required=True)
     pipe_args.add_argument("--handshake_port", type=int, required=True)
+    pipe_args.add_argument("--vllm_group_port", type=int, required=True)
+    pipe_args.add_argument("--vllm_server_port", type=int, required=True)
+    pipe_args.add_argument("--vllm_group_port", type=int, required=True)
 
     training_args = parser.add_argument_group("Training arguments")
     training_args.add_argument(
@@ -602,6 +633,7 @@ def main():
         training_args = GRPOConfig(
             dataloader_num_workers=0,
             shuffle_dataset=False,
+            vllm_server_port=args.vllm_server_port,
             **trl_train_args,
         )
 
@@ -611,6 +643,7 @@ def main():
             train_dataset=BlockingQueueDataset(None, None),
             callbacks=[LastStepTimeCallback()],
             peft_config=lora_config,
+            vllm_group_port=args.vllm_group_port,
             **arbor_train_args,
         )
         # Create client handler
