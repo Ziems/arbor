@@ -400,8 +400,16 @@ class GRPOManager:
 
 def get_free_port() -> int:
     """
-    Return a free TCP port on localhost.
+    Return a randomly selected free TCP port on localhost from a selection of 3-4 ports.
     """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("localhost", 0))
-        return s.getsockname()[1]
+    import random
+    import socket
+    ports = []
+    for _ in range(random.randint(5, 10)):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("localhost", 0))
+                ports.append(s.getsockname()[1])
+        except Exception as e:
+            print(f"Error binding to port: {e}")
+    return random.choice(ports)
