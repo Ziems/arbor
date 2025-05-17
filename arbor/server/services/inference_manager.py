@@ -81,7 +81,7 @@ class InferenceManager:
                     self.settings.arbor_config.inference.gpu_ids
                 )
                 n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
-                # command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching --guided-decoding-backend xgrammar"
+                # command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching"
                 command = f"python -m sglang.launch_server --model-path {model} --port {port} --host 0.0.0.0"
 
                 if launch_kwargs.get("max_context_length"):
