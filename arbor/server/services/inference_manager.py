@@ -379,7 +379,7 @@ def wait_for_server(base_url: str, timeout: int = None) -> None:
             time.sleep(1)
 
 
-def get_worker_urls(zmq_port: int, timeout: float = 5.0) -> list:
+def get_worker_urls(zmq_port: int, timeout: float = 30.0) -> list:
     print(f"Attempting to get worker URLs on port {zmq_port} with timeout {timeout}s")
     context = zmq.Context()
     socket = context.socket(zmq.SUB)
