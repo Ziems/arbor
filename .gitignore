@@ -23,11 +23,11 @@ wheels/
 
 # Virtual Environment
 .env
-.venv
+.*venv/
 env/
 venv/
 ENV/
-.conda/
+.*conda/
 
 # IDE
 .idea/
