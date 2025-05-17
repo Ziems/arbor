@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 
 import aiohttp
 import requests
+import zmq
 
 from arbor.server.core.config import Settings
 
@@ -28,6 +29,7 @@ class InferenceManager:
         self.current_model = None
         self.inference_count = 0
         self._session = None
+        self.worker_urls = []
         # Set up signal handler for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -74,15 +76,17 @@ class InferenceManager:
                 print(
                     f"Grabbing a free port to launch an SGLang server for model {model}"
                 )
-                port = get_free_port()
+                router_port = get_free_port()
+                dp_worker_base_port = get_free_port()
+                worker_urls_port = get_free_port()  # Get a port for worker URLs
+
                 timeout = launch_kwargs.get("timeout", 1800)
                 my_env = os.environ.copy()
                 my_env["CUDA_VISIBLE_DEVICES"] = (
                     self.settings.arbor_config.inference.gpu_ids
                 )
                 n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
-                # command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching"
-                command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --port {port} --host 0.0.0.0 --disable-radix-cache"
+                command = f"python -m arbor.server.services.inference.sgl_router_launch_server --model-path {model} --dp-size {n_gpus} --port {router_port} --host 0.0.0.0 --disable-radix-cache --router-dp-worker-base-port {dp_worker_base_port} --worker-urls-port {worker_urls_port}"
                 print(f"Running command: {command}")
                 if launch_kwargs.get("max_context_length"):
                     command += (
@@ -124,8 +128,16 @@ class InferenceManager:
                 )
                 thread.start()
 
+                # Get worker URLs before waiting for server
+                try:
+                    worker_urls = get_worker_urls(worker_urls_port)
+                    print(f"Received worker URLs: {worker_urls}")
+                    self.worker_urls = worker_urls
+                except TimeoutError as e:
+                    raise Exception(f"Failed to get worker URLs: {e}")
+
                 # Wait until the server is ready (or times out)
-                base_url = f"http://localhost:{port}"
+                base_url = f"http://localhost:{router_port}"
                 try:
                     wait_for_server(base_url, timeout=timeout)
                 except TimeoutError:
@@ -142,9 +154,9 @@ class InferenceManager:
                     return "".join(logs_buffer)
 
                 # Let the user know server is up
-                print(f"Server ready on random port {port}!")
+                print(f"Server ready on random port {router_port}!")
 
-                self.launch_kwargs["api_base"] = f"http://localhost:{port}/v1"
+                self.launch_kwargs["api_base"] = f"http://localhost:{router_port}/v1"
                 self.launch_kwargs["api_key"] = "local"
                 self.get_logs = get_logs
                 self.process = process
@@ -286,9 +298,10 @@ class InferenceManager:
         self.inference_count = 0
 
         tik = time.time()
-        self.kill()
-        print("Just killed server")
-        time.sleep(5)
+        # self.kill()
+        # print("Just killed server")
+        # time.sleep(5)
+
         # Check that output directory exists and was created successfully
         print(f"Checking that output directory {output_dir} exists")
         if not os.path.exists(output_dir):
@@ -296,8 +309,27 @@ class InferenceManager:
                 f"Failed to save model - output directory {output_dir} does not exist"
             )
 
-        print("Launching new server")
-        self.launch(output_dir, self.launch_kwargs)
+        print("Directly updating weights from disk")
+        for worker_url in self.worker_urls:
+            print(f"Updating weights from disk for worker {worker_url}")
+            try:
+                response = requests.post(
+                    f"{worker_url}/update_weights_from_disk",
+                    json={"model_path": output_dir},
+                )
+                response_json = response.json()
+                print(f"Response from update_weights_from_disk: {response_json}")
+                # TODO: Check that the response is successful
+            except Exception as e:
+                print(f"Error during update_weights_from_disk: {e}")
+                print(f"Full error during update_weights_from_disk: {str(e)}")
+                if hasattr(e, "response") and e.response is not None:
+                    print(f"Response status code: {e.response.status_code}")
+                    print(f"Response text: {e.response.text}")
+        self.current_model = output_dir
+
+        # print("Launching new server")
+        # self.launch(output_dir, self.launch_kwargs)
         tok = time.time()
         self.restarting = False
         print(f"Time taken to update model: {tok - tik} seconds")
@@ -345,3 +377,23 @@ def wait_for_server(base_url: str, timeout: int = None) -> None:
         except requests.exceptions.RequestException:
             # Server not up yet, wait and retry
             time.sleep(1)
+
+
+def get_worker_urls(zmq_port: int, timeout: float = 5.0) -> list:
+    context = zmq.Context()
+    socket = context.socket(zmq.SUB)
+    socket.connect(f"tcp://localhost:{zmq_port}")
+    socket.setsockopt_string(zmq.SUBSCRIBE, "")  # Subscribe to all messages
+
+    # Set a timeout for receiving
+    socket.setsockopt(zmq.RCVTIMEO, int(timeout * 1000))
+
+    try:
+        message = socket.recv_json()
+        if message.get("type") == "worker_urls":
+            return message["urls"]
+    except zmq.error.Again:
+        raise TimeoutError(f"Timeout waiting for worker URLs on port {zmq_port}")
+    finally:
+        socket.close()
+        context.term()
