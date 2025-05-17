@@ -195,15 +195,17 @@ def main():
     router_args.worker_urls = worker_urls
 
     # Publish worker URLs via ZMQ if port is specified
-    if args.zmq_url_port:
+    if args.worker_urls_port:
         try:
             context = zmq.Context()
             socket = context.socket(zmq.PUB)
-            socket.bind(f"tcp://*:{args.zmq_url_port}")
+            socket.bind(f"tcp://*:{args.worker_urls_port}")
             # Give subscribers time to connect
             time.sleep(0.1)
             socket.send_json({"type": "worker_urls", "urls": worker_urls})
-            logger.info(f"Published worker URLs via ZMQ on port {args.zmq_url_port}")
+            logger.info(
+                f"Published worker URLs via ZMQ on port {args.worker_urls_port}"
+            )
             socket.close()
             context.term()
         except Exception as e:

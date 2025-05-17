@@ -380,6 +380,7 @@ def wait_for_server(base_url: str, timeout: int = None) -> None:
 
 
 def get_worker_urls(zmq_port: int, timeout: float = 5.0) -> list:
+    print(f"Attempting to get worker URLs on port {zmq_port} with timeout {timeout}s")
     context = zmq.Context()
     socket = context.socket(zmq.SUB)
     socket.connect(f"tcp://localhost:{zmq_port}")
@@ -389,9 +390,13 @@ def get_worker_urls(zmq_port: int, timeout: float = 5.0) -> list:
     socket.setsockopt(zmq.RCVTIMEO, int(timeout * 1000))
 
     try:
+        print("Waiting for worker URLs message...")
         message = socket.recv_json()
+        print(f"Received message: {message}")
         if message.get("type") == "worker_urls":
             return message["urls"]
+        else:
+            raise ValueError(f"Unexpected message type: {message.get('type')}")
     except zmq.error.Again:
         raise TimeoutError(f"Timeout waiting for worker URLs on port {zmq_port}")
     finally:
