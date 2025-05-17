@@ -10,14 +10,63 @@ client = OpenAI(
     api_key="not-needed",  # If you're using a local server, you dont need an API key
 )
 
-num_generations = 4
+num_generations = 12
 grad_accum_steps = 40
-context_length = 2500 # 6000
-current_model =  "qwen/qwen3-8b" # "meta-llama/Llama-3.1-8B-Instruct"
+context_length = 8000
+current_model =  "meta-llama/Llama-3.1-8B-Instruct" # "qwen/qwen3-8b" # 
 
 def initialize_grpo(
     model, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/initialize"
 ):
+    
+    # OptimizerConfig(
+    #     optimizer=GRPO,
+    #     init_args=dict(
+    #         multitask=True,
+    #         num_dspy_examples_per_grpo_step=4,
+    #         num_rollouts_per_grpo_step=8,
+    #         exclude_demos=True,
+    #         num_train_steps=750,
+    #         num_threads=os.cpu_count(),
+    #         use_train_as_val=False,
+    #         num_steps_for_val=20,
+    #         train_kwargs={
+    #             "update_interval": 10,
+    #             "per_device_train_batch_size": 1,
+    #             "gradient_accumulation_steps": 40,
+    #             "temperature": 0.9,
+    #             "beta": 0.04,
+    #             "learning_rate": 1e-5,
+    #             "gradient_checkpointing": True,
+    #             "gradient_checkpointing_kwargs": {"use_reentrant": False},
+    #             "bf16": True,
+    #             "lr_scheduler_type": "constant_with_warmup",
+    #             "max_prompt_length": None,
+    #             "max_completion_length": None,
+    #             "scale_rewards": True,
+    #             "max_grad_norm": 0.5,
+    #             "lora": True,
+    #             # 'report_to': "wandb",
+    #             # 'log_completions': True,
+    #             # 'logging_steps': 100,
+    #             'max_context_length': 6000,
+    #         },
+    #         report_train_scores=False,
+    #         variably_invoked_predictor_grouping_mode="fill",
+    #         variably_invoked_predictor_fill_strategy="randint",
+    #         grpo_group_size=4,
+    #     ),
+    #     compile_args=dict(),
+    #     langProBe_configs=dict(
+    #         use_valset=True,
+    #         add_valset_to_trainset=False,
+    #         use_model_name_from_optimized_program=True,
+    #         set_lm_before_optimizer=True,
+    #         launch_arbor=True,
+    #     ),
+    #     name="GRPO",
+    # )
+
     headers = {"Content-Type": "application/json"}
     data = {"model": model, "num_generations": num_generations, "update_interval": 10, 'report_to': None}
 
@@ -40,7 +89,7 @@ def initialize_grpo(
         'report_to': None,
         # 'log_completions': True,
         # 'logging_steps': 100,
-        'max_context_length': 6000,
+        'max_context_length': context_length,
         'generation_batch_size': num_generations,
     })
     response = requests.post(url, headers=headers, json=data)
