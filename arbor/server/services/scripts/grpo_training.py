@@ -519,7 +519,6 @@ def main():
     pipe_args.add_argument("--handshake_port", type=int, required=True)
     pipe_args.add_argument("--vllm_group_port", type=int, required=True)
     pipe_args.add_argument("--vllm_server_port", type=int, required=True)
-    pipe_args.add_argument("--vllm_group_port", type=int, required=True)
 
     training_args = parser.add_argument_group("Training arguments")
     training_args.add_argument(
