@@ -81,13 +81,14 @@ class InferenceManager:
                     self.settings.arbor_config.inference.gpu_ids
                 )
                 n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
-                # command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching"
-                command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --port {port} --host 0.0.0.0 --disable-radix-cache"
-                print(f"Running command: {command}")
+                # command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching --guided-decoding-backend xgrammar"
+                command = f"python -m sglang.launch_server --model-path {model} --port {port} --host 0.0.0.0"
+
                 if launch_kwargs.get("max_context_length"):
                     command += (
                         f" --context-length {launch_kwargs['max_context_length']}"
                     )
+                print(f"Running command: {command}")
 
                 # We will manually stream & capture logs.
                 process = subprocess.Popen(
@@ -144,7 +145,7 @@ class InferenceManager:
                 # Let the user know server is up
                 print(f"Server ready on random port {port}!")
 
-                self.launch_kwargs["api_base"] = f"http://localhost:{port}/v1"
+                self.launch_kwargs["api_base"] = f"http://localhost:{port}"
                 self.launch_kwargs["api_key"] = "local"
                 self.get_logs = get_logs
                 self.process = process
@@ -241,7 +242,7 @@ class InferenceManager:
                 await asyncio.sleep(5)
             request_json["model"] = self.current_model
 
-        url = f"{self.launch_kwargs['api_base']}/chat/completions"
+        url = f"{self.launch_kwargs['api_base']}/v1/chat/completions"
         try:
             self.inference_count += 1
             session = await self._ensure_session()
@@ -286,9 +287,8 @@ class InferenceManager:
         self.inference_count = 0
 
         tik = time.time()
-        self.kill()
-        print("Just killed server")
-        time.sleep(5)
+        # self.kill()
+        # print("Just killed server")
         # Check that output directory exists and was created successfully
         print(f"Checking that output directory {output_dir} exists")
         if not os.path.exists(output_dir):
@@ -296,8 +296,23 @@ class InferenceManager:
                 f"Failed to save model - output directory {output_dir} does not exist"
             )
 
-        print("Launching new server")
-        self.launch(output_dir, self.launch_kwargs)
+        print("Directly updating weights from disk")
+        # self.launch(output_dir, self.launch_kwargs)
+        try:
+            response = requests.post(
+                f"{self.launch_kwargs['api_base']}/update_weights_from_disk",
+                json={"model_path": output_dir},
+            )
+            response_json = response.json()
+            print(f"Response from update_weights_from_disk: {response_json}")
+            # TODO: Check that the response is successful
+        except Exception as e:
+            print(f"Error during update_weights_from_disk: {e}")
+            print(f"Full error during update_weights_from_disk: {str(e)}")
+            if hasattr(e, "response") and e.response is not None:
+                print(f"Response status code: {e.response.status_code}")
+                print(f"Response text: {e.response.text}")
+
         tok = time.time()
         self.restarting = False
         print(f"Time taken to update model: {tok - tik} seconds")
@@ -313,11 +328,20 @@ class InferenceManager:
 
 def get_free_port() -> int:
     """
-    Return a free TCP port on localhost.
+    Return a randomly selected free TCP port on localhost from a selection of 3-4 ports.
     """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("localhost", 0))
-        return s.getsockname()[1]
+    import random
+    import socket
+
+    ports = []
+    for _ in range(random.randint(5, 10)):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("localhost", 0))
+                ports.append(s.getsockname()[1])
+        except Exception as e:
+            print(f"Error binding to port: {e}")
+    return random.choice(ports)
 
 
 def wait_for_server(base_url: str, timeout: int = None) -> None:
