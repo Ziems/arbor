@@ -305,6 +305,7 @@ class InferenceManager:
             )
             response_json = response.json()
             print(f"Response from update_weights_from_disk: {response_json}")
+            self.current_model = output_dir
             # TODO: Check that the response is successful
         except Exception as e:
             print(f"Error during update_weights_from_disk: {e}")
