@@ -23,7 +23,7 @@ def upload_file(file_path, url=f"{ARBOR_URL}/api/files"):
 
 
 # Example usage:
-response = upload_file("./training_data_sft.jsonl")
+response = upload_file("./tests/data/training_data_sft.jsonl")
 print(response.status_code)  # Print the HTTP status code
 response_body = json.loads(response.text)
 uploaded_file = response_body["id"]
