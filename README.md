@@ -4,6 +4,8 @@
 
 **A framework for optimizing DSPy programs with RL.**
 
+[![PyPI Downloads](https://static.pepy.tech/badge/arbor-ai/month)](https://pepy.tech/projects/arbor-ai)
+
 ---
 
 ## 🚀 Installation
@@ -11,7 +13,7 @@
 Install Arbor via pip:
 
 ```bash
-pip install git+https://github.com/Ziems/arbor.git
+pip install arbor-ai
 ```
 
 ---
@@ -28,6 +30,7 @@ inference:
 training:
   gpu_ids: '1, 2'
 ```
+Which will use the `GPU:0` for inference with `GPU:1` and `GPU:2` reserved for training. We generally recommend splitting the GPUs roughly evenly between inference and training.
 
 ### 2️⃣ Start the Server
 
@@ -49,3 +52,15 @@ Follow the DSPy tutorials here to see usage examples:
 Arbor builds on the shoulders of great work. We extend our thanks to:
 - **[Will Brown's Verifiers library](https://github.com/willccbb/verifiers)**
 - **[Hugging Face TRL library](https://github.com/huggingface/trl)**
+
+## 📚 Citation
+
+If you use this code in your research, please cite:
+
+```bibtex
+@misc{ziems2025arbor,
+  title={Arbor: Open Source Language Model Post Training},
+  author={Ziems, Noah and Agrawal, Lakshya A and Soylu, Dilara and Lai, Liheng and Miller, Isaac and Qian, Chen and Jiang, Meng and Khattab, Omar},
+  year={2025}
+}
+```

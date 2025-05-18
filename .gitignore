@@ -23,10 +23,11 @@ wheels/
 
 # Virtual Environment
 .env
-.venv
+.*venv/
 env/
 venv/
 ENV/
+.*conda/
 
 # IDE
 .idea/
@@ -40,6 +41,7 @@ ENV/
 *.log
 /test_storage/
 /storage/
+/wandb/
 
 # OS specific
 .DS_Store

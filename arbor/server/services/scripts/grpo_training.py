@@ -14,7 +14,7 @@ from typing import Any, List, Optional, Union
 import torch
 import zmq
 from accelerate import Accelerator
-from accelerate.utils import gather
+from accelerate.utils import broadcast_object_list, gather, gather_object
 from datasets import Dataset, IterableDataset, load_dataset
 from peft import AutoPeftModelForCausalLM, LoraConfig, PeftConfig  # type: ignore
 from torch.utils.data import Dataset
@@ -23,6 +23,7 @@ from transformers import (
     PreTrainedTokenizerBase,
     Trainer,
     TrainerCallback,
+    is_wandb_available,
 )
 from trl import GRPOConfig, GRPOTrainer
 from trl.data_utils import maybe_apply_chat_template
@@ -31,6 +32,9 @@ from arbor.server.services.comms.comms import (
     ArborScriptCommsHandler,
     ArborServerCommsHandler,
 )
+
+if is_wandb_available():
+    import wandb
 
 last_step_time = None
 last_queue_pop_time = None
@@ -65,8 +69,9 @@ class ArborGRPOTrainer(GRPOTrainer):
         ] = (None, None),
         peft_config: Optional["PeftConfig"] = None,
         comms_handler: Optional[ArborScriptCommsHandler] = None,
-        update_interval: Optional[int] = 5,
         lora: Optional[bool] = False,
+        # We do nothing with max_context_length right now
+        max_context_length: Optional[int] = None,
         **kwargs,
     ):
 
@@ -85,12 +90,12 @@ class ArborGRPOTrainer(GRPOTrainer):
         self.peft_config = peft_config
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
-        self.update_interval = update_interval
 
     def _generate_and_score_completions(
         self, batch: List[dict[str, Any]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
         device = self.accelerator.device
+        mode = "train" if self.model.training else "eval"
 
         # Process prompts and completions
         prompt_completion_texts = []
@@ -106,12 +111,12 @@ class ArborGRPOTrainer(GRPOTrainer):
             )
 
         # Tokenize prompts
-        prompt_texts = [
+        prompts_text = [
             prompt_completion_text["prompt"]
             for prompt_completion_text in prompt_completion_texts
         ]
         prompt_inputs = self.processing_class(
-            prompt_texts,
+            prompts_text,
             return_tensors="pt",
             padding=True,
             padding_side="left",
@@ -124,12 +129,12 @@ class ArborGRPOTrainer(GRPOTrainer):
         )
 
         # Tokenize completions
-        completion_texts = [
+        completions_text = [
             prompt_completion_text["completion"]
             for prompt_completion_text in prompt_completion_texts
         ]
         completion_ids = self.processing_class(
-            completion_texts,
+            completions_text,
             return_tensors="pt",
             padding=True,
             add_special_tokens=False,
@@ -156,6 +161,30 @@ class ArborGRPOTrainer(GRPOTrainer):
         #     self._move_model_to_vllm()
         #     self._last_loaded_step = self.state.global_step
 
+        prompt_ids = broadcast_object_list(prompt_ids)
+        prompt_mask = broadcast_object_list(prompt_mask)
+        completion_ids = broadcast_object_list(completion_ids)
+        completion_mask = broadcast_object_list(completion_mask)
+
+        process_slice = slice(
+            self.accelerator.process_index * len(batch),
+            (self.accelerator.process_index + 1) * len(batch),
+        )
+
+        prompt_ids = prompt_ids[process_slice]
+        prompt_mask = prompt_mask[process_slice]
+        completion_ids = completion_ids[process_slice]
+        completion_mask = completion_mask[process_slice]
+
+        is_eos = completion_ids == self.processing_class.eos_token_id
+
+        # If mask_truncated_completions is enabled, zero out truncated completions in completion_mask
+        if self.mask_truncated_completions:
+            truncated_completions = ~is_eos.any(dim=1)
+            completion_mask = (
+                completion_mask * (~truncated_completions).unsqueeze(1).int()
+            )
+
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B, P+C)
 
@@ -164,34 +193,29 @@ class ArborGRPOTrainer(GRPOTrainer):
         )
 
         logits_to_keep = completion_ids.size(1)
+        batch_size = (
+            self.args.per_device_train_batch_size
+            if mode == "train"
+            else self.args.per_device_eval_batch_size
+        )
 
         with torch.no_grad():
             # When using num_iterations == 1, old_per_token_logps == per_token_logps, so we can skip it's
             # computation here, and use per_token_logps.detach() instead.
-            if self.num_iterations > 1:
+            if (
+                self.num_iterations > 1
+                or self.args.steps_per_generation
+                > self.args.gradient_accumulation_steps
+            ):
                 old_per_token_logps = self._get_per_token_logps(
-                    self.model, prompt_completion_ids, attention_mask, logits_to_keep
-                )
-            else:
-                old_per_token_logps = None
-
-            if self.beta == 0.0:
-                ref_per_token_logps = None
-            elif self.ref_model is not None:
-                ref_per_token_logps = self._get_per_token_logps(
-                    self.ref_model,
+                    self.model,
                     prompt_completion_ids,
                     attention_mask,
                     logits_to_keep,
+                    batch_size,
                 )
             else:
-                with self.accelerator.unwrap_model(self.model).disable_adapter():
-                    ref_per_token_logps = self._get_per_token_logps(
-                        self.model,
-                        prompt_completion_ids,
-                        attention_mask,
-                        logits_to_keep,
-                    )
+                old_per_token_logps = None
 
         rewards = torch.tensor(
             [example["reward"] for example in batch], dtype=torch.float32
@@ -219,7 +243,56 @@ class ArborGRPOTrainer(GRPOTrainer):
         )
         advantages = advantages[process_slice]
 
-        ## Logged Metrics Removed Here
+        # Log the metrics
+        if mode == "train":
+            self.state.num_input_tokens_seen += (
+                self.accelerator.gather_for_metrics(attention_mask.sum()).sum().item()
+            )
+        self._metrics[mode]["num_tokens"] = [self.state.num_input_tokens_seen]
+
+        # log completion lengths, mean, min, max
+        agg_completion_mask = self.accelerator.gather_for_metrics(
+            completion_mask.sum(1)
+        )
+        self._metrics[mode]["completions/mean_length"].append(
+            agg_completion_mask.float().mean().item()
+        )
+        self._metrics[mode]["completions/min_length"].append(
+            agg_completion_mask.float().min().item()
+        )
+        self._metrics[mode]["completions/max_length"].append(
+            agg_completion_mask.float().max().item()
+        )
+
+        # identify sequences that terminated with EOS and log their lengths
+        agg_terminated_with_eos = self.accelerator.gather_for_metrics(is_eos.any(dim=1))
+        term_completion_mask = agg_completion_mask[agg_terminated_with_eos]
+        clipped_completions_ratio = 1 - len(term_completion_mask) / len(
+            agg_completion_mask
+        )
+        self._metrics[mode]["completions/clipped_ratio"].append(
+            clipped_completions_ratio
+        )
+        if len(term_completion_mask) == 0:
+            # edge case where no completed sequences are found
+            term_completion_mask = torch.zeros(1, device=device)
+        self._metrics[mode]["completions/mean_terminated_length"].append(
+            term_completion_mask.float().mean().item()
+        )
+        self._metrics[mode]["completions/min_terminated_length"].append(
+            term_completion_mask.float().min().item()
+        )
+        self._metrics[mode]["completions/max_terminated_length"].append(
+            term_completion_mask.float().max().item()
+        )
+
+        # Calculate mean reward
+        self._metrics[mode]["reward"].append(mean_grouped_rewards.mean().item())
+        self._metrics[mode]["reward_std"].append(std_grouped_rewards.mean().item())
+
+        # Log prompt and completion texts
+        self._textual_logs["prompt"].extend(gather_object(prompts_text))
+        self._textual_logs["completion"].extend(gather_object(completions_text))
 
         return {
             "prompt_ids": prompt_ids,
@@ -227,7 +300,6 @@ class ArborGRPOTrainer(GRPOTrainer):
             "completion_ids": completion_ids,
             "completion_mask": completion_mask,
             "old_per_token_logps": old_per_token_logps,
-            "ref_per_token_logps": ref_per_token_logps,
             "advantages": advantages,
         }
 
@@ -326,15 +398,10 @@ class CommandMonitor:
                     print(
                         f"[Training Script] Instructed to save model at {self.trainer.args.output_dir}"
                     )
-                    # Wait until data queue is empty before saving
-
                     while (
                         time_since_last_step() <= 10
                         or get_time_since_last_queue_pop() <= 10
                     ):
-                        # print(
-                        # f"Waiting for data queue to empty...{self.comms_handler.get_data_queue_size()}"
-                        # )
                         print(f"Waiting for steps to finish")
                         print(
                             f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
@@ -342,19 +409,12 @@ class CommandMonitor:
                         print(
                             f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
                         )
-                        time.sleep(5)  # Small delay to prevent busy waiting)
+                        time.sleep(5)
                     print("[Training Script] Saving model...")
-
                     if self.trainer.peft_config:
-
                         self.trainer.save_model(
                             output_dir=self.trainer.args.output_dir + "/adapter/"
                         )
-
-                        # base_model = AutoModelForCausalLM.from_pretrained(
-                        #     self.base_model_name
-                        # ).to(self.trainer.accelerator.device)
-
                         _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
                             self.trainer.args.output_dir + "/adapter/",
                             config=self.trainer.peft_config,
@@ -377,6 +437,56 @@ class CommandMonitor:
                             "output_dir": self.trainer.args.output_dir,
                         }
                     )
+                elif command.get("command") == "save_checkpoint":
+                    print(
+                        f"[Training Script] Instructed to save checkpoint {command.get('checkpoint_name')}"
+                    )
+                    while (
+                        time_since_last_step() <= 10
+                        or get_time_since_last_queue_pop() <= 10
+                    ):
+                        print(f"Waiting for steps to finish")
+                        print(
+                            f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
+                        )
+                        print(
+                            f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
+                        )
+                        time.sleep(5)
+                    if self.trainer.peft_config:
+                        self.trainer.save_model(
+                            output_dir=self.trainer.args.output_dir
+                            + f"/checkpoints/{command.get('checkpoint_name')}/adapter/"
+                        )
+                        _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
+                            self.trainer.args.output_dir
+                            + f"/checkpoints/{command.get('checkpoint_name')}/adapter/",
+                            config=self.trainer.peft_config,
+                        )
+                        merged_model = _model_to_merge.merge_and_unload()
+                        merged_model.save_pretrained(
+                            self.trainer.args.output_dir
+                            + f"/checkpoints/{command.get('checkpoint_name')}/",
+                            safe_serialization=True,
+                        )
+                        self.trainer.processing_class.save_pretrained(
+                            self.trainer.args.output_dir
+                            + f"/checkpoints/{command.get('checkpoint_name')}/"
+                        )
+                    else:
+                        self.trainer.save_model(
+                            output_dir=self.trainer.args.output_dir
+                            + f"/checkpoints/{command.get('checkpoint_name')}/"
+                        )
+                    self.comms_handler.send_status(
+                        {
+                            "status": "checkpoint_saved",
+                            "checkpoint_name": command.get("checkpoint_name"),
+                            "output_dir": self.trainer.args.output_dir
+                            + f"/checkpoints/{command.get('checkpoint_name')}/",
+                        }
+                    )
+
         except Exception as e:
             print(e)
             self.comms_handler.send_status({"status": "error", "error": str(e)})
@@ -389,13 +499,15 @@ class CommandMonitor:
             for broadcast in self.comms_handler.receive_broadcast():
                 print(f"!!!Received broadcast: {broadcast}")
                 if broadcast.get("message") == "terminate":
-                    self.trainer.control.should_training_stop = True
-                    self.comms_handler.send_status(
-                        {
-                            "status": "Received termination command",
-                            "process_id": self.trainer.accelerator.process_index,
-                        }
-                    )
+                    # self.trainer.control.should_training_stop = True
+                    # self.comms_handler.send_status(
+                    #     {
+                    #         "status": "Received termination command",
+                    #         "process_id": self.trainer.accelerator.process_index,
+                    #     }
+                    # )
+                    if self.trainer.accelerator.is_main_process:
+                        self.trainer.accelerator.end_training()
         except Exception as e:
             self.comms_handler.send_status({"status": "error", "error": str(e)})
 

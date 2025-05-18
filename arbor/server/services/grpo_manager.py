@@ -1,7 +1,9 @@
+import asyncio
 import json
 import os
 import random
 import signal
+import socket
 import string
 import subprocess
 import sys
@@ -11,7 +13,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from arbor.server.api.models.schemas import GRPOConfigRequest, GRPORequest
+from arbor.server.api.models.schemas import (
+    GRPOCheckpointRequest,
+    GRPOConfigRequest,
+    GRPORequest,
+)
 from arbor.server.core.config import Settings
 from arbor.server.services.comms.comms import ArborServerCommsHandler
 from arbor.server.services.inference_manager import InferenceManager
@@ -26,7 +32,10 @@ class GRPOManager:
         self.server_comms_handler = None
         self.status_thread = None
         self.model_saved_and_reload_requested = False
+        self.saving_checkpoint = False
 
+        self.checkpoints = {}
+        self.last_checkpoint = None
         self.data_count = 0
         self.last_inference_update = 0
         # Set up signal handler
@@ -84,12 +93,17 @@ class GRPOManager:
             "bf16",
             "scale_rewards",
             "max_grad_norm",
+            "report_to",
+            "log_completions",
+            "logging_steps",
+            "generation_batch_size",
+            "mask_truncated_completions",
         ]
         trl_train_kwargs = {
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
         }
 
-        arbor_keys = ["update_interval", "lora"]
+        arbor_keys = ["max_context_length", "lora"]
         arbor_train_kwargs = {
             key: train_kwargs[key] for key in arbor_keys if key in train_kwargs
         }
@@ -117,8 +131,13 @@ class GRPOManager:
         # Start the training process with ZMQ ports
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.training.gpu_ids
+        # WandB can block the training process for login, so we silence it
+        my_env["WANDB_SILENT"] = "true"
 
         num_processes = self.settings.arbor_config.training.gpu_ids.count(",") + 1
+
+        # This is the port for the accelerate main process
+        main_process_port = get_free_port()
 
         params = [
             "python",
@@ -126,6 +145,8 @@ class GRPOManager:
             "accelerate.commands.launch",
             "--num_processes",
             str(num_processes),
+            "--main_process_port",
+            str(main_process_port),
         ]
         if self.settings.arbor_config.training.accelerate_config:
             params.extend(
@@ -202,6 +223,12 @@ class GRPOManager:
 
         # Launch the inference server
         print("Launching inference server...")
+        # launch_kwargs = {
+        #     k: v for k, v in arbor_train_kwargs.items() if k in ["max_context_length"]
+        # }
+        inference_manager.launch_kwargs["max_context_length"] = arbor_train_kwargs.get(
+            "max_context_length", None
+        )
         inference_manager.launch(self.current_model)
 
     def _handle_status_updates(self, inference_manager: InferenceManager):
@@ -221,6 +248,12 @@ class GRPOManager:
                         self.model_saved_and_reload_requested = False
                         self.current_model = status["output_dir"]
                         print("Model update complete")
+                elif status["status"] == "checkpoint_saved":
+                    print("Received checkpoint saved status")
+                    self.checkpoints[status["checkpoint_name"]] = status["output_dir"]
+                    self.last_checkpoint = status["checkpoint_name"]
+                    self.saving_checkpoint = False
+                    print("Checkpoint saved")
                 elif status["status"] == "error":
                     print(f"Training error: {status.get('error', 'Unknown error')}")
                 elif status["status"] == "terminated":
@@ -242,6 +275,10 @@ class GRPOManager:
             )
             time.sleep(5)
 
+        while self.saving_checkpoint:
+            print("Saving checkpoint, pausing GRPO steps until checkpoint is saved...")
+            time.sleep(5)
+
         try:
             # Send the batch to the training process
             self.server_comms_handler.send_data(request.batch)
@@ -249,16 +286,28 @@ class GRPOManager:
         except Exception as e:
             print(f"Failed to send batch to training process: {e}")
 
-        # We tell the script to save the model. The script will let us know when it's done via the status update handler
-        # Then we'll actually run the update_model function in the inference manager and finally update the last_inference_update variable
-        # if self._should_update_model():
-        #     self.server_comms_handler.send_command({"command": "save_model"})
-
-        return self.current_model
+        return {
+            "current_model": self.current_model,
+            "checkpoints": self.checkpoints,
+            "last_checkpoint": self.last_checkpoint,
+        }
 
     def update_model(self, request, inference_manager: InferenceManager):
-        # THIS IS HACKY AND NEEDS TO BE FIXED BEFORE RELEASE
+        if inference_manager._session:
+            # Create a new event loop if one doesn't exist
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+            # Run the session closure in the event loop
+            loop.run_until_complete(inference_manager._session.close())
+            inference_manager._session = None
+
+        inference_manager.inference_count = 0
         inference_manager.restarting = True
+
         self.model_saved_and_reload_requested = True
         self.server_comms_handler.send_command({"command": "save_model"})
         while self.model_saved_and_reload_requested:
@@ -266,10 +315,33 @@ class GRPOManager:
                 "Waiting for model to be saved and reloaded... This usually takes 20-30 seconds"
             )
             time.sleep(5)
-        return self.current_model
+        return {
+            "current_model": self.current_model,
+            "checkpoints": self.checkpoints,
+            "last_checkpoint": self.last_checkpoint,
+        }
+
+    def checkpoint(self, request: GRPOCheckpointRequest):
+        self.saving_checkpoint = True
+        self.server_comms_handler.send_command(
+            {"command": "save_checkpoint", "checkpoint_name": request.checkpoint_name}
+        )
+        while self.saving_checkpoint:
+            print("Waiting for checkpoint to be saved...")
+            time.sleep(5)
+        return {
+            "current_model": self.current_model,
+            "checkpoints": self.checkpoints,
+            "last_checkpoint": self.last_checkpoint,
+        }
 
     def terminate(self, inference_manager: InferenceManager):
         """Clean up resources and save the final model."""
+        termination_data = {
+            "current_model": self.current_model,
+            "checkpoints": self.checkpoints,
+            "last_checkpoint": self.last_checkpoint,
+        }
         try:
             # Stop the inference server
             if inference_manager.process is not None:
@@ -277,6 +349,8 @@ class GRPOManager:
 
             # Send termination command through REQ socket
             self.server_comms_handler.send_broadcast({"message": "terminate"})
+            # self.training_process.terminate()
+            print("Waiting for training process to finish")
 
             # Wait for training process to finish
             if self.training_process:
@@ -289,6 +363,21 @@ class GRPOManager:
             if self.server_comms_handler:
                 self.server_comms_handler.close()
 
+            # Force kill training process if still running
+            if self.training_process and self.training_process.poll() is None:
+                self.training_process.kill()
+                self.training_process.wait()
+
+            # Reinitialize incase we want to start a new training run
+            self.training_process = None
+            self.current_model = None
+            self.server_comms_handler = None
+            self.status_thread = None
+            self.model_saved_and_reload_requested = False
+
+            self.data_count = 0
+            self.last_inference_update = 0
+
             if self.train_kwargs and "output_dir" in self.train_kwargs:
                 print(
                     f"Training completed. Model saved to {self.train_kwargs['output_dir']}"
@@ -297,14 +386,22 @@ class GRPOManager:
                     print(
                         f"Warning: Output directory {self.train_kwargs['output_dir']} does not exist"
                     )
-                return self.train_kwargs["output_dir"]
+                output_dir = self.train_kwargs["output_dir"]
+                self.train_kwargs = None
             else:
                 print("Training terminated, no output directory specified")
-                return None
+                self.train_kwargs = None
+
+        return termination_data
 
     def _should_update_model(self):
-        # return (
-        #     self.data_count - self.last_inference_update
-        #     >= self.train_kwargs["update_interval"]
-        # )
         return self.model_saved_and_reload_requested
+
+
+def get_free_port() -> int:
+    """
+    Return a free TCP port on localhost.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("localhost", 0))
+        return s.getsockname()[1]
