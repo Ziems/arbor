@@ -47,9 +47,6 @@ ENV/
 .DS_Store
 Thumbs.db
 
-/training_data_*.jsonl
-/validation_data_*.jsonl
-
 mise.toml
 uv.lock
 data_stream.jsonl
