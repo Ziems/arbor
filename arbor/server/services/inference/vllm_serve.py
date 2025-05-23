@@ -304,7 +304,7 @@ def llm_worker(
         enable_prefix_caching=script_args.enable_prefix_caching,
         kv_cache_dtype=script_args.kv_cache_dtype,
         max_model_len=script_args.max_model_len,
-        worker_extension_cls="trl.scripts.vllm_serve.WeightSyncWorkerExtension",
+        worker_extension_cls="arbor.server.services.inference.vllm_serve.WeightSyncWorkerExtension",
     )
 
     # Send ready signal to parent process
