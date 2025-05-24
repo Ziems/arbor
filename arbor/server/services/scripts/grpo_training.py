@@ -554,6 +554,9 @@ def main():
         args.broadcast_port = server_comms_handler.broadcast_port
         args.handshake_port = server_comms_handler.handshake_port
 
+        handshake_thread = threading.Thread(target=server_comms_handler.wait_for_clients, args=(1,), daemon=True)
+        handshake_thread.start()
+
         def debug_data_generator():
             tldr_dataset = load_dataset("trl-lib/tldr", split="train")
             idx = 0
