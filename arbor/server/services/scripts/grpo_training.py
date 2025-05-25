@@ -91,6 +91,41 @@ class ArborGRPOTrainer(GRPOTrainer):
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
 
+
+    def _create_token_masks(self, messages: List[dict], token_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+        """Create token-level attention masks from message-level masks.
+        
+        Args:
+            messages: List of message dictionaries with optional 'mask' field
+            token_ids: Tensor of token IDs [batch_size, seq_len]
+            attention_mask: Original attention mask [batch_size, seq_len]
+            
+        Returns:
+            Modified attention mask where masked message tokens have 0s
+        """
+        # Start with the original attention mask
+        new_mask = attention_mask.clone()
+        
+        # Tokenize each message separately to get token counts
+        cumulative_length = 0
+        for msg in messages:
+            # Tokenize just this message
+            msg_tokens = self.processing_class(
+                msg["content"],
+                return_tensors="pt",
+                add_special_tokens=False
+            )
+            msg_length = msg_tokens["input_ids"].size(1)
+            
+            # If message is masked, zero out its section in attention mask
+            if msg.get("mask", False):
+                new_mask[:, cumulative_length:cumulative_length + msg_length] = 0
+                
+            cumulative_length += msg_length
+            
+        return new_mask
+        
+
     def _generate_and_score_completions(
         self, batch: List[dict[str, Any]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
@@ -122,11 +157,19 @@ class ArborGRPOTrainer(GRPOTrainer):
             padding_side="left",
             add_special_tokens=False,
         ).to(device)
-        prompt_ids = Trainer._prepare_inputs(self, prompt_inputs)
+        prompt_inputs = Trainer._prepare_inputs(self, prompt_inputs)
         prompt_ids, prompt_mask = (
             prompt_inputs["input_ids"],
             prompt_inputs["attention_mask"],
         )
+        
+        # Apply message-level masks to create token-level attention masks
+        for i, example in enumerate(batch):
+            prompt_mask[i] = self._create_token_masks(
+                example["messages"],
+                prompt_ids[i],
+                prompt_mask[i]
+            )
 
         # Tokenize completions
         completions_text = [
