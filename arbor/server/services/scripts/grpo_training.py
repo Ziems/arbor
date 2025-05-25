@@ -144,6 +144,8 @@ class ArborGRPOTrainer(GRPOTrainer):
                     self.processing_class,
                 )
             )
+        
+        import pdb; pdb.set_trace()
 
         # Tokenize prompts
         prompts_text = [
@@ -186,6 +188,7 @@ class ArborGRPOTrainer(GRPOTrainer):
             completion_ids["input_ids"],
             completion_ids["attention_mask"],
         )
+
 
         if self.max_prompt_length is not None:
             if prompt_ids.shape[1] > self.max_prompt_length:
@@ -230,6 +233,7 @@ class ArborGRPOTrainer(GRPOTrainer):
 
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B, P+C)
+        import pdb; pdb.set_trace()
 
         print(
             f"prompt_completion_ids.shape (after truncation, if enabled): {prompt_completion_ids.shape}, prompt_ids.shape: {prompt_ids.shape}, completion_ids.shape: {completion_ids.shape}"
