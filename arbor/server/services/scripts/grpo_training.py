@@ -93,15 +93,15 @@ class ArborGRPOTrainer(GRPOTrainer):
 
 
     def _create_token_masks(self, messages: List[dict], token_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
-        """Create token-level attention masks from message-level masks.
+        """Create token-level attention masks from message-level loss propagation flags.
         
         Args:
-            messages: List of message dictionaries with optional 'mask' field
+            messages: List of message dictionaries with optional 'propagate_loss' field
             token_ids: Tensor of token IDs [batch_size, seq_len]
             attention_mask: Original attention mask [batch_size, seq_len]
             
         Returns:
-            Modified attention mask where masked message tokens have 0s
+            Modified attention mask where tokens with propagate_loss=False have 0s
         """
         # Start with the original attention mask
         new_mask = attention_mask.clone()
@@ -117,14 +117,14 @@ class ArborGRPOTrainer(GRPOTrainer):
             )
             msg_length = msg_tokens["input_ids"].size(1)
             
-            # If message is masked, zero out its section in attention mask
-            if msg.get("mask", False):
+            # If propagate_loss is False, zero out its section in attention mask
+            # Default to True if not specified
+            if not msg.get("propagate_loss", True):
                 new_mask[:, cumulative_length:cumulative_length + msg_length] = 0
                 
             cumulative_length += msg_length
             
         return new_mask
-        
 
     def _generate_and_score_completions(
         self, batch: List[dict[str, Any]]
