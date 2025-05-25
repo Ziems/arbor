@@ -544,6 +544,11 @@ def main():
     args = parser.parse_args()
 
     if args.debug:
+        # python grpo_training.py --debug
+        #  --command_port 0 --status_port 0
+        #  --data_port 0 --broadcast_port 0
+        #  --handshake_port 0 --model Qwen/Qwen3-0.6B
+        #  --trl_train_kwargs '{"output_dir": ".", "report_to": "none"}'
         server_comms_handler = ArborServerCommsHandler(
             host=args.host,
         )
