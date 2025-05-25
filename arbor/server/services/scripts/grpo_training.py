@@ -120,7 +120,7 @@ class ArborGRPOTrainer(GRPOTrainer):
             # If propagate_loss is False, zero out its section in attention mask
             # Default to True if not specified
             if not msg.get("propagate_loss", True):
-                new_mask[:, cumulative_length:cumulative_length + msg_length] = 0
+                new_mask[cumulative_length:cumulative_length + msg_length] = 0
                 
             cumulative_length += msg_length
             
@@ -597,11 +597,20 @@ def main():
         args.broadcast_port = server_comms_handler.broadcast_port
         args.handshake_port = server_comms_handler.handshake_port
 
+        handshake_thread = threading.Thread(target=server_comms_handler.wait_for_clients, args=(1,), daemon=True)
+        handshake_thread.start()
+
         def debug_data_generator():
             tldr_dataset = load_dataset("trl-lib/tldr", split="train")
             idx = 0
             for item in tldr_dataset:
-                input_messages = [{"role": "user", "content": item["prompt"]}]
+                input_messages = [
+                    {"role": "user", "content": item["prompt"]},
+                    {"role": "assistant", "content": "Test (propagating loss)", "propagate_loss": True},
+                    {"role": "user", "content": "Test query"},
+                    {"role": "assistant", "content": "Test (not propagating loss)", "propagate_loss": False},
+                    {"role": "user", "content": "Test query"},
+                    ]
                 completions = [
                     {
                         "role": "assistant",
