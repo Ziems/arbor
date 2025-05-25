@@ -192,6 +192,7 @@ class ArborGRPOTrainer(GRPOTrainer):
             print("Updating inference model...")
             self._move_model_to_vllm()
             self._last_loaded_step = self.state.global_step
+            self.comms_handler.send_status({"status": "weight_update_complete"})
 
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B, P+C)
@@ -305,6 +306,20 @@ class LastStepTimeCallback(TrainerCallback):
         global last_step_time
         print(f"Time since last step: {time_since_last_step()}")
         last_step_time = time.time()
+
+
+class WeightUpdateCallback(TrainerCallback):
+    """A callback that sends weight update completion status after each step"""
+    def __init__(self):
+        self.comms_handler = None
+
+    def set_comms_handler(self, comms_handler: ArborScriptCommsHandler):
+        self.comms_handler = comms_handler
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if self.comms_handler and self.comms_handler.is_main_process:
+            print("[DEBUG] Sending weight update completion status")
+            self.comms_handler.send_status({"status": "weight_update_complete"})
 
 
 class BlockingQueueDataset(Dataset):
@@ -636,11 +651,12 @@ def main():
             **trl_train_args,
         )
 
+        weight_update_callback = WeightUpdateCallback()
         trainer = ArborGRPOTrainer(
             model=args.model,
             args=training_args,
             train_dataset=BlockingQueueDataset(None, None),
-            callbacks=[LastStepTimeCallback()],
+            callbacks=[LastStepTimeCallback(), weight_update_callback],
             peft_config=lora_config,
             vllm_group_port=args.vllm_group_port,
             **arbor_train_args,
@@ -655,6 +671,7 @@ def main():
             handshake_port=args.handshake_port,
             is_main_process=trainer.accelerator.is_main_process,
         )
+        weight_update_callback.set_comms_handler(comms_handler)
         trainer.comms_handler = comms_handler
 
         # Initialize the dataset with the actual accelerator

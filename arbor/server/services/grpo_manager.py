@@ -42,6 +42,11 @@ class GRPOManager:
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
+        self._weight_update_lock = threading.Lock()
+        self._weight_update_count = -1
+        self._weight_update_cv = threading.Condition(self._weight_update_lock)
+        self._active_weight_update = False
+
     def _signal_handler(self, signum, frame):
         """Handle keyboard interrupt (SIGINT) gracefully."""
         print("\nReceived keyboard interrupt. Shutting down gracefully...")
@@ -240,10 +245,17 @@ class GRPOManager:
         """Handle status updates from training process using ZMQ SUB socket"""
         print("Starting status update handler...")
         try:
-
             for status in self.server_comms_handler.receive_status():
                 print(f"Received status update: {status}")
-                if status["status"] == "model_saved":
+                if status["status"] == "weight_update_complete":
+                    print("Weight update completed")
+                    inference_manager.end_weight_update()
+                    with self._weight_update_lock:
+                        self._weight_update_count -= 1
+                        if self._weight_update_count == 0:
+                            print("All weight updates complete")
+                            self._weight_update_cv.notify_all()
+                elif status["status"] == "model_saved":
                     print("Updating inference model...")
                     # There is a case where this status is sent multiple times
                     # We need to make sure we only update the model once
@@ -260,27 +272,37 @@ class GRPOManager:
                     print("Checkpoint saved")
                 elif status["status"] == "error":
                     print(f"Training error: {status.get('error', 'Unknown error')}")
+                    if self._active_weight_update:
+                        self._weight_update_cv.notify_all()
                 elif status["status"] == "terminated":
                     print("Training process terminated")
+                    if self._active_weight_update:
+                        self._weight_update_cv.notify_all()
                     break
         except Exception as e:
             print(f"Error in status update handler: {e}")
+            if self._active_weight_update:
+                self._weight_update_cv.notify_all()
 
-    def grpo_step(
-        self, request: GRPORequest, inference_manager: InferenceManager
-    ) -> str:
-
+    def grpo_step(self, request: GRPORequest, inference_manager: InferenceManager) -> str:
         while self.saving_checkpoint:
             print("Saving checkpoint, pausing GRPO steps until checkpoint is saved...")
             time.sleep(5)
 
         try:
+            # Register this weight update
+            inference_manager.start_weight_update()
+            
             # Send the batch to the training process
+            print("Sending batch for training...")
             self.server_comms_handler.send_data(request.batch)
             self.data_count += 1
+
         except Exception as e:
             print(f"Failed to send batch to training process: {e}")
-
+            inference_manager.end_weight_update()  # Make sure to cleanup on error
+            raise
+        
         return {
             "current_model": self.current_model,
             "checkpoints": self.checkpoints,

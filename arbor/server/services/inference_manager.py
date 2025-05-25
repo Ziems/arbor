@@ -30,6 +30,9 @@ class InferenceManager:
         self.server_port = None
         self.group_port = None
         self.vllm_client = None
+        self._inference_lock = threading.Lock()
+        self._weight_update_count = -1  # Start at -1 to offset the first "ignored" update
+        self._inference_cv = threading.Condition(self._inference_lock)
         # Set up signal handler for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -131,6 +134,9 @@ class InferenceManager:
             connection_timeout=300,  # 5 minutes
         )
 
+        # Once server is ready, we tell the thread to stop printing further lines.
+        stop_printing_event.set()
+
     def kill(self):
         if self.process is None:
             print("No running server to kill.")
@@ -174,27 +180,33 @@ class InferenceManager:
         print("Server killed.")
 
     async def run_inference(self, request_json: dict):
-        model = request_json["model"]
-        prefixes = ["openai/", "huggingface/", "local:", "arbor:"]
-        for prefix in prefixes:
-            if model.startswith(prefix):
-                model = model[len(prefix) :]
-        print(f"Running inference for model {model}")
-
-        # Monkeypatch:
-        if model != self.current_model:
-            print(f"Model changed from {model} to {self.current_model}")
-            model = self.current_model
-            request_json["model"] = model
-
-        # Update last_activity timestamp
-        self.last_activity = datetime.now()
-
-        if self.process is None:
-            raise RuntimeError("Server is not running. Please launch it first.")
-
-        try:
+        with self._inference_lock:
+            # Wait if there are any weight updates in progress
+            while self._weight_update_count > 0:
+                print(f"Weight updates in progress ({self._weight_update_count}), waiting...")
+                self._inference_cv.wait(timeout=5)
+            
             self.inference_count += 1
+            
+        try:
+            model = request_json["model"]
+            prefixes = ["openai/", "huggingface/", "local:", "arbor:"]
+            for prefix in prefixes:
+                if model.startswith(prefix):
+                    model = model[len(prefix) :]
+            print(f"Running inference for model {model}")
+
+            # Monkeypatch:
+            if model != self.current_model:
+                print(f"Model changed from {model} to {self.current_model}")
+                model = self.current_model
+                request_json["model"] = model
+
+            # Update last_activity timestamp
+            self.last_activity = datetime.now()
+
+            if self.process is None:
+                raise RuntimeError("Server is not running. Please launch it first.")
 
             # Preprocess request_json
             request_json["messages"] = [request_json["messages"]]
@@ -262,11 +274,10 @@ class InferenceManager:
             response = _make_response(completion, model)
 
             return response
-        except Exception as e:
-            print(f"Error during inference: {e}")
-            raise
         finally:
-            self.inference_count -= 1
+            with self._inference_lock:
+                self.inference_count -= 1
+                self._inference_cv.notify_all()
 
     async def _ensure_session(self):
         if self._session is None or self._session.closed:
@@ -275,6 +286,25 @@ class InferenceManager:
             )  # No timeout...If it hangs, this might be the issue.
             self._session = aiohttp.ClientSession(timeout=timeout)
         return self._session
+
+    def start_weight_update(self):
+        """Register a new weight update operation"""
+        with self._inference_lock:
+            # Wait for any ongoing inference to complete
+            while self.inference_count > 0:
+                print(f"Waiting for {self.inference_count} inference requests to complete...")
+                self._inference_cv.wait()
+            
+            self._weight_update_count += 1
+            print(f"Starting weight update (total active: {self._weight_update_count})")
+
+    def end_weight_update(self):
+        """Complete a weight update operation"""
+        with self._inference_lock:
+            self._weight_update_count -= 1
+            print(f"Completed weight update (remaining: {self._weight_update_count})")
+            if self._weight_update_count == 0:
+                self._inference_cv.notify_all()
 
 
 def get_free_port() -> int:
