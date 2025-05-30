@@ -130,7 +130,7 @@ class InferenceManager:
 
                 # Get worker URLs before waiting for server
                 try:
-                    worker_urls = get_worker_urls(worker_urls_port)
+                    worker_urls = get_worker_urls(worker_urls_port, timeout=300)
                     print(f"Received worker URLs: {worker_urls}")
                     self.worker_urls = worker_urls
                 except TimeoutError as e:
