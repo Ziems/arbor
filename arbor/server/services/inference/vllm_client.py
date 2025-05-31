@@ -1,49 +1,25 @@
-# Copyright 2020-2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# adapted from trl/extras/vllm_client.py (huggingface/trl)
 
 import atexit
 import logging
 import time
 from typing import Optional
 
+import requests
+from requests import ConnectionError
+from requests.adapters import HTTPAdapter
+from openai import OpenAI
 import torch
 from torch import nn
-from trl.import_utils import (
-    is_requests_available,
-    is_vllm_ascend_available,
-    is_vllm_available,
-)
+from trl.import_utils import is_requests_available, is_vllm_available
 
-if is_requests_available():
-    import requests
-    from requests import ConnectionError
-
-
-if is_vllm_available():
-    from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator
-    from vllm.distributed.utils import StatelessProcessGroup
-
-    if is_vllm_ascend_available():
-        from vllm_ascend.distributed.device_communicators.pyhccl import (
-            PyHcclCommunicator as PyNcclCommunicator,
-        )
-
+from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator
+from vllm.distributed.utils import StatelessProcessGroup
 
 logger = logging.getLogger(__name__)
 
 
-class VLLMClient:
+class VLLMClient(OpenAI):
     """
     A client class to interact with a vLLM server.
 
@@ -82,7 +58,6 @@ class VLLMClient:
 
         >>> from transformers import AutoModelForCausalLM
         >>> model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-7B", device_map="cuda")
-        >>> client.init_communicator()
         >>> client.update_model_params(model)
         ```
     """
@@ -90,22 +65,28 @@ class VLLMClient:
     def __init__(
         self,
         host: str = "0.0.0.0",
-        server_port: int = 8000,
-        group_port: int = 51216,
-        connection_timeout: float = 0.0,
+        port: int = 8000,
+        group_port: int = 51216, connection_timeout: float = 0.0
     ):
         if not is_requests_available():
-            raise ImportError(
-                "requests is not installed. Please install it with `pip install requests`."
-            )
+            raise ImportError("requests is not installed. Please install it with `pip install requests`.")
         if not is_vllm_available():
-            raise ImportError(
-                "vLLM is not installed. Please install it with `pip install vllm`."
-            )
+            raise ImportError("vLLM is not installed. Please install it with `pip install vllm`.")
 
+        super().__init__(base_url=f"http://{host}:{port}/v1", api_key="local")
         self.session = requests.Session()
+        # Configure connection pooling to handle rapid requests better
+        adapter = HTTPAdapter(
+            pool_connections=10,
+            pool_maxsize=10,
+            max_retries=3,
+            pool_block=False
+        )
+        self.session.mount('http://', adapter)
+        self.session.mount('https://', adapter)
+        
         self.host = host
-        self.server_port = server_port
+        self.server_port = port # Renamed from server_port to port to match super init
         self.group_port = group_port
         self.check_server(connection_timeout)  # check server and fail after timeout
 
@@ -124,13 +105,13 @@ class VLLMClient:
         start_time = time.time()  # Record the start time
 
         while True:
-            try:
-                response = requests.get(url)
-            except requests.exceptions.RequestException as exc:
+            try: 
+                response = requests.get(url) # type: ignore
+            except requests.exceptions.RequestException as exc: # type: ignore
                 # Check if the total timeout duration has passed
                 elapsed_time = time.time() - start_time
                 if elapsed_time >= total_timeout:
-                    raise ConnectionError(
+                    raise ConnectionError( # type: ignore
                         f"The vLLM server can't be reached at {self.host}:{self.server_port} after {total_timeout} "
                         "seconds. Make sure the server is running by running `trl vllm-serve`."
                     ) from exc
@@ -140,135 +121,46 @@ class VLLMClient:
                     return None
 
             # Retry logic: wait before trying again
-            logger.info(
-                f"Server is not up yet. Retrying in {retry_interval} seconds..."
-            )
+            logger.info(f"Server is not up yet. Retrying in {retry_interval} seconds...")
             time.sleep(retry_interval)
-
-    def generate(
-        self,
-        prompts: list[str],
-        n: int = 1,
-        repetition_penalty: float = 1.0,
-        temperature: float = 1.0,
-        top_p: float = 1.0,
-        top_k: int = -1,
-        min_p: float = 0.0,
-        max_tokens: int = 16,
-        guided_decoding_regex: Optional[str] = None,
-    ) -> list[list[int]]:
-        """
-        Generates model completions for the provided prompts.
-
-        Args:
-            prompts (`list[str]`):
-                List of text prompts for which the model will generate completions.
-            n (`int`, *optional*, defaults to `1`):
-                Number of completions to generate for each prompt.
-            repetition_penalty (`float`, *optional*, defaults to `1.0`):
-                Parameter for repetition penalty. 1.0 means no penalty.
-            temperature (`float`, *optional*, defaults to `1.0`):
-                Temperature parameter for sampling. Higher values increase diversity.
-            top_p (`float`, *optional*, defaults to `1.0`):
-                Top-p sampling parameter.`1.0` means no truncation.
-            top_k (`int`, *optional*, defaults to `-1`):
-                Top-k sampling parameter. `-1` means no truncation.
-            min_p (`float`, *optional*, defaults to `0.0`):
-                Minimum probability for sampling.
-            max_tokens (`int`, *optional*, defaults to `16`):
-                Maximum number of tokens to generate for each prompt.
-            guided_decoding_regex (`str` or `None`, *optional*, defaults to `None`):
-                Regular expression to guide the decoding process.
-
-        Returns:
-            `list[list[int]]`:
-                List of lists of token IDs representing the model-generated completions for each prompt.
-        """
-        url = f"http://{self.host}:{self.server_port}/generate/"
-        response = self.session.post(
-            url,
-            json={
-                "prompts": prompts,
-                "n": n,
-                "repetition_penalty": repetition_penalty,
-                "temperature": temperature,
-                "top_p": top_p,
-                "top_k": top_k,
-                "min_p": min_p,
-                "max_tokens": max_tokens,
-                "guided_decoding_regex": guided_decoding_regex,
-            },
-        )
-        if response.status_code == 200:
-            return response.json()["completion_ids"]
-        else:
-            raise Exception(f"Request failed: {response.status_code}, {response.text}")
-
-    def chat(
-        self,
-        messages: list[list[dict[str, str]]],
-        n: int = 1,
-        repetition_penalty: float = 1.0,
-        temperature: float = 1.0,
-        top_p: float = 1.0,
-        top_k: int = -1,
-        min_p: float = 0.0,
-        max_tokens: int = 16,
-        response_format: Optional[dict] = None,
-        stop: Optional[list[str]] = None,
-        include_stop_str_in_output: bool = False,
-        skip_special_tokens: bool = True,
-        spaces_between_special_tokens: bool = True,
-    ) -> dict[str, list]:
-        """
-        Generates completions for the provided prompts.
-        """
-        url = f"http://{self.host}:{self.server_port}/chat/"
-        response = self.session.post(
-            url,
-            json={
-                "messages": messages,
-                "n": n,
-                "repetition_penalty": repetition_penalty,
-                "temperature": temperature,
-                "top_p": top_p,
-                "top_k": top_k,
-                "min_p": min_p,
-                "max_tokens": max_tokens,
-                "response_format": response_format,
-                "stop": stop,
-                "include_stop_str_in_output": include_stop_str_in_output,
-                "skip_special_tokens": skip_special_tokens,
-                "spaces_between_special_tokens": spaces_between_special_tokens,
-            },
-        )
-        if response.status_code == 200:
-            return response.json()
-        else:
-            raise Exception(f"Request failed: {response.status_code}, {response.text}")
 
     def init_communicator(self):
         """
         Initializes the weight update group in a distributed setup for model synchronization.
         """
+        logger.info(f"[VLLM_CLIENT] Starting init_communicator")
+        
         # Get the world size from the server
         url = f"http://{self.host}:{self.server_port}/get_world_size/"
-        response = requests.get(url)
+        logger.info(f"[VLLM_CLIENT] Getting world size from {url}")
+        try:
+            response = requests.get(url)
+            logger.info(f"[VLLM_CLIENT] World size response: status={response.status_code}")
+        except Exception as e:
+            logger.error(f"[VLLM_CLIENT] Failed to get world size: {e}")
+            raise
+            
         if response.status_code == 200:
             vllm_world_size = response.json()["world_size"]
+            logger.info(f"[VLLM_CLIENT] vLLM world size: {vllm_world_size}")
         else:
             raise Exception(f"Request failed: {response.status_code}, {response.text}")
 
         world_size = vllm_world_size + 1  # add the client to the world
         self.rank = vllm_world_size  # the client's rank is the last process
+        logger.info(f"[VLLM_CLIENT] Client rank: {self.rank}, total world size: {world_size}")
 
         # Initialize weight update group
         url = f"http://{self.host}:{self.server_port}/init_communicator/"
+        logger.info(f"[VLLM_CLIENT] Sending init_communicator request to {url}")
         # In the server side, the host is set to 0.0.0.0
-        response = self.session.post(
-            url,
-            json={"host": "0.0.0.0", "port": self.group_port, "world_size": world_size},
-        )
+        try:
+            response = self.session.post(url, json={"host": "0.0.0.0", "port": self.group_port, "world_size": world_size})
+            logger.info(f"[VLLM_CLIENT] Init communicator response: status={response.status_code}")
+        except Exception as e:
+            logger.error(f"[VLLM_CLIENT] Failed to init communicator: {e}")
+            raise
+            
         if response.status_code != 200:
             raise Exception(f"Request failed: {response.status_code}, {response.text}")
 
@@ -278,13 +170,44 @@ class VLLMClient:
         time.sleep(0.1)
 
         # Set up the communication group for weight broadcasting
-        pg = StatelessProcessGroup.create(
-            host=self.host, port=self.group_port, rank=self.rank, world_size=world_size
-        )
-        self.pynccl_comm = PyNcclCommunicator(pg, device=0)
+        pg = StatelessProcessGroup.create(host=self.host, port=self.group_port, rank=self.rank, world_size=world_size)
+        # Use device 0 like the old code - this seems to work better for multi-GPU setups
+        device = 0
+        logger.info(f"[VLLM_CLIENT] Initializing PyNcclCommunicator on device {device}, rank {self.rank}, world_size {world_size}")
+        self.pynccl_comm = PyNcclCommunicator(pg, device=device)
 
         # When the client object is deleted, close the weight update group
         atexit.register(self.close_communicator)
+
+    def chat(
+        self,
+        json_body
+        # messages: list[list[dict[str, str]]],
+        # n: int = 1,
+        # repetition_penalty: float = 1.0,
+        # temperature: float = 1.0,
+        # top_p: float = 1.0,
+        # top_k: int = -1,
+        # min_p: float = 0.0,
+        # max_tokens: int = 16,
+        # response_format: Optional[dict] = None,
+        # stop: Optional[list[str]] = None,
+        # include_stop_str_in_output: bool = False,
+        # skip_special_tokens: bool = True,
+        # spaces_between_special_tokens: bool = True,
+    ) -> dict[str, list]:
+        """
+        Generates completions for the provided prompts.
+        """
+        url = f"http://{self.host}:{self.server_port}/v1/chat/completions"
+        response = self.session.post(
+            url,
+            json=json_body
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise Exception(f"Request failed: {response.status_code}, {response.text}")
 
     def update_named_param(self, name: str, weights: torch.Tensor):
         """
@@ -298,15 +221,27 @@ class VLLMClient:
         """
         dtype, shape = str(weights.dtype), tuple(weights.shape)
         url = f"http://{self.host}:{self.server_port}/update_named_param/"
-        response = self.session.post(
-            url, json={"name": name, "dtype": dtype, "shape": shape}
-        )
+        logger.debug(f"[VLLM_CLIENT] Sending weight update request for {name}")
+        
+        # Add timeout to prevent hanging on HTTP request
+        try:
+            response = self.session.post(url, json={"name": name, "dtype": dtype, "shape": shape}, timeout=300.0)
+        except requests.exceptions.Timeout:
+            logger.error(f"[VLLM_CLIENT] Timeout waiting for server response for {name} after 300s")
+            raise Exception(f"Request timeout for {name} after 300s")
+        except Exception as e:
+            logger.error(f"[VLLM_CLIENT] Error sending request for {name}: {e}")
+            raise
+            
         if response.status_code != 200:
             raise Exception(f"Request failed: {response.status_code}, {response.text}")
+        logger.debug(f"[VLLM_CLIENT] Server responded, starting NCCL broadcast for {name}")
 
         # Broadcast the weights to the other processes
         self.pynccl_comm.broadcast(weights, src=self.rank)
+        logger.debug(f"[VLLM_CLIENT] NCCL broadcast complete, waiting at barrier for {name}")
         self.pynccl_comm.group.barrier()
+        logger.debug(f"[VLLM_CLIENT] Barrier passed for {name}")
 
     def update_model_params(self, model: nn.Module):
         """
@@ -319,6 +254,88 @@ class VLLMClient:
         for name, param in model.named_parameters():
             # Update each parameter individually
             self.update_named_param(name, param.data)
+
+    def batch_update_model_params(self, model: nn.Module, batch_size: int = 50):
+        """
+        Updates all parameters of the given model in batches to reduce overhead and prevent overwhelming the server.
+        
+        This method coordinates with the server to ensure proper NCCL synchronization:
+        1. Send batch of parameter metadata to server
+        2. Server notifies workers for each parameter
+        3. Client broadcasts each parameter via NCCL after server confirmation
+        
+        Args:
+            model (`nn.Module`):
+                Model whose parameters (weights/biases) are to be updated.
+            batch_size (`int`, *optional*, defaults to 50):
+                Number of parameters to update in each batch.
+        """
+        # Collect all parameters
+        all_params = list(model.named_parameters())
+        total_params = len(all_params)
+        
+        logger.info(f"[VLLM_CLIENT] Starting batch update of {total_params} parameters in batches of {batch_size}")
+        
+        # Process in batches
+        for batch_idx, i in enumerate(range(0, total_params, batch_size)):
+            batch_params = all_params[i:i + batch_size]
+            
+            # Prepare batch update request
+            batch_updates = []
+            for name, param in batch_params:
+                batch_updates.append({
+                    "name": name,
+                    "dtype": str(param.data.dtype),
+                    "shape": list(param.data.shape)
+                })
+            
+            # Send batch update request
+            url = f"http://{self.host}:{self.server_port}/batch_update_named_params/"
+            logger.debug(f"[VLLM_CLIENT] Sending batch {batch_idx + 1} with {len(batch_updates)} parameters")
+            
+            try:
+                response = self.session.post(url, json={"updates": batch_updates}, timeout=600.0)
+                if response.status_code not in [200, 207]:  # 207 is Multi-Status
+                    raise Exception(f"Batch request failed: {response.status_code}, {response.text}")
+                    
+                result = response.json()
+                
+                # Check for partial failures
+                if response.status_code == 207:
+                    logger.warning(f"[VLLM_CLIENT] Batch had errors: {result.get('errors', [])}")
+                
+                # Get list of successfully notified parameters
+                successful_params = result.get('successful', [])
+                if not successful_params:
+                    logger.error(f"[VLLM_CLIENT] No successful parameters in batch response")
+                    continue
+                    
+            except requests.exceptions.Timeout:
+                logger.error(f"[VLLM_CLIENT] Timeout waiting for batch response after 600s")
+                raise Exception(f"Batch request timeout after 600s")
+            except Exception as e:
+                logger.error(f"[VLLM_CLIENT] Error sending batch request: {e}")
+                raise
+            
+            # Now broadcast weights for successfully notified parameters
+            logger.debug(f"[VLLM_CLIENT] Broadcasting weights for {len(successful_params)} parameters in batch {batch_idx + 1}")
+            
+            for name, param in batch_params:
+                if name in successful_params:
+                    try:
+                        # Broadcast this specific parameter
+                        self.pynccl_comm.broadcast(param.data, src=self.rank)
+                        self.pynccl_comm.group.barrier()
+                        logger.debug(f"[VLLM_CLIENT] Broadcast complete for {name}")
+                    except Exception as e:
+                        logger.error(f"[VLLM_CLIENT] Failed to broadcast {name}: {e}")
+                        raise
+                else:
+                    logger.warning(f"[VLLM_CLIENT] Skipping broadcast for {name} - not in successful list")
+            
+            logger.debug(f"[VLLM_CLIENT] Completed batch {batch_idx + 1}")
+        
+        logger.info(f"[VLLM_CLIENT] Batch update complete for {total_params} parameters")
 
     def reset_prefix_cache(self):
         """
@@ -342,29 +359,4 @@ class VLLMClient:
             pass
         else:
             if response.status_code != 200:
-                raise Exception(
-                    f"Request failed: {response.status_code}, {response.text}"
-                )
-
-
-# Example usage
-if __name__ == "__main__":
-    from vllm import SamplingParams
-
-    client = VLLMClient()
-    client.init_communicator()
-
-    # Generate completions
-    responses = client.generate(
-        ["Hello, AI!", "Tell me a joke"],
-        n=4,
-        max_tokens=32,
-        sampling_params=SamplingParams(),
-    )
-    print("Responses:", responses)  # noqa
-
-    # Update model weights
-    from transformers import AutoModelForCausalLM
-
-    model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-7B").to("cuda")
-    client.update_model_params(model)
+                raise Exception(f"Request failed: {response.status_code}, {response.text}")

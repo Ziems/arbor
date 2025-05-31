@@ -533,7 +533,7 @@ def main():
     pipe_args.add_argument("--broadcast_port", type=int, required=True)
     pipe_args.add_argument("--handshake_port", type=int, required=True)
     pipe_args.add_argument("--vllm_group_port", type=int, required=True)
-    pipe_args.add_argument("--vllm_server_port", type=int, required=True)
+    pipe_args.add_argument("--vllm_port", type=int, required=True)
 
     training_args = parser.add_argument_group("Training arguments")
     training_args.add_argument(
@@ -647,7 +647,7 @@ def main():
         training_args = GRPOConfig(
             dataloader_num_workers=0,
             shuffle_dataset=False,
-            vllm_server_port=args.vllm_server_port,
+            vllm_server_port=args.vllm_port,
             **trl_train_args,
         )
 

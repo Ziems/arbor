@@ -27,7 +27,7 @@ class InferenceManager:
         self.current_model = None
         self.inference_count = 0
         self._session = None
-        self.server_port = None
+        self.port = None
         self.group_port = None
         self.vllm_client = None
         self._inference_lock = threading.Lock()
@@ -63,7 +63,7 @@ class InferenceManager:
                 model = model[len(prefix) :]
 
         print(f"Grabbing a free port to launch a vLLM server for model {model}")
-        self.server_port = get_free_port()
+        self.port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
@@ -117,7 +117,7 @@ class InferenceManager:
             return "".join(logs_buffer)
 
         # Let the user know server is up
-        print(f"Server ready on random port {self.server_port}!")
+        print(f"Server ready on random port {self.port}!")
 
         # self.launch_kwargs["api_base"] = f"http://localhost:{port}/v1"
         # self.launch_kwargs["api_key"] = "local"
@@ -129,13 +129,13 @@ class InferenceManager:
         # Get another free port for weight sync group communication
         self.group_port = get_free_port()
         self.vllm_client = VLLMClient(
-            server_port=self.server_port,
+            port=self.port,
             group_port=self.group_port,
             connection_timeout=300,  # 5 minutes
         )
 
         # Once server is ready, we tell the thread to stop printing further lines.
-        stop_printing_event.set()
+        # stop_printing_event.set()
 
     def kill(self):
         if self.process is None:
@@ -208,9 +208,6 @@ class InferenceManager:
             if self.process is None:
                 raise RuntimeError("Server is not running. Please launch it first.")
 
-            # Preprocess request_json
-            request_json["messages"] = [request_json["messages"]]
-
             conversation = [
                 {"role": "system", "content": "You are a helpful assistant"},
                 {"role": "user", "content": "Hello"},
@@ -234,46 +231,13 @@ class InferenceManager:
 
             json_schema = CarDescription.model_json_schema()
 
-            # Define supported vLLM chat parameters
-            supported_keys = {
-                "messages",
-                "n",
-                "repetition_penalty",
-                "temperature",
-                "top_p",
-                "top_k",
-                "min_p",
-                "max_tokens",
-                "stop",
-                "include_stop_str_in_output",
-                "skip_special_tokens",
-                "spaces_between_special_tokens",
-                "response_format",
-            }
-            unsupported_keys = {
-                "model",
-            }
-
-            # remove the keys that are not supported
-            for key in unsupported_keys:
-                if key in request_json:
-                    del request_json[key]
-
-            # Assert that all keys in request_json are supported
-            uncategorized_keys = set(request_json.keys()) - supported_keys
-            if uncategorized_keys:
-                raise ValueError(
-                    f"Unsupported parameters: {uncategorized_keys}. Supported parameters are: {supported_keys}"
-                )
-            # Only include keys that are both supported and present in request_json
-            vllm_params = {
-                key: request_json[key] for key in supported_keys if key in request_json
-            }
+            # Might need to remove the model param
+    
             # Call chat method with filtered parameters
-            completion = self.vllm_client.chat(**vllm_params)
-            response = _make_response(completion, model)
+            completion = self.vllm_client.chat(request_json)
+            # response = _make_response(completion, model)
 
-            return response
+            return completion
         finally:
             with self._inference_lock:
                 self.inference_count -= 1
