@@ -8,15 +8,15 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "torch>=2.6.0",
     "fastapi",
     "uvicorn",
     "click",
     "python-multipart",
     "pydantic-settings",
-    "torch",
-    "vllm",
+    "vllm>=0.8.5.post1",
     "transformers",
-    "trl==0.17.0",
+    "trl>=0.17.0",
     "peft",
     "ray>=2.9",
     "setuptools (>=76.0.0,<77.0.0)",
