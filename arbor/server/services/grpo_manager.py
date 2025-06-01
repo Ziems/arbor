@@ -31,7 +31,6 @@ class GRPOManager:
         self.train_kwargs = None
         self.server_comms_handler = None
         self.status_thread = None
-        self.model_saved_and_reload_requested = False
         self.saving_checkpoint = False
 
         self.checkpoints = {}
@@ -41,11 +40,6 @@ class GRPOManager:
         # Set up signal handler
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
-
-        self._weight_update_lock = threading.Lock()
-        self._weight_update_count = -1
-        self._weight_update_cv = threading.Condition(self._weight_update_lock)
-        self._active_weight_update = False
 
     def _signal_handler(self, signum, frame):
         """Handle keyboard interrupt (SIGINT) gracefully."""
@@ -248,13 +242,8 @@ class GRPOManager:
             for status in self.server_comms_handler.receive_status():
                 print(f"Received status update: {status}")
                 if status["status"] == "weight_update_complete":
-                    print("Weight update completed")
-                    inference_manager.end_weight_update()
-                    with self._weight_update_lock:
-                        self._weight_update_count -= 1
-                        if self._weight_update_count == 0:
-                            print("All weight updates complete")
-                            self._weight_update_cv.notify_all()
+                    # print("Weight update completed")
+                    pass
                 elif status["status"] == "model_saved":
                     print("Updating inference model...")
                     # There is a case where this status is sent multiple times
@@ -272,17 +261,11 @@ class GRPOManager:
                     print("Checkpoint saved")
                 elif status["status"] == "error":
                     print(f"Training error: {status.get('error', 'Unknown error')}")
-                    if self._active_weight_update:
-                        self._weight_update_cv.notify_all()
                 elif status["status"] == "terminated":
                     print("Training process terminated")
-                    if self._active_weight_update:
-                        self._weight_update_cv.notify_all()
                     break
         except Exception as e:
             print(f"Error in status update handler: {e}")
-            if self._active_weight_update:
-                self._weight_update_cv.notify_all()
 
     def grpo_step(self, request: GRPORequest, inference_manager: InferenceManager) -> str:
         while self.saving_checkpoint:
@@ -290,17 +273,12 @@ class GRPOManager:
             time.sleep(5)
 
         try:
-            # Register this weight update
-            inference_manager.start_weight_update()
-            
             # Send the batch to the training process
-            print("Sending batch for training...")
             self.server_comms_handler.send_data(request.batch)
             self.data_count += 1
 
         except Exception as e:
             print(f"Failed to send batch to training process: {e}")
-            inference_manager.end_weight_update()  # Make sure to cleanup on error
             raise
         
         return {
@@ -310,33 +288,7 @@ class GRPOManager:
         }
 
     def update_model(self, request, inference_manager: InferenceManager):
-        return {
-            "current_model": self.current_model,
-            "checkpoints": self.checkpoints,
-            "last_checkpoint": self.last_checkpoint,
-        }
-        if inference_manager._session:
-            # Create a new event loop if one doesn't exist
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
-            # Run the session closure in the event loop
-            loop.run_until_complete(inference_manager._session.close())
-            inference_manager._session = None
-
-        inference_manager.inference_count = 0
-        inference_manager.restarting = True
-
-        self.model_saved_and_reload_requested = True
-        self.server_comms_handler.send_command({"command": "save_model"})
-        while self.model_saved_and_reload_requested:
-            print(
-                "Waiting for model to be saved and reloaded... This usually takes 20-30 seconds"
-            )
-            time.sleep(5)
+        # No longer used
         return {
             "current_model": self.current_model,
             "checkpoints": self.checkpoints,
@@ -395,7 +347,6 @@ class GRPOManager:
             self.current_model = None
             self.server_comms_handler = None
             self.status_thread = None
-            self.model_saved_and_reload_requested = False
 
             self.data_count = 0
             self.last_inference_update = 0

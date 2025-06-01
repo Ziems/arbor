@@ -1,5 +1,6 @@
 # adapted from trl/extras/vllm_client.py (huggingface/trl)
 
+import httpx
 import atexit
 import logging
 import time
@@ -179,35 +180,12 @@ class VLLMClient(OpenAI):
         # When the client object is deleted, close the weight update group
         atexit.register(self.close_communicator)
 
-    def chat(
-        self,
-        json_body
-        # messages: list[list[dict[str, str]]],
-        # n: int = 1,
-        # repetition_penalty: float = 1.0,
-        # temperature: float = 1.0,
-        # top_p: float = 1.0,
-        # top_k: int = -1,
-        # min_p: float = 0.0,
-        # max_tokens: int = 16,
-        # response_format: Optional[dict] = None,
-        # stop: Optional[list[str]] = None,
-        # include_stop_str_in_output: bool = False,
-        # skip_special_tokens: bool = True,
-        # spaces_between_special_tokens: bool = True,
-    ) -> dict[str, list]:
-        """
-        Generates completions for the provided prompts.
-        """
+    async def chat(self, json_body: dict) -> dict:
         url = f"http://{self.host}:{self.server_port}/v1/chat/completions"
-        response = self.session.post(
-            url,
-            json=json_body
-        )
-        if response.status_code == 200:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=json_body, timeout=300)
+            response.raise_for_status()
             return response.json()
-        else:
-            raise Exception(f"Request failed: {response.status_code}, {response.text}")
 
     def update_named_param(self, name: str, weights: torch.Tensor):
         """
