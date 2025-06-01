@@ -45,7 +45,7 @@ from vllm.sampling_params import GuidedDecodingParams
 from vllm.utils import get_open_port
 
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__) # Ensure logger is defined
 
 # We use CUDA with multiprocessing, so we must use the 'spawn' start method. Otherwise, we will get the following
@@ -236,7 +236,7 @@ class WeightSyncWorkerExtension:
         # The client process that sends updated weights has the highest rank (world_size - 1).
         self.client_rank = world_size - 1
 
-    def update_named_param(self, name: str, dtype: torch.dtype, shape: Sequence[int]) -> None:
+    def update_named_param(self, name: str, dtype: str, shape: Sequence[int]) -> None:
         """
         Receives updated weights from the client process and updates the named parameter in the model.
 
@@ -254,6 +254,8 @@ class WeightSyncWorkerExtension:
         
         if self.pynccl_comm is None:
             raise RuntimeError("Communicator not initialized. Call `init_communicator` first.")
+        
+        dtype = getattr(torch, dtype.split(".")[-1])
 
         # Allocate memory for the incoming weight tensor on the correct device.
         weight = torch.empty(shape, dtype=dtype, device=self.device) # type: ignore
@@ -1615,8 +1617,8 @@ def main(script_args: ScriptArguments):
             
             # CRITICAL: Notify workers IMMEDIATELY so they're ready for NCCL broadcast
             # This must happen before returning the HTTP response to maintain synchronization with trainer
-            dtype = getattr(torch, request.dtype.split(".")[-1])
-            kwargs = {"method": "update_named_param", "args": (request.name, dtype, tuple(request.shape))}
+            # dtype = torch.__getattribute__(request.dtype.split(".")[-1]) 
+            kwargs = {"method": "update_named_param", "args": (request.name, request.dtype, tuple(request.shape))}
             
             # Send to all workers synchronously to ensure they're ready
             # Using fire_and_forget since we don't need the result
