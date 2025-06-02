@@ -12,6 +12,7 @@ from functools import lru_cache
 from typing import Any, List, Optional, Union
 
 import torch
+import trl.extras.vllm_client
 import zmq
 from accelerate import Accelerator
 from accelerate.utils import broadcast_object_list, gather, gather_object
@@ -32,6 +33,9 @@ from arbor.server.services.comms.comms import (
     ArborScriptCommsHandler,
     ArborServerCommsHandler,
 )
+from arbor.server.services.inference.vllm_client import VLLMClient
+
+trl.extras.vllm_client.VLLMClient = VLLMClient
 
 if is_wandb_available():
     import wandb
@@ -71,10 +75,10 @@ class ArborGRPOTrainer(GRPOTrainer):
         comms_handler: Optional[ArborScriptCommsHandler] = None,
         lora: Optional[bool] = False,
         # We do nothing with max_context_length right now
+        vllm_group_port: Optional[int] = None,
         max_context_length: Optional[int] = None,
         **kwargs,
     ):
-
         super().__init__(
             model=model,
             reward_funcs=[],
@@ -90,6 +94,33 @@ class ArborGRPOTrainer(GRPOTrainer):
         self.peft_config = peft_config
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
+
+        self.vllm_client = None
+        args.use_vllm = True
+        self.use_vllm = True
+        if self.accelerator.is_main_process:
+            print(
+                f"Initializing vLLM client with server port {args.vllm_server_port} and group port {vllm_group_port}"
+            )
+            self.vllm_client = VLLMClient(
+                args.vllm_server_host,
+                args.vllm_server_port,
+                group_port=vllm_group_port,
+                connection_timeout=args.vllm_server_timeout,
+            )
+            self.vllm_client.init_communicator()
+
+        # vLLM specific sampling arguments
+        self.guided_decoding_regex = args.vllm_guided_decoding_regex
+
+        self._last_loaded_step = (
+            -1
+        )  # tag to avoid useless loading during grad accumulation
+
+        # When using vLLM, the main process is responsible for loading the model weights. This can cause process
+        # desynchronization and seems to lead to DeepSpeed hanging during initialization. To prevent this, we
+        # synchronize all processes after vLLM has been fully initialized.
+        self.accelerator.wait_for_everyone()
 
     def _generate_and_score_completions(
         self, batch: List[dict[str, Any]]
@@ -156,10 +187,13 @@ class ArborGRPOTrainer(GRPOTrainer):
             completion_ids = completion_ids[:, : self.max_completion_length]
             completion_mask = completion_mask[:, : self.max_completion_length]
 
-        # Keeping this for when we switch to vllm
-        # if self.state.global_step != self._last_loaded_step:
-        #     self._move_model_to_vllm()
-        #     self._last_loaded_step = self.state.global_step
+        # Update the inference model if we've done a step
+        # TODO: This should be done maybe at the end of the step
+        if self.state.global_step != self._last_loaded_step:
+            print("Updating inference model...")
+            self._move_model_to_vllm()
+            self._last_loaded_step = self.state.global_step
+            self.comms_handler.send_status({"status": "weight_update_complete"})
 
         prompt_ids = broadcast_object_list(prompt_ids)
         prompt_mask = broadcast_object_list(prompt_mask)
@@ -311,6 +345,20 @@ class LastStepTimeCallback(TrainerCallback):
         global last_step_time
         print(f"Time since last step: {time_since_last_step()}")
         last_step_time = time.time()
+
+
+class WeightUpdateCallback(TrainerCallback):
+    """A callback that sends weight update completion status after each step"""
+    def __init__(self):
+        self.comms_handler = None
+
+    def set_comms_handler(self, comms_handler: ArborScriptCommsHandler):
+        self.comms_handler = comms_handler
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if self.comms_handler and self.comms_handler.is_main_process:
+            print("[DEBUG] Sending weight update completion status")
+            self.comms_handler.send_status({"status": "weight_update_complete"})
 
 
 class BlockingQueueDataset(Dataset):
@@ -523,6 +571,8 @@ def main():
     pipe_args.add_argument("--data_port", type=int, required=True)
     pipe_args.add_argument("--broadcast_port", type=int, required=True)
     pipe_args.add_argument("--handshake_port", type=int, required=True)
+    pipe_args.add_argument("--vllm_group_port", type=int, required=True)
+    pipe_args.add_argument("--vllm_port", type=int, required=True)
 
     training_args = parser.add_argument_group("Training arguments")
     training_args.add_argument(
@@ -636,15 +686,18 @@ def main():
         training_args = GRPOConfig(
             dataloader_num_workers=0,
             shuffle_dataset=False,
+            vllm_server_port=args.vllm_port,
             **trl_train_args,
         )
 
+        weight_update_callback = WeightUpdateCallback()
         trainer = ArborGRPOTrainer(
             model=args.model,
             args=training_args,
             train_dataset=BlockingQueueDataset(None, None),
-            callbacks=[LastStepTimeCallback()],
+            callbacks=[LastStepTimeCallback(), weight_update_callback],
             peft_config=lora_config,
+            vllm_group_port=args.vllm_group_port,
             **arbor_train_args,
         )
         # Create client handler
@@ -657,6 +710,7 @@ def main():
             handshake_port=args.handshake_port,
             is_main_process=trainer.accelerator.is_main_process,
         )
+        weight_update_callback.set_comms_handler(comms_handler)
         trainer.comms_handler = comms_handler
 
         # Initialize the dataset with the actual accelerator
@@ -681,6 +735,7 @@ def main():
         comms_handler.send_status({"status": "error", "error": str(e)})
         raise e
     finally:
+        trainer.accelerator.end_training()
         comms_handler.close()
 
 

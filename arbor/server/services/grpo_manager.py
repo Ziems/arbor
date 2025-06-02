@@ -31,7 +31,6 @@ class GRPOManager:
         self.train_kwargs = None
         self.server_comms_handler = None
         self.status_thread = None
-        self.model_saved_and_reload_requested = False
         self.saving_checkpoint = False
 
         self.checkpoints = {}
@@ -122,6 +121,17 @@ class GRPOManager:
 
         self.current_model = request.model
 
+        # The inference server has to be launched before the training process
+        # Launch the inference server
+        # launch_kwargs = {
+        #     k: v for k, v in arbor_train_kwargs.items() if k in ["max_context_length"]
+        # }
+        inference_manager.launch_kwargs["max_context_length"] = arbor_train_kwargs.get(
+            "max_context_length", None
+        )
+        print("Launching inference server...")
+        inference_manager.launch(self.current_model)
+
         # Initialize ZMQ socket manager - no need for connection acceptance thread anymore
         self.server_comms_handler = ArborServerCommsHandler()
 
@@ -171,6 +181,10 @@ class GRPOManager:
                 str(self.server_comms_handler.broadcast_port),
                 "--handshake_port",
                 str(self.server_comms_handler.handshake_port),
+                "--vllm_port",
+                str(inference_manager.port),
+                "--vllm_group_port",
+                str(inference_manager.group_port),
                 # Training args
                 "--model",
                 self.current_model,
@@ -221,31 +235,22 @@ class GRPOManager:
         self.status_thread.start()
         self.server_comms_handler.wait_for_clients(num_processes)
 
-        # Launch the inference server
-        print("Launching inference server...")
-        # launch_kwargs = {
-        #     k: v for k, v in arbor_train_kwargs.items() if k in ["max_context_length"]
-        # }
-        inference_manager.launch_kwargs["max_context_length"] = arbor_train_kwargs.get(
-            "max_context_length", None
-        )
-        inference_manager.launch(self.current_model)
-
     def _handle_status_updates(self, inference_manager: InferenceManager):
         """Handle status updates from training process using ZMQ SUB socket"""
         print("Starting status update handler...")
         try:
-
             for status in self.server_comms_handler.receive_status():
                 print(f"Received status update: {status}")
-                if status["status"] == "model_saved":
+                if status["status"] == "weight_update_complete":
+                    # print("Weight update completed")
+                    pass
+                elif status["status"] == "model_saved":
                     print("Updating inference model...")
                     # There is a case where this status is sent multiple times
                     # We need to make sure we only update the model once
                     if self._should_update_model():
                         inference_manager.update_model(status["output_dir"])
                         # self.last_inference_update = self.data_count
-                        self.model_saved_and_reload_requested = False
                         self.current_model = status["output_dir"]
                         print("Model update complete")
                 elif status["status"] == "checkpoint_saved":
@@ -262,19 +267,7 @@ class GRPOManager:
         except Exception as e:
             print(f"Error in status update handler: {e}")
 
-    def grpo_step(
-        self, request: GRPORequest, inference_manager: InferenceManager
-    ) -> str:
-        while inference_manager.is_server_restarting():
-            print("Inferece manager restarting, waiting for GRPO step")
-            time.sleep(5)
-
-        while self._should_update_model():
-            print(
-                f"Waiting for model update. Data count: {self.data_count}, Last inference update: {self.last_inference_update}"
-            )
-            time.sleep(5)
-
+    def grpo_step(self, request: GRPORequest, inference_manager: InferenceManager) -> str:
         while self.saving_checkpoint:
             print("Saving checkpoint, pausing GRPO steps until checkpoint is saved...")
             time.sleep(5)
@@ -283,9 +276,11 @@ class GRPOManager:
             # Send the batch to the training process
             self.server_comms_handler.send_data(request.batch)
             self.data_count += 1
+
         except Exception as e:
             print(f"Failed to send batch to training process: {e}")
-
+            raise
+        
         return {
             "current_model": self.current_model,
             "checkpoints": self.checkpoints,
@@ -293,28 +288,7 @@ class GRPOManager:
         }
 
     def update_model(self, request, inference_manager: InferenceManager):
-        if inference_manager._session:
-            # Create a new event loop if one doesn't exist
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
-            # Run the session closure in the event loop
-            loop.run_until_complete(inference_manager._session.close())
-            inference_manager._session = None
-
-        inference_manager.inference_count = 0
-        inference_manager.restarting = True
-
-        self.model_saved_and_reload_requested = True
-        self.server_comms_handler.send_command({"command": "save_model"})
-        while self.model_saved_and_reload_requested:
-            print(
-                "Waiting for model to be saved and reloaded... This usually takes 20-30 seconds"
-            )
-            time.sleep(5)
+        # No longer used
         return {
             "current_model": self.current_model,
             "checkpoints": self.checkpoints,
@@ -373,7 +347,6 @@ class GRPOManager:
             self.current_model = None
             self.server_comms_handler = None
             self.status_thread = None
-            self.model_saved_and_reload_requested = False
 
             self.data_count = 0
             self.last_inference_update = 0
@@ -393,9 +366,6 @@ class GRPOManager:
                 self.train_kwargs = None
 
         return termination_data
-
-    def _should_update_model(self):
-        return self.model_saved_and_reload_requested
 
 
 def get_free_port() -> int:
