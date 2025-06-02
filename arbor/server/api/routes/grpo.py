@@ -60,5 +60,5 @@ def terminate_grpo(request: Request):
     grpo_manager = request.app.state.grpo_manager
     inference_manager = request.app.state.inference_manager
 
-    final_model = grpo_manager.terminate(inference_manager)
-    return GRPOTerminateResponse(status="success", current_model=final_model)
+    termination_data = grpo_manager.terminate(inference_manager)
+    return GRPOTerminateResponse(status="success", **termination_data)

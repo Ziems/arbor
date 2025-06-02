@@ -220,6 +220,8 @@ class GRPOTerminateRequest(BaseModel):
 class GRPOTerminateResponse(BaseModel):
     status: str
     current_model: str
+    checkpoints: dict[str, str]
+    last_checkpoint: Optional[str] = None
 
 
 class GRPOStepResponse(BaseModel):
