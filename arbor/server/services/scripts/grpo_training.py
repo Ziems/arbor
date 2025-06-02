@@ -188,15 +188,6 @@ class ArborGRPOTrainer(GRPOTrainer):
             completion_ids = completion_ids[:, : self.max_completion_length]
             completion_mask = completion_mask[:, : self.max_completion_length]
 
-        # Update the inference model if we've done a step
-        # TODO: This should be done maybe at the end of the step
-        if self.state.global_step != self._last_loaded_step:
-            print("Updating inference model...")
-            self.comms_handler.send_status({"status": "weight_update_start"})
-            self._move_model_to_vllm()
-            self._last_loaded_step = self.state.global_step
-            self.comms_handler.send_status({"status": "weight_update_complete"})
-
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B, P+C)
 
@@ -315,14 +306,23 @@ class WeightUpdateCallback(TrainerCallback):
     """A callback that sends weight update completion status after each step"""
     def __init__(self):
         self.comms_handler = None
+        self.trainer = None
 
     def set_comms_handler(self, comms_handler: ArborScriptCommsHandler):
         self.comms_handler = comms_handler
 
+    def set_trainer(self, trainer):
+        self.trainer = trainer
+
     def on_step_end(self, args, state, control, **kwargs):
-        if self.comms_handler and self.comms_handler.is_main_process:
-            print("[DEBUG] Sending weight update completion status")
-            self.comms_handler.send_status({"status": "weight_update_complete"})
+        if self.comms_handler and self.comms_handler.is_main_process and self.trainer:
+            if state.global_step != self.trainer._last_loaded_step:
+                print("Updating inference model...")
+                self.comms_handler.send_status({"status": "weight_update_start"})
+                self.trainer._move_model_to_vllm()
+                self.trainer._last_loaded_step = state.global_step
+                print("[DEBUG] Sending weight update completion status")
+                self.comms_handler.send_status({"status": "weight_update_complete"})
 
 
 class BlockingQueueDataset(Dataset):
@@ -699,6 +699,7 @@ def main():
             is_main_process=trainer.accelerator.is_main_process,
         )
         weight_update_callback.set_comms_handler(comms_handler)
+        weight_update_callback.set_trainer(trainer)
         trainer.comms_handler = comms_handler
 
         # Initialize the dataset with the actual accelerator
