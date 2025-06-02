@@ -29,7 +29,7 @@ class InferenceManager:
         self.port = None
         self.group_port = None
         self.vllm_client = None
-        self._is_updating = False
+        self._is_updating = 0  # Counter for weight updates in progress
         # Set up signal handler for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -175,7 +175,7 @@ class InferenceManager:
 
     async def run_inference(self, request_json: dict):
         # Check if weights are being updated
-        while self._is_updating:
+        while self.is_updating:
             print("Weights are being updated, waiting...")
             await asyncio.sleep(1)  # Small sleep to prevent busy waiting
             
@@ -206,11 +206,16 @@ class InferenceManager:
 
     def start_weight_update(self):
         """Block inference during weight updates"""
-        self._is_updating = True
+        self._is_updating += 1
 
     def complete_weight_update(self):
         """Allow inference after weight update is complete"""
-        self._is_updating = False
+        self._is_updating = max(0, self._is_updating - 1)  # Prevent going negative
+
+    @property
+    def is_updating(self):
+        """Check if any weight updates are in progress"""
+        return self._is_updating > 0
 
 
 def get_free_port() -> int:

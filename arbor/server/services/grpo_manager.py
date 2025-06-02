@@ -257,10 +257,10 @@ class GRPOManager:
             for status in self.server_comms_handler.receive_status():
                 print(f"Received status update: {status}")
                 if status["status"] == "weight_update_start":
-                    # Block inference calls
+                    # Block inference calls by incrementing counter
                     inference_manager.start_weight_update()
                 elif status["status"] == "weight_update_complete":
-                    # Allow inference calls again
+                    # Decrement counter to potentially allow inference calls again
                     inference_manager.complete_weight_update()
                 elif status["status"] == "model_saved":
                     print("Updating inference model...")
@@ -317,7 +317,7 @@ class GRPOManager:
         }
 
     def checkpoint(self, request: GRPOCheckpointRequest, inference_manager: InferenceManager):
-        while inference_manager._is_updating:
+        while inference_manager.is_updating:  # Use the property instead of direct access
             print("Waiting for weight updates to finish before checkpointing...")
             time.sleep(5)
 
@@ -337,7 +337,7 @@ class GRPOManager:
     def terminate(self, inference_manager: InferenceManager):
         """Clean up resources and save the final model."""
 
-        while inference_manager._is_updating:
+        while inference_manager.is_updating:  # Use the property instead of direct access
             print("Waiting for final weight updates to finish before saving...")
             time.sleep(5)
 
