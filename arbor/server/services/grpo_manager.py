@@ -362,9 +362,14 @@ class GRPOManager:
         self.server_comms_handler.send_command({"message": "terminate"})
         print("Waiting for training process to finish...")
 
+        # Wait for at most 15 seconds for termination
+        start_time = time.time()
         while self.terminating:
+            if time.time() - start_time > 15:
+                print("Termination wait timed out after 15 seconds, proceeding with cleanup...")
+                break
             print("Waiting for run to be terminated...")
-            time.sleep(3) 
+            time.sleep(3)
         
         print("Doing cleanup")
         self.cleanup_termination(inference_manager)
@@ -386,15 +391,14 @@ class GRPOManager:
         return termination_data
 
     def cleanup_termination(self, inference_manager):
-
-        # Clean up ZMQ connections
-        if self.server_comms_handler:
-            self.server_comms_handler.close()
-
         # Force kill training process if still running
         if self.training_process and self.training_process.poll() is None:
             self.training_process.kill()
             self.training_process.wait()
+        
+                # Clean up ZMQ connections
+        if self.server_comms_handler:
+            self.server_comms_handler.close()
 
         if inference_manager.process is not None:
             inference_manager.kill()
