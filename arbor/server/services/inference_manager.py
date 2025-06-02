@@ -23,7 +23,7 @@ class InferenceManager:
         self.launch_kwargs = {}
         self.last_activity = None
         self._shutting_down = False
-        self.current_model = None
+        self.launched_model = None
         self.inference_count = 0
         self._session = None
         self.port = None
@@ -118,7 +118,7 @@ class InferenceManager:
         self.get_logs = get_logs
         self.process = process
         self.thread = thread
-        self.current_model = model
+        self.launched_model = model
 
         # Get another free port for weight sync group communication
         self.group_port = get_free_port()
@@ -186,10 +186,12 @@ class InferenceManager:
                 model = model[len(prefix) :]
         print(f"Running inference for model {model}")
 
-        # Monkeypatch:
-        if model != self.current_model:
-            print(f"Model changed from {model} to {self.current_model}")
-            model = self.current_model
+        # Monkeypatch for GRPO runs:
+        # vllm complains if we don't give it the exact model name that was launched
+        # TODO: This should really throw an error unless in a GRPO run.
+        if model != self.launched_model:
+            # print(f"Model changed from {model} to {self.current_model}")
+            model = self.launched_model
             request_json["model"] = model
 
         # Update last_activity timestamp
