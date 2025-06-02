@@ -32,7 +32,7 @@ def run_grpo_step(
 
 
 def update_model(
-    model, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/update_model"
+    url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/update_model"
 ):
     headers = {"Content-Type": "application/json"}
     response = requests.post(url, headers=headers)
@@ -88,15 +88,16 @@ def main():
         step_response = run_grpo_step(model_name=current_model, batch=batch)
         current_model = step_response.json()["current_model"]
 
-        if i % 10 == 0:
+        if i == 10:
             update_response = update_model()
             current_model = update_response.json()["current_model"]
 
             checkpoint_response = checkpoint(checkpoint_name=f"checkpoint_{i}")
-            last_checkpoint_name = checkpoint_response.json()["last_checkpoint_name"]
-            import pdb
-
-            pdb.set_trace()
+            last_checkpoint_name = checkpoint_response.json()["last_checkpoint"]
+        
+        if i == 20:
+            break
+            
 
     terminate_response = terminate_grpo()
     import pdb

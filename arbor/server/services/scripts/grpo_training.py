@@ -190,6 +190,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         # TODO: This should be done maybe at the end of the step
         if self.state.global_step != self._last_loaded_step:
             print("Updating inference model...")
+            self.comms_handler.send_status({"status": "weight_update_start"})
             self._move_model_to_vllm()
             self._last_loaded_step = self.state.global_step
             self.comms_handler.send_status({"status": "weight_update_complete"})

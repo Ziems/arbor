@@ -27,8 +27,7 @@ wheels/
 env/
 venv/
 ENV/
-.conda/
-.vllm-conda/
+.*conda/
 
 # IDE
 .idea/
