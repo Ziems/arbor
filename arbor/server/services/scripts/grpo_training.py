@@ -4,6 +4,8 @@
 ###############################################################################
 
 import argparse
+import shutil
+import os
 import json
 import random
 import threading
@@ -488,6 +490,23 @@ class CommandMonitor:
                             output_dir=self.trainer.args.output_dir
                             + f"/checkpoints/{command.get('checkpoint_name')}/"
                         )
+
+                    # Copy checkpoint files to root output directory
+                    checkpoint_dir = self.trainer.args.output_dir + f"/checkpoints/{command.get('checkpoint_name')}/"
+                    root_dir = self.trainer.args.output_dir 
+                    
+                    # Copy all files from checkpoint dir to root dir, overwriting if they exist
+                    # (effectively saves the checkpoint to the output directory)
+                    for item in os.listdir(checkpoint_dir):
+                        src = os.path.join(checkpoint_dir, item)
+                        dst = os.path.join(root_dir, item)
+                        if os.path.isdir(src):
+                            if os.path.exists(dst):
+                                shutil.rmtree(dst)
+                            shutil.copytree(src, dst)
+                        else:
+                            shutil.copy2(src, dst)
+
                     self.comms_handler.send_status(
                         {
                             "status": "checkpoint_saved",
@@ -496,6 +515,13 @@ class CommandMonitor:
                             + f"/checkpoints/{command.get('checkpoint_name')}/",
                         }
                     )
+                    self.comms_handler.send_status(
+                        {
+                            "status": "model_saved",
+                            "output_dir": self.trainer.args.output_dir,
+                        }
+                    )
+
 
         except Exception as e:
             print(e)
