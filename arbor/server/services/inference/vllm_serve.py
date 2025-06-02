@@ -1589,55 +1589,73 @@ def main(script_args: ScriptArguments):
         """
         Updates the model weights with the provided tensor.
 
-        Once this endpoint is called, the client process should broadcast the updated weights to all server workers.
+        This is a blocking call that waits for all workers to confirm they've received and processed
+        the weight update request. The client process should only broadcast the updated weights after
+        receiving a successful response from this endpoint.
 
         Args:
             request (`UpdateWeightsRequest`):
                 - `name` (`str`): Name of the weight tensor being updated.
                 - `dtype` (`str`): Data type of the weight tensor (e.g., `"torch.float32"`).
-                - `shape` (list of `int`): Shape of the weight
+                - `shape` (list of `int`): Shape of the weight tensor.
 
+        Returns:
+            A JSON response indicating success or failure of the weight update operation.
         """
         # Acquire semaphore to limit concurrent weight updates
         async with weight_update_semaphore:
             logger.info(f"[UPDATE_PARAM] Received weight update for: {request.name}, dtype={request.dtype}, shape={request.shape}")
             
-            # Wait for active generations to complete before updating weights
-            # This prevents conflicts between generation and weight loading
+            # Block ALL new inference requests by waiting for active generations
             wait_start = time.time()
-            if active_generation_count > 0:
-                logger.info(f"[UPDATE_PARAM] Waiting for {active_generation_count} active generations to complete before weight update")
             while active_generation_count > 0:
-                if time.time() - wait_start > 30.0:  # 30 second timeout
-                    logger.warning(f"[UPDATE_PARAM] Timeout waiting for {active_generation_count} active generations to complete")
-                    break
+                if time.time() - wait_start > 60.0:  # 60 second timeout
+                    error_msg = f"Timeout waiting for {active_generation_count} active generations to complete"
+                    logger.error(f"[UPDATE_PARAM] {error_msg}")
+                    return JSONResponse(status_code=503, content={"error": error_msg})
                 await asyncio.sleep(0.1)
-            if active_generation_count == 0:
-                logger.debug(f"[UPDATE_PARAM] All generations complete, proceeding with weight update")
             
-            # CRITICAL: Notify workers IMMEDIATELY so they're ready for NCCL broadcast
-            # This must happen before returning the HTTP response to maintain synchronization with trainer
-            # dtype = torch.__getattribute__(request.dtype.split(".")[-1]) 
+            logger.debug(f"[UPDATE_PARAM] All generations complete, proceeding with weight update")
+            
+            # Prepare the update request for workers
             kwargs = {"method": "update_named_param", "args": (request.name, request.dtype, tuple(request.shape))}
             
-            # Send to all workers synchronously to ensure they're ready
-            # Using fire_and_forget since we don't need the result
+            # Send to all workers and wait for their confirmations
+            worker_responses = []
             for i, connection in enumerate(connections):
                 logger.debug(f"[UPDATE_PARAM] Notifying worker {i} about weight update")
                 try:
-                    connection.send({"type": "fire_and_forget", "method": "collective_rpc", "kwargs": kwargs})
+                    # Use "call" type instead of "fire_and_forget" to get confirmation
+                    connection.send({"type": "call", "method": "collective_rpc", "kwargs": kwargs})
+                    response = connection.recv()
+                    
+                    # Check for error in response
+                    if isinstance(response, dict) and "error" in response:
+                        error_msg = f"Worker {i} failed: {response['error']}"
+                        logger.error(f"[UPDATE_PARAM] {error_msg}")
+                        return JSONResponse(status_code=500, content={"error": error_msg})
+                    
+                    worker_responses.append(response)
                 except Exception as e:
-                    logger.error(f"[UPDATE_PARAM] Failed to notify worker {i}: {e}")
-                    return JSONResponse(status_code=500, content={"error": f"Failed to notify worker {i}: {str(e)}"})
+                    error_msg = f"Failed to update worker {i}: {str(e)}"
+                    logger.error(f"[UPDATE_PARAM] {error_msg}")
+                    return JSONResponse(status_code=500, content={"error": error_msg})
             
-            logger.debug(f"[UPDATE_PARAM] All workers notified, trainer should now broadcast via NCCL")
-            return {"message": "Weight update processed"}
+            # Verify all workers responded successfully
+            if len(worker_responses) != len(connections):
+                error_msg = f"Not all workers responded. Expected {len(connections)}, got {len(worker_responses)}"
+                logger.error(f"[UPDATE_PARAM] {error_msg}")
+                return JSONResponse(status_code=500, content={"error": error_msg})
+            
+            logger.debug(f"[UPDATE_PARAM] All workers confirmed update, trainer can now broadcast via NCCL")
+            return {"message": "Weight update processed and confirmed by all workers"}
 
     @app.post("/batch_update_named_params/")
     async def batch_update_named_params(request: BatchUpdateWeightsRequest):
         """
-        Updates multiple model weights in a batch. Processes updates sequentially
-        to ensure proper synchronization with NCCL broadcasts from the client.
+        Updates multiple model weights in a batch. This is a blocking call that waits for all workers
+        to confirm they've received and processed each weight update request. The client process should
+        only broadcast each parameter's weights after receiving a successful response.
 
         Args:
             request (`BatchUpdateWeightsRequest`):
@@ -1646,7 +1664,6 @@ def main(script_args: ScriptArguments):
         logger.info(f"[BATCH_UPDATE] Received batch of {len(request.updates)} weight updates")
         
         # Process updates sequentially to maintain NCCL synchronization
-        # The client will broadcast each parameter after we notify workers
         successful = []
         errors = []
         
@@ -1656,31 +1673,58 @@ def main(script_args: ScriptArguments):
                 async with weight_update_semaphore:
                     logger.debug(f"[BATCH_UPDATE] Processing weight update for: {update.name}")
                     
-                    # Wait for active generations if needed
+                    # Block ALL new inference requests by waiting for active generations
                     wait_start = time.time()
                     while active_generation_count > 0:
-                        if time.time() - wait_start > 30.0:
-                            logger.warning(f"[BATCH_UPDATE] Timeout waiting for generations")
-                            break
+                        if time.time() - wait_start > 60.0:  # 60 second timeout
+                            error_msg = f"Timeout waiting for {active_generation_count} active generations to complete"
+                            logger.error(f"[BATCH_UPDATE] {error_msg}")
+                            errors.append({"param": update.name, "error": error_msg})
+                            continue  # Try next parameter instead of failing entire batch
                         await asyncio.sleep(0.1)
                     
-                    # Notify workers synchronously
-                    dtype = getattr(torch, update.dtype.split(".")[-1])
-                    kwargs = {"method": "update_named_param", "args": (update.name, dtype, tuple(update.shape))}
+                    # Prepare update request for workers
+                    kwargs = {"method": "update_named_param", "args": (update.name, update.dtype, tuple(update.shape))}
+                    
+                    # Send to all workers and wait for their confirmations
+                    worker_responses = []
+                    worker_failed = False
                     
                     for i, connection in enumerate(connections):
                         try:
-                            connection.send({"type": "fire_and_forget", "method": "collective_rpc", "kwargs": kwargs})
+                            # Use "call" type instead of "fire_and_forget" to get confirmation
+                            connection.send({"type": "call", "method": "collective_rpc", "kwargs": kwargs})
+                            response = connection.recv()
+                            
+                            # Check for error in response
+                            if isinstance(response, dict) and "error" in response:
+                                error_msg = f"Worker {i} failed: {response['error']}"
+                                logger.error(f"[BATCH_UPDATE] {error_msg}")
+                                errors.append({"param": update.name, "error": error_msg})
+                                worker_failed = True
+                                break
+                            
+                            worker_responses.append(response)
                         except Exception as e:
-                            logger.error(f"[BATCH_UPDATE] Failed to notify worker {i} for {update.name}: {e}")
-                            raise Exception(f"Failed to notify worker {i}")
+                            error_msg = f"Failed to update worker {i}: {str(e)}"
+                            logger.error(f"[BATCH_UPDATE] {error_msg}")
+                            errors.append({"param": update.name, "error": error_msg})
+                            worker_failed = True
+                            break
                     
-                    successful.append(update.name)
-                    logger.debug(f"[BATCH_UPDATE] Workers notified for {update.name}")
+                    # Only consider the update successful if all workers responded successfully
+                    if not worker_failed and len(worker_responses) == len(connections):
+                        successful.append(update.name)
+                        logger.debug(f"[BATCH_UPDATE] All workers confirmed update for {update.name}")
+                    elif not worker_failed:  # All workers responded but count mismatch
+                        error_msg = f"Not all workers responded. Expected {len(connections)}, got {len(worker_responses)}"
+                        logger.error(f"[BATCH_UPDATE] {error_msg}")
+                        errors.append({"param": update.name, "error": error_msg})
                     
             except Exception as e:
-                errors.append({"param": update.name, "error": str(e)})
-                logger.error(f"[BATCH_UPDATE] Error processing {update.name}: {e}")
+                error_msg = f"Unexpected error processing {update.name}: {str(e)}"
+                logger.error(f"[BATCH_UPDATE] {error_msg}")
+                errors.append({"param": update.name, "error": error_msg})
         
         if errors:
             return JSONResponse(
