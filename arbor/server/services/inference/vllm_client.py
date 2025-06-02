@@ -19,6 +19,15 @@ from vllm.distributed.utils import StatelessProcessGroup
 
 logger = logging.getLogger(__name__)
 
+# Add these new constants near the top of the file
+MAX_INFERENCE_RETRIES = 3
+INFERENCE_RETRY_DELAY = 1.0  # seconds
+INFERENCE_BLOCKED_STATUS = 503  # HTTP status code to use when inference is blocked
+
+# Add this new custom exception
+class InferenceBlockedError(Exception):
+    """Raised when inference is blocked due to weight updates in progress."""
+    pass
 
 class VLLMClient(OpenAI):
     """
@@ -181,11 +190,42 @@ class VLLMClient(OpenAI):
         atexit.register(self.close_communicator)
 
     async def chat(self, json_body: dict) -> dict:
+        """
+        Send a chat completion request with retry logic for when inference is blocked.
+        """
         url = f"http://{self.host}:{self.server_port}/v1/chat/completions"
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=json_body, timeout=300)
-            response.raise_for_status()
-            return response.json()
+        
+        retries = 0
+        while retries < MAX_INFERENCE_RETRIES:
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(url, json=json_body, timeout=300)
+                    
+                    if response.status_code == INFERENCE_BLOCKED_STATUS:
+                        retries += 1
+                        if retries < MAX_INFERENCE_RETRIES:
+                            logger.warning(f"Inference blocked (weight update in progress). Retry {retries}/{MAX_INFERENCE_RETRIES} in {INFERENCE_RETRY_DELAY}s")
+                            await asyncio.sleep(INFERENCE_RETRY_DELAY)
+                            continue
+                        else:
+                            raise InferenceBlockedError("Inference blocked by weight updates after max retries")
+                    
+                    response.raise_for_status()
+                    return response.json()
+                    
+            except httpx.TimeoutError:
+                logger.error("Request timed out")
+                raise
+            except InferenceBlockedError:
+                raise
+            except Exception as e:
+                retries += 1
+                if retries < MAX_INFERENCE_RETRIES:
+                    logger.warning(f"Request failed. Retry {retries}/{MAX_INFERENCE_RETRIES} in {INFERENCE_RETRY_DELAY}s. Error: {e}")
+                    await asyncio.sleep(INFERENCE_RETRY_DELAY)
+                else:
+                    logger.error(f"Request failed after {MAX_INFERENCE_RETRIES} retries")
+                    raise
 
     def update_named_param(self, name: str, weights: torch.Tensor):
         """
@@ -204,15 +244,15 @@ class VLLMClient(OpenAI):
         # Add timeout to prevent hanging on HTTP request
         try:
             response = self.session.post(url, json={"name": name, "dtype": dtype, "shape": shape}, timeout=300.0)
+            if response.status_code != 200:
+                raise Exception(f"Request failed: {response.status_code}, {response.text}")
         except requests.exceptions.Timeout:
             logger.error(f"[VLLM_CLIENT] Timeout waiting for server response for {name} after 300s")
             raise Exception(f"Request timeout for {name} after 300s")
         except Exception as e:
             logger.error(f"[VLLM_CLIENT] Error sending request for {name}: {e}")
             raise
-            
-        if response.status_code != 200:
-            raise Exception(f"Request failed: {response.status_code}, {response.text}")
+
         logger.debug(f"[VLLM_CLIENT] Server responded, starting NCCL broadcast for {name}")
 
         # Broadcast the weights to the other processes

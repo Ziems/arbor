@@ -70,6 +70,10 @@ weight_update_semaphore = asyncio.Semaphore(MAX_CONCURRENT_WEIGHT_UPDATES)
 worker_rotation_index = 0
 worker_rotation_lock = asyncio.Lock()
 
+# Add at the global level, after other global variables
+weight_update_in_progress = asyncio.Event()
+weight_update_in_progress.set()  # Initially set to allow inference
+
 async def get_next_worker_connection(connections: list[AnyType]) -> tuple[int, AnyType]:
     """Get the next worker connection using round-robin rotation."""
     global worker_rotation_index
@@ -629,7 +633,7 @@ async def batch_processing_loop(
     logger_instance: logging.Logger
 ):
     global pending_requests_by_signature, active_pool_signature, active_pool_requests
-    global active_generation_count, generation_count_lock
+    global active_generation_count, generation_count_lock, weight_update_in_progress
 
     if not connections:
         logger_instance.error("Batch Processor: No LLM workers available. Shutting down loop.")
@@ -639,6 +643,9 @@ async def batch_processing_loop(
 
     while True:
         try:
+            # Wait for weight updates to complete before processing any inference
+            await weight_update_in_progress.wait()
+            
             # 1. Ingest new requests (non-blocking or short timeout)
             # This part tries to fill pending_requests_by_signature from the main request_queue
             try:
@@ -1588,112 +1595,109 @@ def main(script_args: ScriptArguments):
     async def update_named_param(request: UpdateWeightsRequest):
         """
         Updates the model weights with the provided tensor.
-
-        Once this endpoint is called, the client process should broadcast the updated weights to all server workers.
-
-        Args:
-            request (`UpdateWeightsRequest`):
-                - `name` (`str`): Name of the weight tensor being updated.
-                - `dtype` (`str`): Data type of the weight tensor (e.g., `"torch.float32"`).
-                - `shape` (list of `int`): Shape of the weight
-
+        Weight updates take priority over inference - all inference will be blocked
+        until the weight update completes.
         """
-        # Acquire semaphore to limit concurrent weight updates
-        async with weight_update_semaphore:
-            logger.info(f"[UPDATE_PARAM] Received weight update for: {request.name}, dtype={request.dtype}, shape={request.shape}")
-            
-            # Wait for active generations to complete before updating weights
-            # This prevents conflicts between generation and weight loading
-            wait_start = time.time()
-            if active_generation_count > 0:
-                logger.info(f"[UPDATE_PARAM] Waiting for {active_generation_count} active generations to complete before weight update")
-            while active_generation_count > 0:
-                if time.time() - wait_start > 30.0:  # 30 second timeout
-                    logger.warning(f"[UPDATE_PARAM] Timeout waiting for {active_generation_count} active generations to complete")
-                    break
-                await asyncio.sleep(0.1)
-            if active_generation_count == 0:
+        global weight_update_in_progress
+        
+        # Clear the event to block new inferences
+        weight_update_in_progress.clear()
+        
+        try:
+            # Acquire semaphore to limit concurrent weight updates
+            async with weight_update_semaphore:
+                logger.info(f"[UPDATE_PARAM] Received weight update for: {request.name}, dtype={request.dtype}, shape={request.shape}")
+                
+                # Wait for active generations to complete before updating weights
+                wait_start = time.time()
+                if active_generation_count > 0:
+                    logger.info(f"[UPDATE_PARAM] Waiting for {active_generation_count} active generations to complete before weight update")
+                while active_generation_count > 0:
+                    if time.time() - wait_start > 30.0:  # 30 second timeout
+                        logger.warning(f"[UPDATE_PARAM] Timeout waiting for {active_generation_count} active generations to complete")
+                        break
+                    await asyncio.sleep(0.1)
+                
                 logger.debug(f"[UPDATE_PARAM] All generations complete, proceeding with weight update")
-            
-            # CRITICAL: Notify workers IMMEDIATELY so they're ready for NCCL broadcast
-            # This must happen before returning the HTTP response to maintain synchronization with trainer
-            # dtype = torch.__getattribute__(request.dtype.split(".")[-1]) 
-            kwargs = {"method": "update_named_param", "args": (request.name, request.dtype, tuple(request.shape))}
-            
-            # Send to all workers synchronously to ensure they're ready
-            # Using fire_and_forget since we don't need the result
-            for i, connection in enumerate(connections):
-                logger.debug(f"[UPDATE_PARAM] Notifying worker {i} about weight update")
-                try:
-                    connection.send({"type": "fire_and_forget", "method": "collective_rpc", "kwargs": kwargs})
-                except Exception as e:
-                    logger.error(f"[UPDATE_PARAM] Failed to notify worker {i}: {e}")
-                    return JSONResponse(status_code=500, content={"error": f"Failed to notify worker {i}: {str(e)}"})
-            
-            logger.debug(f"[UPDATE_PARAM] All workers notified, trainer should now broadcast via NCCL")
-            return {"message": "Weight update processed"}
+                
+                # Notify workers about the weight update
+                kwargs = {"method": "update_named_param", "args": (request.name, request.dtype, tuple(request.shape))}
+                
+                for i, connection in enumerate(connections):
+                    logger.debug(f"[UPDATE_PARAM] Notifying worker {i} about weight update")
+                    try:
+                        connection.send({"type": "fire_and_forget", "method": "collective_rpc", "kwargs": kwargs})
+                    except Exception as e:
+                        logger.error(f"[UPDATE_PARAM] Failed to notify worker {i}: {e}")
+                        return JSONResponse(status_code=500, content={"error": f"Failed to notify worker {i}: {str(e)}"})
+                
+                logger.debug(f"[UPDATE_PARAM] All workers notified, trainer should now broadcast via NCCL")
+                return {"message": "Weight update processed"}
+        finally:
+            # Re-enable inference after weight update completes
+            weight_update_in_progress.set()
 
     @app.post("/batch_update_named_params/")
     async def batch_update_named_params(request: BatchUpdateWeightsRequest):
         """
-        Updates multiple model weights in a batch. Processes updates sequentially
-        to ensure proper synchronization with NCCL broadcasts from the client.
-
-        Args:
-            request (`BatchUpdateWeightsRequest`):
-                - `updates` (list of `UpdateWeightsRequest`): List of weight updates to process
+        Updates multiple model weights in a batch. Blocks all inference until updates complete.
         """
-        logger.info(f"[BATCH_UPDATE] Received batch of {len(request.updates)} weight updates")
+        global weight_update_in_progress
         
-        # Process updates sequentially to maintain NCCL synchronization
-        # The client will broadcast each parameter after we notify workers
-        successful = []
-        errors = []
+        # Block new inferences
+        weight_update_in_progress.clear()
         
-        for update in request.updates:
-            try:
-                # Acquire semaphore to limit concurrent updates across different batches
-                async with weight_update_semaphore:
-                    logger.debug(f"[BATCH_UPDATE] Processing weight update for: {update.name}")
-                    
-                    # Wait for active generations if needed
-                    wait_start = time.time()
-                    while active_generation_count > 0:
-                        if time.time() - wait_start > 30.0:
-                            logger.warning(f"[BATCH_UPDATE] Timeout waiting for generations")
-                            break
-                        await asyncio.sleep(0.1)
-                    
-                    # Notify workers synchronously
-                    dtype = getattr(torch, update.dtype.split(".")[-1])
-                    kwargs = {"method": "update_named_param", "args": (update.name, dtype, tuple(update.shape))}
-                    
-                    for i, connection in enumerate(connections):
-                        try:
-                            connection.send({"type": "fire_and_forget", "method": "collective_rpc", "kwargs": kwargs})
-                        except Exception as e:
-                            logger.error(f"[BATCH_UPDATE] Failed to notify worker {i} for {update.name}: {e}")
-                            raise Exception(f"Failed to notify worker {i}")
-                    
-                    successful.append(update.name)
-                    logger.debug(f"[BATCH_UPDATE] Workers notified for {update.name}")
-                    
-            except Exception as e:
-                errors.append({"param": update.name, "error": str(e)})
-                logger.error(f"[BATCH_UPDATE] Error processing {update.name}: {e}")
-        
-        if errors:
-            return JSONResponse(
-                status_code=207,  # Multi-Status
-                content={
-                    "message": f"Batch update completed with {len(errors)} errors",
-                    "successful": successful,
-                    "errors": errors
-                }
-            )
-        
-        logger.info(f"[BATCH_UPDATE] Successfully processed {len(successful)} weight updates")
-        return {"message": f"Successfully updated {len(successful)} parameters", "successful": successful}
+        try:
+            logger.info(f"[BATCH_UPDATE] Received batch of {len(request.updates)} weight updates")
+            
+            successful = []
+            errors = []
+            
+            for update in request.updates:
+                try:
+                    async with weight_update_semaphore:
+                        logger.debug(f"[BATCH_UPDATE] Processing weight update for: {update.name}")
+                        
+                        # Wait for active generations if needed
+                        wait_start = time.time()
+                        while active_generation_count > 0:
+                            if time.time() - wait_start > 30.0:
+                                logger.warning(f"[BATCH_UPDATE] Timeout waiting for generations")
+                                break
+                            await asyncio.sleep(0.1)
+                        
+                        # Notify workers synchronously
+                        kwargs = {"method": "update_named_param", "args": (update.name, update.dtype, tuple(update.shape))}
+                        
+                        for i, connection in enumerate(connections):
+                            try:
+                                connection.send({"type": "fire_and_forget", "method": "collective_rpc", "kwargs": kwargs})
+                            except Exception as e:
+                                logger.error(f"[BATCH_UPDATE] Failed to notify worker {i} for {update.name}: {e}")
+                                raise Exception(f"Failed to notify worker {i}")
+                        
+                        successful.append(update.name)
+                        logger.debug(f"[BATCH_UPDATE] Workers notified for {update.name}")
+                        
+                except Exception as e:
+                    errors.append({"param": update.name, "error": str(e)})
+                    logger.error(f"[BATCH_UPDATE] Error processing {update.name}: {e}")
+            
+            if errors:
+                return JSONResponse(
+                    status_code=207,  # Multi-Status
+                    content={
+                        "message": f"Batch update completed with {len(errors)} errors",
+                        "successful": successful,
+                        "errors": errors
+                    }
+                )
+            
+            logger.info(f"[BATCH_UPDATE] Successfully processed {len(successful)} weight updates")
+            return {"message": f"Successfully updated {len(successful)} parameters", "successful": successful}
+        finally:
+            # Re-enable inference after all updates complete
+            weight_update_in_progress.set()
 
     @app.post("/reset_prefix_cache/")
     async def reset_prefix_cache():
