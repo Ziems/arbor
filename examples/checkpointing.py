@@ -15,7 +15,7 @@ def initialize_grpo(
     model, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/initialize"
 ):
     headers = {"Content-Type": "application/json"}
-    data = {"model": model, "num_generations": 8, "update_interval": 5}
+    data = {"model": model, "num_generations": 8, "update_interval": 5, 'lora': True}
     response = requests.post(url, headers=headers, json=data)
     return response
 

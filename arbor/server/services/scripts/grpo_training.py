@@ -521,7 +521,10 @@ class CommandMonitor:
                             "output_dir": self.trainer.args.output_dir,
                         }
                     )
-
+                elif command.get("command") == "terminate":
+                    print("TERMINATED")
+                    self.trainer.accelerator.end_training()
+                    self.comms_handler.send_status({"status": "terminated"})
 
         except Exception as e:
             print(e)
@@ -534,16 +537,6 @@ class CommandMonitor:
         try:
             for broadcast in self.comms_handler.receive_broadcast():
                 print(f"!!!Received broadcast: {broadcast}")
-                if broadcast.get("message") == "terminate":
-                    # self.trainer.control.should_training_stop = True
-                    # self.comms_handler.send_status(
-                    #     {
-                    #         "status": "Received termination command",
-                    #         "process_id": self.trainer.accelerator.process_index,
-                    #     }
-                    # )
-                    if self.trainer.accelerator.is_main_process:
-                        self.trainer.accelerator.end_training()
         except Exception as e:
             self.comms_handler.send_status({"status": "error", "error": str(e)})
 

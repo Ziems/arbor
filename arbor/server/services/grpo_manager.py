@@ -336,6 +336,7 @@ class GRPOManager:
 
     def terminate(self, inference_manager: InferenceManager):
         """Clean up resources and save the final model."""
+        time.sleep(5)
 
         while inference_manager.is_updating:  # Use the property instead of direct access
             print("Waiting for final weight updates to finish before saving...")
@@ -358,7 +359,7 @@ class GRPOManager:
 
         print("sending termination command")
         self.terminating = True
-        self.server_comms_handler.send_broadcast({"message": "terminate"})
+        self.server_comms_handler.send_command({"message": "terminate"})
         print("Waiting for training process to finish...")
 
         while self.terminating:
