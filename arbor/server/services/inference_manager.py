@@ -5,13 +5,12 @@ import subprocess
 import sys
 import threading
 import time
+import asyncio
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, Optional
 
-import aiohttp
 import requests
-from pydantic import BaseModel
 
 from arbor.server.core.config import Settings
 from arbor.server.services.inference.vllm_client import VLLMClient
@@ -30,6 +29,7 @@ class InferenceManager:
         self.port = None
         self.group_port = None
         self.vllm_client = None
+        self._is_updating = False
         # Set up signal handler for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -174,6 +174,11 @@ class InferenceManager:
         print("Server killed.")
 
     async def run_inference(self, request_json: dict):
+        # Check if weights are being updated
+        while self._is_updating:
+            print("Weights are being updated, waiting...")
+            await asyncio.sleep(1)  # Small sleep to prevent busy waiting
+            
         model = request_json["model"]
         prefixes = ["openai/", "huggingface/", "local:", "arbor:"]
         for prefix in prefixes:
@@ -196,6 +201,14 @@ class InferenceManager:
         return await self.vllm_client.chat(
             json_body=request_json
         )
+
+    def start_weight_update(self):
+        """Block inference during weight updates"""
+        self._is_updating = True
+
+    def complete_weight_update(self):
+        """Allow inference after weight update is complete"""
+        self._is_updating = False
 
 
 def get_free_port() -> int:

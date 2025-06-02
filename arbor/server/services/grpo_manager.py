@@ -235,22 +235,37 @@ class GRPOManager:
         self.status_thread.start()
         self.server_comms_handler.wait_for_clients(num_processes)
 
+    async def _handle_weight_update_start(self, inference_manager):
+        """Handle weight update start in the event loop"""
+        await inference_manager.start_weight_update()
+
+    async def _handle_weight_update_complete(self, inference_manager):
+        """Handle weight update complete in the event loop"""
+        await inference_manager.complete_weight_update()
+
+    def _run_in_loop(self, coro):
+        """Run a coroutine in the event loop from a thread"""
+        future = asyncio.run_coroutine_threadsafe(coro, self.event_loop)
+        return future.result()
+
     def _handle_status_updates(self, inference_manager: InferenceManager):
         """Handle status updates from training process using ZMQ SUB socket"""
         print("Starting status update handler...")
         try:
             for status in self.server_comms_handler.receive_status():
                 print(f"Received status update: {status}")
-                if status["status"] == "weight_update_complete":
-                    # print("Weight update completed")
-                    pass
+                if status["status"] == "weight_update_start":
+                    # Block inference calls
+                    inference_manager.start_weight_update()
+                elif status["status"] == "weight_update_complete":
+                    # Allow inference calls again
+                    inference_manager.complete_weight_update()
                 elif status["status"] == "model_saved":
                     print("Updating inference model...")
                     # There is a case where this status is sent multiple times
                     # We need to make sure we only update the model once
                     if self._should_update_model():
                         inference_manager.update_model(status["output_dir"])
-                        # self.last_inference_update = self.data_count
                         self.current_model = status["output_dir"]
                         print("Model update complete")
                 elif status["status"] == "checkpoint_saved":
@@ -266,6 +281,11 @@ class GRPOManager:
                     break
         except Exception as e:
             print(f"Error in status update handler: {e}")
+            # Make sure to allow inference if there's an error
+            try:
+                inference_manager.complete_weight_update()
+            except:
+                pass
 
     def grpo_step(self, request: GRPORequest, inference_manager: InferenceManager) -> str:
         while self.saving_checkpoint:
