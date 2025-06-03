@@ -39,10 +39,10 @@ def run_grpo_step(
 
 
 @router.post("/update_model", response_model=GRPOStepResponse)
-def update_model(request: Request):
+async def update_model(request: Request):
     grpo_manager = request.app.state.grpo_manager
     inference_manager = request.app.state.inference_manager
-    update_model_data = grpo_manager.update_model(request, inference_manager)
+    update_model_data = await grpo_manager.update_model(request, inference_manager)
     return GRPOStepResponse(status="success", **update_model_data)
 
 
