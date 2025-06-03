@@ -11,6 +11,8 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 import requests
+import psutil
+import signal
 
 from arbor.server.core.config import Settings
 from arbor.server.services.inference.vllm_client import VLLMClient
@@ -146,24 +148,7 @@ class InferenceManager:
         self.last_activity = None
 
         try:
-            # Handle nested signal case
-            if self._shutting_down:
-                process.kill()  # Go straight to SIGKILL if we're shutting down
-            else:
-                process.terminate()
-                try:
-                    process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    print(
-                        "Process did not terminate after 10 seconds, forcing with SIGKILL..."
-                    )
-                    process.kill()
-
-            process.wait(timeout=5)
-
-            if thread and thread.is_alive():
-                thread.join(timeout=5)
-
+            kill_vllm_server(process.pid)
         except Exception as e:
             print(f"Error during cleanup: {e}")
             try:
@@ -253,3 +238,30 @@ def wait_for_server(base_url: str, timeout: int = None) -> None:
         except requests.exceptions.RequestException:
             # Server not up yet, wait and retry
             time.sleep(1)
+
+def kill_vllm_server(main_process_pid):
+    try:
+        # Get the parent process
+        parent = psutil.Process(main_process_pid)
+        
+        # Get all child processes recursively
+        children = parent.children(recursive=True)
+        
+        # Send SIGTERM to all child processes first
+        for child in children:
+            child.send_signal(signal.SIGTERM)
+            
+        # Send SIGTERM to parent process
+        parent.send_signal(signal.SIGTERM)
+        
+        # Wait for processes to terminate gracefully
+        gone, alive = psutil.wait_procs(children + [parent], timeout=10)
+        
+        # If any processes are still alive, force kill them
+        for p in alive:
+            p.kill()  # SIGKILL
+            
+    except psutil.NoSuchProcess:
+        print(f"Process {main_process_pid} not found")
+    except Exception as e:
+        print(f"Error killing processes: {e}")
