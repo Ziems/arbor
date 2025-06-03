@@ -176,7 +176,8 @@ class InferenceManager:
     async def run_inference(self, request_json: dict):
         # Check if weights are being updated
         while self.is_updating:
-            print("Weights are being updated, waiting...")
+            # weights are being updated...waiting
+            # print("Weights are being updated, waiting...")
             await asyncio.sleep(1)  # Small sleep to prevent busy waiting
             
         model = request_json["model"]

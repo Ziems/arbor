@@ -392,6 +392,7 @@ class GRPOManager:
 
     def cleanup_termination(self, inference_manager):
         # Force kill training process if still running
+        self.training_process.terminate()
         if self.training_process and self.training_process.poll() is None:
             self.training_process.kill()
             self.training_process.wait()
