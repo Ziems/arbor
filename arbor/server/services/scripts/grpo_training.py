@@ -10,6 +10,8 @@ import json
 import random
 import threading
 import time
+import signal
+import sys
 from functools import lru_cache
 from typing import Any, List, Optional, Union
 
@@ -707,6 +709,18 @@ def main():
             base_model_name=args.model,
         )
 
+        # Add signal handlers for graceful shutdown
+        def signal_handler(signum, frame):
+            print(f"\nReceived signal {signum}. Initiating graceful shutdown...")
+            print("Ending training...")
+            trainer.accelerator.end_training()
+            print("Closing communications...")
+            comms_handler.close()
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+
         print("Training...")
         trainer.train()
 
@@ -717,8 +731,10 @@ def main():
         comms_handler.send_status({"status": "error", "error": str(e)})
         raise e
     finally:
+        print("Cleaning up resources...")
         trainer.accelerator.end_training()
         comms_handler.close()
+        print("Cleanup complete")
 
 
 if __name__ == "__main__":

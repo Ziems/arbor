@@ -338,7 +338,7 @@ class GRPOManager:
         """Clean up resources and save the final model."""
         time.sleep(5)
 
-        while inference_manager.is_updating:  # Use the property instead of direct access
+        while inference_manager and inference_manager.is_updating:  # Use the property instead of direct access
             print("Waiting for final weight updates to finish before saving...")
             time.sleep(5)
 
@@ -359,7 +359,7 @@ class GRPOManager:
 
         print("sending termination command")
         self.terminating = True
-        self.server_comms_handler.send_command({"message": "terminate"})
+        self.server_comms_handler.send_command({"command": "terminate"})
         print("Waiting for training process to finish...")
 
         # Wait for at most 15 seconds for termination
@@ -391,30 +391,42 @@ class GRPOManager:
         return termination_data
 
     def cleanup_termination(self, inference_manager):
-        # Force kill training process if still running
-        self.training_process.terminate()
-        if self.training_process and self.training_process.poll() is None:
-            self.training_process.kill()
-            self.training_process.wait()
-        
-                # Clean up ZMQ connections
-        if self.server_comms_handler:
-            self.server_comms_handler.close()
+        try:
+            # Force kill training process if still running
+            if self.training_process:
+                print("Terminating training process...")
+                self.training_process.terminate()
+                try:
+                    self.training_process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    print("Training process did not terminate, sending SIGKILL...")
+                    self.training_process.kill()
+                    self.training_process.wait(timeout=10)
+            
+            # Clean up ZMQ connections
+            if self.server_comms_handler:
+                print("Closing ZMQ connections...")
+                self.server_comms_handler.close()
 
-        if inference_manager.process is not None:
-            inference_manager.kill()
-        
-        if self.training_process:
-            self.training_process.wait(timeout=30)
-
-        # Reinitialize incase we want to start a new training run
-        self.training_process = None
-        self.current_model = None
-        self.server_comms_handler = None
-        self.status_thread = None
-
-        self.data_count = 0
-        self.last_inference_update = 0
+            if inference_manager and inference_manager.process is not None:
+                print("Killing inference manager...")
+                inference_manager.kill()
+            
+            # Reinitialize in case we want to start a new training run
+            self.training_process = None
+            self.current_model = None
+            self.server_comms_handler = None
+            self.status_thread = None
+            self.data_count = 0
+            print("Cleanup completed successfully")
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
+            # Still reset state even if cleanup fails
+            self.training_process = None
+            self.current_model = None
+            self.server_comms_handler = None
+            self.status_thread = None
+            self.data_count = 0
 
 
 
