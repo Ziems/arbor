@@ -12,6 +12,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+import psutil
 
 from arbor.server.api.models.schemas import (
     GRPOCheckpointRequest,
@@ -392,16 +393,45 @@ class GRPOManager:
 
     def cleanup_termination(self, inference_manager):
         try:
-            # Force kill training process if still running
+            # Kill training process and all its children (accelerate launcher creates multiple processes)
             if self.training_process:
-                print("Terminating training process...")
-                self.training_process.terminate()
+                print("Terminating training process and its children...")
                 try:
-                    self.training_process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    print("Training process did not terminate, sending SIGKILL...")
-                    self.training_process.kill()
-                    self.training_process.wait(timeout=10)
+                    parent = psutil.Process(self.training_process.pid)
+                    # Get all child processes including grandchildren
+                    children = parent.children(recursive=True)
+                    
+                    # Send SIGTERM to children first
+                    for child in children:
+                        try:
+                            child.send_signal(signal.SIGTERM)
+                        except psutil.NoSuchProcess:
+                            pass
+                    
+                    # Send SIGTERM to parent
+                    parent.send_signal(signal.SIGTERM)
+                    
+                    # Wait for processes to terminate gracefully
+                    gone, alive = psutil.wait_procs(children + [parent], timeout=10)
+                    
+                    # If any processes are still alive, force kill them
+                    for p in alive:
+                        try:
+                            p.kill()  # SIGKILL
+                        except psutil.NoSuchProcess:
+                            pass
+                        
+                except psutil.NoSuchProcess:
+                    print(f"Process {self.training_process.pid} not found")
+                except Exception as e:
+                    print(f"Error killing training process tree: {e}")
+                    # Fallback to basic termination
+                    self.training_process.terminate()
+                    try:
+                        self.training_process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        self.training_process.kill()
+                        self.training_process.wait(timeout=10)
             
             # Clean up ZMQ connections
             if self.server_comms_handler:
