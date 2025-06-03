@@ -292,17 +292,18 @@ class GRPOManager:
             "last_checkpoint": self.last_checkpoint,
         }
 
-    def update_model(self, request, inference_manager: InferenceManager):
+    async def update_model(self, request, inference_manager: InferenceManager):
         if inference_manager._session:
             # Create a new event loop if one doesn't exist
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+            # try:
+            #     loop = asyncio.get_event_loop()
+            # except RuntimeError:
+            #     loop = asyncio.new_event_loop()
+            #     asyncio.set_event_loop(loop)
 
-            # Run the session closure in the event loop
-            loop.run_until_complete(inference_manager._session.close())
+            # # Run the session closure in the event loop
+            # loop.run_until_complete(inference_manager._session.close())
+            await inference_manager._session.close()
             inference_manager._session = None
 
         inference_manager.inference_count = 0
@@ -314,7 +315,8 @@ class GRPOManager:
             print(
                 "Waiting for model to be saved and reloaded... This usually takes 20-30 seconds"
             )
-            time.sleep(5)
+            # time.sleep(5)
+            await asyncio.sleep(5)
         return {
             "current_model": self.current_model,
             "checkpoints": self.checkpoints,
