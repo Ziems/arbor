@@ -100,9 +100,14 @@ def main():
             
 
     terminate_response = terminate_grpo()
-    import pdb
+    import pdb; pdb.set_trace()
+    inputs = dataset[-1]
+    input_messages = [{"role": "user", "content": inputs["prompt"]}]
+    response = client.chat.completions.create(
+        model=current_model, messages=input_messages, temperature=0.7, n=8
+    )
 
-    pdb.set_trace()
+
 
 
 if __name__ == "__main__":
