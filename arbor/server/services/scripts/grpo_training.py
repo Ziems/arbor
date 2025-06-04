@@ -4,14 +4,19 @@
 ###############################################################################
 
 import argparse
+import shutil
+import os
 import json
 import random
 import threading
 import time
+import signal
+import sys
 from functools import lru_cache
 from typing import Any, List, Optional, Union
 
 import torch
+import trl.extras.vllm_client
 import zmq
 from accelerate import Accelerator
 from accelerate.utils import broadcast_object_list, gather, gather_object
@@ -32,6 +37,9 @@ from arbor.server.services.comms.comms import (
     ArborScriptCommsHandler,
     ArborServerCommsHandler,
 )
+from arbor.server.services.inference.vllm_client import VLLMClient
+
+trl.extras.vllm_client.VLLMClient = VLLMClient
 
 if is_wandb_available():
     import wandb
@@ -71,10 +79,10 @@ class ArborGRPOTrainer(GRPOTrainer):
         comms_handler: Optional[ArborScriptCommsHandler] = None,
         lora: Optional[bool] = False,
         # We do nothing with max_context_length right now
+        vllm_group_port: Optional[int] = None,
         max_context_length: Optional[int] = None,
         **kwargs,
     ):
-
         super().__init__(
             model=model,
             reward_funcs=[],
@@ -90,6 +98,33 @@ class ArborGRPOTrainer(GRPOTrainer):
         self.peft_config = peft_config
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
+
+        self.vllm_client = None
+        args.use_vllm = True
+        self.use_vllm = True
+        if self.accelerator.is_main_process:
+            print(
+                f"Initializing vLLM client with server port {args.vllm_server_port} and group port {vllm_group_port}"
+            )
+            self.vllm_client = VLLMClient(
+                args.vllm_server_host,
+                args.vllm_server_port,
+                group_port=vllm_group_port,
+                connection_timeout=args.vllm_server_timeout,
+            )
+            self.vllm_client.init_communicator()
+
+        # vLLM specific sampling arguments
+        self.guided_decoding_regex = args.vllm_guided_decoding_regex
+
+        self._last_loaded_step = (
+            -1
+        )  # tag to avoid useless loading during grad accumulation
+
+        # When using vLLM, the main process is responsible for loading the model weights. This can cause process
+        # desynchronization and seems to lead to DeepSpeed hanging during initialization. To prevent this, we
+        # synchronize all processes after vLLM has been fully initialized.
+        self.accelerator.wait_for_everyone()
 
     def _generate_and_score_completions(
         self, batch: List[dict[str, Any]]
@@ -313,6 +348,29 @@ class LastStepTimeCallback(TrainerCallback):
         last_step_time = time.time()
 
 
+class WeightUpdateCallback(TrainerCallback):
+    """A callback that sends weight update completion status after each step"""
+    def __init__(self):
+        self.comms_handler = None
+        self.trainer = None
+
+    def set_comms_handler(self, comms_handler: ArborScriptCommsHandler):
+        self.comms_handler = comms_handler
+
+    def set_trainer(self, trainer):
+        self.trainer = trainer
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if self.comms_handler and self.comms_handler.is_main_process and self.trainer:
+            if state.global_step != self.trainer._last_loaded_step:
+                print("Updating inference model...")
+                self.comms_handler.send_status({"status": "weight_update_start"})
+                self.trainer._move_model_to_vllm()
+                self.trainer._last_loaded_step = state.global_step
+                print("[DEBUG] Sending weight update completion status")
+                self.comms_handler.send_status({"status": "weight_update_complete"})
+
+
 class BlockingQueueDataset(Dataset):
     def __init__(
         self,
@@ -378,11 +436,6 @@ class CommandMonitor:
             target=self._monitor_commands, daemon=True
         )
         self.command_thread.start()
-
-        self.broadcast_thread = threading.Thread(
-            target=self._monitor_broadcasts, daemon=True
-        )
-        self.broadcast_thread.start()
 
     def _monitor_commands(self):
         """Background thread that monitors for commands from the server."""
@@ -478,6 +531,23 @@ class CommandMonitor:
                             output_dir=self.trainer.args.output_dir
                             + f"/checkpoints/{command.get('checkpoint_name')}/"
                         )
+
+                    # Copy checkpoint files to root output directory
+                    checkpoint_dir = self.trainer.args.output_dir + f"/checkpoints/{command.get('checkpoint_name')}/"
+                    root_dir = self.trainer.args.output_dir 
+                    
+                    # Copy all files from checkpoint dir to root dir, overwriting if they exist
+                    # (effectively saves the checkpoint to the output directory)
+                    for item in os.listdir(checkpoint_dir):
+                        src = os.path.join(checkpoint_dir, item)
+                        dst = os.path.join(root_dir, item)
+                        if os.path.isdir(src):
+                            if os.path.exists(dst):
+                                shutil.rmtree(dst)
+                            shutil.copytree(src, dst)
+                        else:
+                            shutil.copy2(src, dst)
+
                     self.comms_handler.send_status(
                         {
                             "status": "checkpoint_saved",
@@ -486,29 +556,19 @@ class CommandMonitor:
                             + f"/checkpoints/{command.get('checkpoint_name')}/",
                         }
                     )
+                    self.comms_handler.send_status(
+                        {
+                            "status": "model_saved",
+                            "output_dir": self.trainer.args.output_dir,
+                        }
+                    )
+                elif command.get("command") == "terminate":
+                    print("TERMINATED")
+                    self.trainer.accelerator.end_training()
+                    self.comms_handler.send_status({"status": "terminated"})
 
         except Exception as e:
             print(e)
-            self.comms_handler.send_status({"status": "error", "error": str(e)})
-
-    def _monitor_broadcasts(self):
-        """Background thread that monitors for broadcasts from the server."""
-        if not self.comms_handler:
-            return
-        try:
-            for broadcast in self.comms_handler.receive_broadcast():
-                print(f"!!!Received broadcast: {broadcast}")
-                if broadcast.get("message") == "terminate":
-                    # self.trainer.control.should_training_stop = True
-                    # self.comms_handler.send_status(
-                    #     {
-                    #         "status": "Received termination command",
-                    #         "process_id": self.trainer.accelerator.process_index,
-                    #     }
-                    # )
-                    if self.trainer.accelerator.is_main_process:
-                        self.trainer.accelerator.end_training()
-        except Exception as e:
             self.comms_handler.send_status({"status": "error", "error": str(e)})
 
 
@@ -523,6 +583,8 @@ def main():
     pipe_args.add_argument("--data_port", type=int, required=True)
     pipe_args.add_argument("--broadcast_port", type=int, required=True)
     pipe_args.add_argument("--handshake_port", type=int, required=True)
+    pipe_args.add_argument("--vllm_group_port", type=int, required=True)
+    pipe_args.add_argument("--vllm_port", type=int, required=True)
 
     training_args = parser.add_argument_group("Training arguments")
     training_args.add_argument(
@@ -636,15 +698,18 @@ def main():
         training_args = GRPOConfig(
             dataloader_num_workers=0,
             shuffle_dataset=False,
+            vllm_server_port=args.vllm_port,
             **trl_train_args,
         )
 
+        weight_update_callback = WeightUpdateCallback()
         trainer = ArborGRPOTrainer(
             model=args.model,
             args=training_args,
             train_dataset=BlockingQueueDataset(None, None),
-            callbacks=[LastStepTimeCallback()],
+            callbacks=[LastStepTimeCallback(), weight_update_callback],
             peft_config=lora_config,
+            vllm_group_port=args.vllm_group_port,
             **arbor_train_args,
         )
         # Create client handler
@@ -657,6 +722,8 @@ def main():
             handshake_port=args.handshake_port,
             is_main_process=trainer.accelerator.is_main_process,
         )
+        weight_update_callback.set_comms_handler(comms_handler)
+        weight_update_callback.set_trainer(trainer)
         trainer.comms_handler = comms_handler
 
         # Initialize the dataset with the actual accelerator
@@ -671,6 +738,18 @@ def main():
             base_model_name=args.model,
         )
 
+        # Add signal handlers for graceful shutdown
+        def signal_handler(signum, frame):
+            print(f"\nReceived signal {signum}. Initiating graceful shutdown...")
+            print("Ending training...")
+            trainer.accelerator.end_training()
+            print("Closing communications...")
+            comms_handler.close()
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+
         print("Training...")
         trainer.train()
 
@@ -681,7 +760,10 @@ def main():
         comms_handler.send_status({"status": "error", "error": str(e)})
         raise e
     finally:
+        print("Cleaning up resources...")
+        trainer.accelerator.end_training()
         comms_handler.close()
+        print("Cleanup complete")
 
 
 if __name__ == "__main__":

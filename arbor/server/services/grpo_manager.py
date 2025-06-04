@@ -12,6 +12,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+import psutil
 
 from arbor.server.api.models.schemas import (
     GRPOCheckpointRequest,
@@ -31,8 +32,9 @@ class GRPOManager:
         self.train_kwargs = None
         self.server_comms_handler = None
         self.status_thread = None
-        self.model_saved_and_reload_requested = False
         self.saving_checkpoint = False
+        self.saving_model = False
+        self.terminating = False
 
         self.checkpoints = {}
         self.last_checkpoint = None
@@ -45,8 +47,10 @@ class GRPOManager:
     def _signal_handler(self, signum, frame):
         """Handle keyboard interrupt (SIGINT) gracefully."""
         print("\nReceived keyboard interrupt. Shutting down gracefully...")
-        self.terminate(None)
-        sys.exit(0)
+        # Sleep for a bit to let async operations go through
+        time.sleep(3)
+        if self.training_process is not None:
+            self.cleanup_termination(None)
 
     def make_output_dir(
         self, model_name: str, run_suffix: Optional[str] = None
@@ -122,6 +126,17 @@ class GRPOManager:
 
         self.current_model = request.model
 
+        # The inference server has to be launched before the training process
+        # Launch the inference server
+        # launch_kwargs = {
+        #     k: v for k, v in arbor_train_kwargs.items() if k in ["max_context_length"]
+        # }
+        inference_manager.launch_kwargs["max_context_length"] = arbor_train_kwargs.get(
+            "max_context_length", None
+        )
+        print("Launching inference server...")
+        inference_manager.launch(self.current_model)
+
         # Initialize ZMQ socket manager - no need for connection acceptance thread anymore
         self.server_comms_handler = ArborServerCommsHandler()
 
@@ -171,6 +186,10 @@ class GRPOManager:
                 str(self.server_comms_handler.broadcast_port),
                 "--handshake_port",
                 str(self.server_comms_handler.handshake_port),
+                "--vllm_port",
+                str(inference_manager.port),
+                "--vllm_group_port",
+                str(inference_manager.group_port),
                 # Training args
                 "--model",
                 self.current_model,
@@ -221,33 +240,38 @@ class GRPOManager:
         self.status_thread.start()
         self.server_comms_handler.wait_for_clients(num_processes)
 
-        # Launch the inference server
-        print("Launching inference server...")
-        # launch_kwargs = {
-        #     k: v for k, v in arbor_train_kwargs.items() if k in ["max_context_length"]
-        # }
-        inference_manager.launch_kwargs["max_context_length"] = arbor_train_kwargs.get(
-            "max_context_length", None
-        )
-        inference_manager.launch(self.current_model)
+    async def _handle_weight_update_start(self, inference_manager):
+        """Handle weight update start in the event loop"""
+        await inference_manager.start_weight_update()
+
+    async def _handle_weight_update_complete(self, inference_manager):
+        """Handle weight update complete in the event loop"""
+        await inference_manager.complete_weight_update()
+
+    def _run_in_loop(self, coro):
+        """Run a coroutine in the event loop from a thread"""
+        future = asyncio.run_coroutine_threadsafe(coro, self.event_loop)
+        return future.result()
 
     def _handle_status_updates(self, inference_manager: InferenceManager):
         """Handle status updates from training process using ZMQ SUB socket"""
         print("Starting status update handler...")
         try:
-
             for status in self.server_comms_handler.receive_status():
                 print(f"Received status update: {status}")
-                if status["status"] == "model_saved":
+                if status["status"] == "weight_update_start":
+                    # Block inference calls by incrementing counter
+                    inference_manager.start_weight_update()
+                elif status["status"] == "weight_update_complete":
+                    # Decrement counter to potentially allow inference calls again
+                    inference_manager.complete_weight_update()
+                elif status["status"] == "model_saved":
                     print("Updating inference model...")
                     # There is a case where this status is sent multiple times
                     # We need to make sure we only update the model once
-                    if self._should_update_model():
-                        inference_manager.update_model(status["output_dir"])
-                        # self.last_inference_update = self.data_count
-                        self.model_saved_and_reload_requested = False
-                        self.current_model = status["output_dir"]
-                        print("Model update complete")
+                    self.current_model = status["output_dir"]
+                    self.saving_model = False
+                    print("Model update complete")
                 elif status["status"] == "checkpoint_saved":
                     print("Received checkpoint saved status")
                     self.checkpoints[status["checkpoint_name"]] = status["output_dir"]
@@ -257,24 +281,17 @@ class GRPOManager:
                 elif status["status"] == "error":
                     print(f"Training error: {status.get('error', 'Unknown error')}")
                 elif status["status"] == "terminated":
+                    self.terminating = False
                     print("Training process terminated")
-                    break
         except Exception as e:
             print(f"Error in status update handler: {e}")
+            # Make sure to allow inference if there's an error
+            try:
+                inference_manager.complete_weight_update()
+            except:
+                pass
 
-    def grpo_step(
-        self, request: GRPORequest, inference_manager: InferenceManager
-    ) -> str:
-        while inference_manager.is_server_restarting():
-            print("Inferece manager restarting, waiting for GRPO step")
-            time.sleep(5)
-
-        while self._should_update_model():
-            print(
-                f"Waiting for model update. Data count: {self.data_count}, Last inference update: {self.last_inference_update}"
-            )
-            time.sleep(5)
-
+    def grpo_step(self, request: GRPORequest, inference_manager: InferenceManager) -> str:
         while self.saving_checkpoint:
             print("Saving checkpoint, pausing GRPO steps until checkpoint is saved...")
             time.sleep(5)
@@ -283,47 +300,30 @@ class GRPOManager:
             # Send the batch to the training process
             self.server_comms_handler.send_data(request.batch)
             self.data_count += 1
+
         except Exception as e:
             print(f"Failed to send batch to training process: {e}")
-
+            raise
+        
         return {
             "current_model": self.current_model,
             "checkpoints": self.checkpoints,
             "last_checkpoint": self.last_checkpoint,
         }
 
-    async def update_model(self, request, inference_manager: InferenceManager):
-        if inference_manager._session:
-            # Create a new event loop if one doesn't exist
-            # try:
-            #     loop = asyncio.get_event_loop()
-            # except RuntimeError:
-            #     loop = asyncio.new_event_loop()
-            #     asyncio.set_event_loop(loop)
-
-            # # Run the session closure in the event loop
-            # loop.run_until_complete(inference_manager._session.close())
-            await inference_manager._session.close()
-            inference_manager._session = None
-
-        inference_manager.inference_count = 0
-        inference_manager.restarting = True
-
-        self.model_saved_and_reload_requested = True
-        self.server_comms_handler.send_command({"command": "save_model"})
-        while self.model_saved_and_reload_requested:
-            print(
-                "Waiting for model to be saved and reloaded... This usually takes 20-30 seconds"
-            )
-            # time.sleep(5)
-            await asyncio.sleep(5)
+    def update_model(self, request, inference_manager: InferenceManager):
+        # No longer used
         return {
             "current_model": self.current_model,
             "checkpoints": self.checkpoints,
             "last_checkpoint": self.last_checkpoint,
         }
 
-    def checkpoint(self, request: GRPOCheckpointRequest):
+    def checkpoint(self, request: GRPOCheckpointRequest, inference_manager: InferenceManager):
+        while inference_manager.is_updating:  # Use the property instead of direct access
+            print("Waiting for weight updates to finish before checkpointing...")
+            time.sleep(5)
+
         self.saving_checkpoint = True
         self.server_comms_handler.send_command(
             {"command": "save_checkpoint", "checkpoint_name": request.checkpoint_name}
@@ -339,65 +339,127 @@ class GRPOManager:
 
     def terminate(self, inference_manager: InferenceManager):
         """Clean up resources and save the final model."""
+        time.sleep(5)
+
+        while inference_manager and inference_manager.is_updating:  # Use the property instead of direct access
+            print("Waiting for final weight updates to finish before saving...")
+            time.sleep(5)
+
+        print("sending save model command")
+        self.saving_model = True
+        self.server_comms_handler.send_command(
+            {"command": "save_model"}
+        )
+        while self.saving_model:
+            print("Waiting for final model to be saved...")
+            time.sleep(5)
+
         termination_data = {
             "current_model": self.current_model,
             "checkpoints": self.checkpoints,
             "last_checkpoint": self.last_checkpoint,
         }
+
+        print("sending termination command")
+        self.terminating = True
+        self.server_comms_handler.send_command({"command": "terminate"})
+        print("Waiting for training process to finish...")
+
+        # Wait for at most 15 seconds for termination
+        start_time = time.time()
+        while self.terminating:
+            if time.time() - start_time > 15:
+                print("Termination wait timed out after 15 seconds, proceeding with cleanup...")
+                break
+            print("Waiting for run to be terminated...")
+            time.sleep(3)
+        
+        print("Doing cleanup")
+        self.cleanup_termination(inference_manager)
+
+        if self.train_kwargs and "output_dir" in self.train_kwargs:
+            print(
+                f"Training completed. Model saved to {self.train_kwargs['output_dir']}"
+            )
+            if not os.path.exists(self.train_kwargs["output_dir"]):
+                print(
+                    f"Warning: Output directory {self.train_kwargs['output_dir']} does not exist"
+                )
+            output_dir = self.train_kwargs["output_dir"]
+            self.train_kwargs = None
+        else:
+            print("Training terminated, no output directory specified")
+            self.train_kwargs = None
+
+        return termination_data
+
+    def cleanup_termination(self, inference_manager):
         try:
-            # Stop the inference server
-            if inference_manager.process is not None:
-                inference_manager.kill()
-
-            # Send termination command through REQ socket
-            self.server_comms_handler.send_broadcast({"message": "terminate"})
-            # self.training_process.terminate()
-            print("Waiting for training process to finish")
-
-            # Wait for training process to finish
+            # Kill training process and all its children (accelerate launcher creates multiple processes)
             if self.training_process:
-                self.training_process.wait(timeout=30)
-
-        except Exception as e:
-            print(f"Error during termination: {e}")
-        finally:
+                print("Terminating training process and its children...")
+                try:
+                    parent = psutil.Process(self.training_process.pid)
+                    # Get all child processes including grandchildren
+                    children = parent.children(recursive=True)
+                    
+                    # Send SIGTERM to children first
+                    for child in children:
+                        try:
+                            child.send_signal(signal.SIGTERM)
+                        except psutil.NoSuchProcess:
+                            pass
+                    
+                    # Send SIGTERM to parent
+                    parent.send_signal(signal.SIGTERM)
+                    
+                    # Wait for processes to terminate gracefully
+                    gone, alive = psutil.wait_procs(children + [parent], timeout=10)
+                    
+                    # If any processes are still alive, force kill them
+                    for p in alive:
+                        try:
+                            p.kill()  # SIGKILL
+                        except psutil.NoSuchProcess:
+                            pass
+                        
+                except psutil.NoSuchProcess:
+                    print(f"Process {self.training_process.pid} not found")
+                except Exception as e:
+                    print(f"Error killing training process tree: {e}")
+                    # Fallback to basic termination
+                    self.training_process.terminate()
+                    try:
+                        self.training_process.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        self.training_process.kill()
+                        self.training_process.wait(timeout=10)
+            
             # Clean up ZMQ connections
             if self.server_comms_handler:
+                print("Closing ZMQ connections...")
                 self.server_comms_handler.close()
 
-            # Force kill training process if still running
-            if self.training_process and self.training_process.poll() is None:
-                self.training_process.kill()
-                self.training_process.wait()
-
-            # Reinitialize incase we want to start a new training run
+            if inference_manager and inference_manager.process is not None:
+                print("Killing inference manager...")
+                inference_manager.kill()
+            
+            # Reinitialize in case we want to start a new training run
             self.training_process = None
             self.current_model = None
             self.server_comms_handler = None
             self.status_thread = None
-            self.model_saved_and_reload_requested = False
-
             self.data_count = 0
-            self.last_inference_update = 0
+            print("Cleanup completed successfully")
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
+            # Still reset state even if cleanup fails
+            self.training_process = None
+            self.current_model = None
+            self.server_comms_handler = None
+            self.status_thread = None
+            self.data_count = 0
 
-            if self.train_kwargs and "output_dir" in self.train_kwargs:
-                print(
-                    f"Training completed. Model saved to {self.train_kwargs['output_dir']}"
-                )
-                if not os.path.exists(self.train_kwargs["output_dir"]):
-                    print(
-                        f"Warning: Output directory {self.train_kwargs['output_dir']} does not exist"
-                    )
-                output_dir = self.train_kwargs["output_dir"]
-                self.train_kwargs = None
-            else:
-                print("Training terminated, no output directory specified")
-                self.train_kwargs = None
-
-        return termination_data
-
-    def _should_update_model(self):
-        return self.model_saved_and_reload_requested
 
 
 def get_free_port() -> int:
