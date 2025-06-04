@@ -3,54 +3,19 @@ import requests
 from datasets import load_dataset
 from openai import OpenAI
 
-arbor_port = 8234
+arbor_port = 7453
 
 client = OpenAI(
     base_url=f"http://127.0.0.1:{arbor_port}/v1",  # Using Arbor server
     api_key="not-needed",  # If you're using a local server, you dont need an API key
 )
 
-num_generations = 4
-grad_accum_steps = 40
-context_length = 2500  # 6000
-current_model = "qwen/qwen3-8b"  # "meta-llama/Llama-3.1-8B-Instruct"
-
 
 def initialize_grpo(
     model, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/initialize"
 ):
     headers = {"Content-Type": "application/json"}
-    data = {
-        "model": model,
-        "num_generations": num_generations,
-        "update_interval": 10,
-        "report_to": None,
-    }
-
-    data.update(
-        {
-            "update_interval": 10,
-            "per_device_train_batch_size": 1,
-            "gradient_accumulation_steps": grad_accum_steps,
-            "temperature": 0.9,
-            "beta": 0.04,
-            "learning_rate": 1e-5,
-            "gradient_checkpointing": True,
-            "gradient_checkpointing_kwargs": {"use_reentrant": False},
-            "bf16": True,
-            "lr_scheduler_type": "constant_with_warmup",
-            "max_prompt_length": None,
-            "max_completion_length": None,
-            "scale_rewards": True,
-            "max_grad_norm": 0.5,
-            "lora": True,
-            "report_to": None,
-            # 'log_completions': True,
-            # 'logging_steps': 100,
-            "max_context_length": 6000,
-            "generation_batch_size": num_generations,
-        }
-    )
+    data = {"model": model, "num_generations": 8, "update_interval": 5, "lora": True}
     response = requests.post(url, headers=headers, json=data)
     return response
 
@@ -88,8 +53,6 @@ def terminate_grpo(url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/termi
 
 
 def main():
-    global grad_accum_steps, current_model, context_length
-
     def _reward_func(prompts, completions):
 
         return [
@@ -98,27 +61,20 @@ def main():
         ]
 
     dataset = load_dataset("trl-lib/tldr", split="train")
-    from transformers import AutoTokenizer
-
-    tokenizer = AutoTokenizer.from_pretrained(current_model)
-    # return len(tokenizer.apply_chat_template(messages))
+    current_model = "Qwen/Qwen3-0.6B"
     initialize_response = initialize_grpo(model=current_model)
     last_checkpoint = None
 
     for i in range(len(dataset)):
         inputs = dataset[i]
         input_messages = [{"role": "user", "content": inputs["prompt"]}]
-        response = {"content": "Hello, world!", "role": "assistant"}
-        token_len = len(tokenizer.apply_chat_template(input_messages + [response]))
-        while token_len < context_length:
-            response["content"] += "Hello, world!"
-            token_len = len(tokenizer.apply_chat_template(input_messages + [response]))
-
-        response["content"] = response["content"][: -1 * len("Hello, world!")]
-        token_len = len(tokenizer.apply_chat_template(input_messages + [response]))
-        print(token_len)
-
-        completions = [response] * num_generations
+        response = client.chat.completions.create(
+            model=current_model, messages=input_messages, temperature=0.7, n=8
+        )
+        completions = [
+            {"content": choice.message.content, "role": choice.message.role}
+            for choice in response.choices
+        ]
         rewards = _reward_func(inputs["prompt"], [c["content"] for c in completions])
         print(rewards)
 
@@ -127,25 +83,28 @@ def main():
             batch.append(
                 {"messages": input_messages, "completion": completion, "reward": reward}
             )
+        step_response = run_grpo_step(model_name=current_model, batch=batch)
+        current_model = step_response.json()["current_model"]
 
-        for i in range(grad_accum_steps):
-            step_response = run_grpo_step(model_name=current_model, batch=batch)
-            current_model = step_response.json()["current_model"]
+        if i == 10:
+            update_response = update_model()
+            current_model = update_response.json()["current_model"]
 
-        # if i % 42 == 0 and i > 0:
-        update_response = update_model()
-        current_model = update_response.json()["current_model"]
+            checkpoint_response = checkpoint(checkpoint_name=f"checkpoint_{i}")
+            last_checkpoint_name = checkpoint_response.json()["last_checkpoint"]
 
-        # checkpoint_response = checkpoint(checkpoint_name=f"checkpoint_{i}")
-        # last_checkpoint_name = checkpoint_response.json()["last_checkpoint_name"]
-        # import pdb
-
-        # pdb.set_trace()
+        if i == 20:
+            break
 
     terminate_response = terminate_grpo()
     import pdb
 
-    # pdb.set_trace()
+    pdb.set_trace()
+    inputs = dataset[-1]
+    input_messages = [{"role": "user", "content": inputs["prompt"]}]
+    response = client.chat.completions.create(
+        model=current_model, messages=input_messages, temperature=0.7, n=8
+    )
 
 
 if __name__ == "__main__":

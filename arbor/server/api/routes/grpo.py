@@ -49,7 +49,10 @@ def update_model(request: Request):
 @router.post("/checkpoint", response_model=GRPOCheckpointResponse)
 def checkpoint(request: Request, grpo_checkpoint_request: GRPOCheckpointRequest):
     grpo_manager = request.app.state.grpo_manager
-    checkpoint_data = grpo_manager.checkpoint(grpo_checkpoint_request)
+    inference_manager = request.app.state.inference_manager
+    checkpoint_data = grpo_manager.checkpoint(
+        grpo_checkpoint_request, inference_manager
+    )
     return GRPOCheckpointResponse(status="success", **checkpoint_data)
 
 

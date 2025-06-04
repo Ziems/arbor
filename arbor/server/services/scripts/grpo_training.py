@@ -5,13 +5,18 @@
 
 import argparse
 import json
+import os
 import random
+import shutil
+import signal
+import sys
 import threading
 import time
 from functools import lru_cache
 from typing import Any, List, Optional, Union
 
 import torch
+import trl.extras.vllm_client
 import zmq
 from accelerate import Accelerator
 from accelerate.utils import broadcast_object_list, gather, gather_object
@@ -32,6 +37,9 @@ from arbor.server.services.comms.comms import (
     ArborScriptCommsHandler,
     ArborServerCommsHandler,
 )
+from arbor.server.services.inference.vllm_client import VLLMClient
+
+trl.extras.vllm_client.VLLMClient = VLLMClient
 
 if is_wandb_available():
     import wandb
@@ -71,10 +79,10 @@ class ArborGRPOTrainer(GRPOTrainer):
         comms_handler: Optional[ArborScriptCommsHandler] = None,
         lora: Optional[bool] = False,
         # We do nothing with max_context_length right now
+        vllm_group_port: Optional[int] = None,
         max_context_length: Optional[int] = None,
         **kwargs,
     ):
-
         super().__init__(
             model=model,
             reward_funcs=[],
@@ -90,6 +98,33 @@ class ArborGRPOTrainer(GRPOTrainer):
         self.peft_config = peft_config
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
+
+        self.vllm_client = None
+        args.use_vllm = True
+        self.use_vllm = True
+        if self.accelerator.is_main_process:
+            print(
+                f"Initializing vLLM client with server port {args.vllm_server_port} and group port {vllm_group_port}"
+            )
+            self.vllm_client = VLLMClient(
+                args.vllm_server_host,
+                args.vllm_server_port,
+                group_port=vllm_group_port,
+                connection_timeout=args.vllm_server_timeout,
+            )
+            self.vllm_client.init_communicator()
+
+        # vLLM specific sampling arguments
+        self.guided_decoding_regex = args.vllm_guided_decoding_regex
+
+        self._last_loaded_step = (
+            -1
+        )  # tag to avoid useless loading during grad accumulation
+
+        # When using vLLM, the main process is responsible for loading the model weights. This can cause process
+        # desynchronization and seems to lead to DeepSpeed hanging during initialization. To prevent this, we
+        # synchronize all processes after vLLM has been fully initialized.
+        self.accelerator.wait_for_everyone()
 
     def _generate_and_score_completions(
         self, batch: List[dict[str, Any]]
@@ -156,11 +191,6 @@ class ArborGRPOTrainer(GRPOTrainer):
             completion_ids = completion_ids[:, : self.max_completion_length]
             completion_mask = completion_mask[:, : self.max_completion_length]
 
-        # Keeping this for when we switch to vllm
-        # if self.state.global_step != self._last_loaded_step:
-        #     self._move_model_to_vllm()
-        #     self._last_loaded_step = self.state.global_step
-
         prompt_ids = broadcast_object_list(prompt_ids)
         prompt_mask = broadcast_object_list(prompt_mask)
         completion_ids = broadcast_object_list(completion_ids)
@@ -177,6 +207,9 @@ class ArborGRPOTrainer(GRPOTrainer):
         completion_mask = completion_mask[process_slice]
 
         is_eos = completion_ids == self.processing_class.eos_token_id
+
+        # Sum along sequence dimension (dim=1) to get completion length per sequence, used for logging
+        completion_lengths = completion_mask.sum(1)
 
         # If mask_truncated_completions is enabled, zero out truncated completions in completion_mask
         if self.mask_truncated_completions:
@@ -230,6 +263,10 @@ class ArborGRPOTrainer(GRPOTrainer):
         std_grouped_rewards = std_grouped_rewards.repeat_interleave(
             self.num_generations, dim=0
         )
+        is_std_zero = torch.isclose(
+            std_grouped_rewards, torch.zeros_like(std_grouped_rewards)
+        )
+
         advantages = rewards - mean_grouped_rewards
 
         if self.scale_rewards:
@@ -241,66 +278,72 @@ class ArborGRPOTrainer(GRPOTrainer):
             self.accelerator.process_index * len(batch),
             (self.accelerator.process_index + 1) * len(batch),
         )
+        all_process_advantages = (
+            advantages.clone()
+        )  # keep the aggregated advantages for logging
         advantages = advantages[process_slice]
 
         # Log the metrics
         if mode == "train":
             self.state.num_input_tokens_seen += (
-                self.accelerator.gather_for_metrics(attention_mask.sum()).sum().item()
+                self.accelerator.gather(attention_mask.sum()).sum().item()
             )
         self._metrics[mode]["num_tokens"] = [self.state.num_input_tokens_seen]
 
-        # log completion lengths, mean, min, max
-        agg_completion_mask = self.accelerator.gather_for_metrics(
-            completion_mask.sum(1)
-        )
+        # Log completion lengths, mean, min, max
+        agg_completion_lengths = self.accelerator.gather(completion_lengths)
         self._metrics[mode]["completions/mean_length"].append(
-            agg_completion_mask.float().mean().item()
+            agg_completion_lengths.float().mean().item()
         )
         self._metrics[mode]["completions/min_length"].append(
-            agg_completion_mask.float().min().item()
+            agg_completion_lengths.float().min().item()
         )
         self._metrics[mode]["completions/max_length"].append(
-            agg_completion_mask.float().max().item()
+            agg_completion_lengths.float().max().item()
         )
 
-        # identify sequences that terminated with EOS and log their lengths
-        agg_terminated_with_eos = self.accelerator.gather_for_metrics(is_eos.any(dim=1))
-        term_completion_mask = agg_completion_mask[agg_terminated_with_eos]
-        clipped_completions_ratio = 1 - len(term_completion_mask) / len(
-            agg_completion_mask
+        # Identify sequences that terminated with EOS and log their lengths
+        agg_terminated_with_eos = self.accelerator.gather(is_eos.any(dim=1))
+        term_completion_lengths = agg_completion_lengths[agg_terminated_with_eos]
+        clipped_completions_ratio = 1 - len(term_completion_lengths) / len(
+            agg_completion_lengths
         )
         self._metrics[mode]["completions/clipped_ratio"].append(
             clipped_completions_ratio
         )
-        if len(term_completion_mask) == 0:
-            # edge case where no completed sequences are found
-            term_completion_mask = torch.zeros(1, device=device)
+        if (
+            len(term_completion_lengths) == 0
+        ):  # edge case where no terminated sequences are found
+            term_completion_lengths = torch.zeros(1, device=device)
         self._metrics[mode]["completions/mean_terminated_length"].append(
-            term_completion_mask.float().mean().item()
+            term_completion_lengths.float().mean().item()
         )
         self._metrics[mode]["completions/min_terminated_length"].append(
-            term_completion_mask.float().min().item()
+            term_completion_lengths.float().min().item()
         )
         self._metrics[mode]["completions/max_terminated_length"].append(
-            term_completion_mask.float().max().item()
+            term_completion_lengths.float().max().item()
         )
 
-        # Calculate mean reward
+        # Calculate mean reward per function, but only for samples where the function was applied (non-NaN values)
         self._metrics[mode]["reward"].append(mean_grouped_rewards.mean().item())
         self._metrics[mode]["reward_std"].append(std_grouped_rewards.mean().item())
+        self._metrics[mode]["frac_reward_zero_std"].append(
+            is_std_zero.float().mean().item()
+        )
 
         # Log prompt and completion texts
         self._textual_logs["prompt"].extend(gather_object(prompts_text))
         self._textual_logs["completion"].extend(gather_object(completions_text))
+        self._textual_logs["advantages"].extend(all_process_advantages.tolist())
 
         return {
             "prompt_ids": prompt_ids,
             "prompt_mask": prompt_mask,
             "completion_ids": completion_ids,
             "completion_mask": completion_mask,
-            "old_per_token_logps": old_per_token_logps,
             "advantages": advantages,
+            "old_per_token_logps": old_per_token_logps,
         }
 
 
@@ -311,6 +354,30 @@ class LastStepTimeCallback(TrainerCallback):
         global last_step_time
         print(f"Time since last step: {time_since_last_step()}")
         last_step_time = time.time()
+
+
+class WeightUpdateCallback(TrainerCallback):
+    """A callback that sends weight update completion status after each step"""
+
+    def __init__(self):
+        self.comms_handler = None
+        self.trainer = None
+
+    def set_comms_handler(self, comms_handler: ArborScriptCommsHandler):
+        self.comms_handler = comms_handler
+
+    def set_trainer(self, trainer):
+        self.trainer = trainer
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if self.comms_handler and self.comms_handler.is_main_process and self.trainer:
+            if state.global_step != self.trainer._last_loaded_step:
+                print("Updating inference model...")
+                self.comms_handler.send_status({"status": "weight_update_start"})
+                self.trainer._move_model_to_vllm()
+                self.trainer._last_loaded_step = state.global_step
+                print("[DEBUG] Sending weight update completion status")
+                self.comms_handler.send_status({"status": "weight_update_complete"})
 
 
 class BlockingQueueDataset(Dataset):
@@ -378,11 +445,6 @@ class CommandMonitor:
             target=self._monitor_commands, daemon=True
         )
         self.command_thread.start()
-
-        self.broadcast_thread = threading.Thread(
-            target=self._monitor_broadcasts, daemon=True
-        )
-        self.broadcast_thread.start()
 
     def _monitor_commands(self):
         """Background thread that monitors for commands from the server."""
@@ -478,6 +540,26 @@ class CommandMonitor:
                             output_dir=self.trainer.args.output_dir
                             + f"/checkpoints/{command.get('checkpoint_name')}/"
                         )
+
+                    # Copy checkpoint files to root output directory
+                    checkpoint_dir = (
+                        self.trainer.args.output_dir
+                        + f"/checkpoints/{command.get('checkpoint_name')}/"
+                    )
+                    root_dir = self.trainer.args.output_dir
+
+                    # Copy all files from checkpoint dir to root dir, overwriting if they exist
+                    # (effectively saves the checkpoint to the output directory)
+                    for item in os.listdir(checkpoint_dir):
+                        src = os.path.join(checkpoint_dir, item)
+                        dst = os.path.join(root_dir, item)
+                        if os.path.isdir(src):
+                            if os.path.exists(dst):
+                                shutil.rmtree(dst)
+                            shutil.copytree(src, dst)
+                        else:
+                            shutil.copy2(src, dst)
+
                     self.comms_handler.send_status(
                         {
                             "status": "checkpoint_saved",
@@ -486,29 +568,19 @@ class CommandMonitor:
                             + f"/checkpoints/{command.get('checkpoint_name')}/",
                         }
                     )
+                    self.comms_handler.send_status(
+                        {
+                            "status": "model_saved",
+                            "output_dir": self.trainer.args.output_dir,
+                        }
+                    )
+                elif command.get("command") == "terminate":
+                    print("TERMINATED")
+                    self.trainer.accelerator.end_training()
+                    self.comms_handler.send_status({"status": "terminated"})
 
         except Exception as e:
             print(e)
-            self.comms_handler.send_status({"status": "error", "error": str(e)})
-
-    def _monitor_broadcasts(self):
-        """Background thread that monitors for broadcasts from the server."""
-        if not self.comms_handler:
-            return
-        try:
-            for broadcast in self.comms_handler.receive_broadcast():
-                print(f"!!!Received broadcast: {broadcast}")
-                if broadcast.get("message") == "terminate":
-                    # self.trainer.control.should_training_stop = True
-                    # self.comms_handler.send_status(
-                    #     {
-                    #         "status": "Received termination command",
-                    #         "process_id": self.trainer.accelerator.process_index,
-                    #     }
-                    # )
-                    if self.trainer.accelerator.is_main_process:
-                        self.trainer.accelerator.end_training()
-        except Exception as e:
             self.comms_handler.send_status({"status": "error", "error": str(e)})
 
 
@@ -523,6 +595,8 @@ def main():
     pipe_args.add_argument("--data_port", type=int, required=True)
     pipe_args.add_argument("--broadcast_port", type=int, required=True)
     pipe_args.add_argument("--handshake_port", type=int, required=True)
+    pipe_args.add_argument("--vllm_group_port", type=int, required=True)
+    pipe_args.add_argument("--vllm_port", type=int, required=True)
 
     training_args = parser.add_argument_group("Training arguments")
     training_args.add_argument(
@@ -559,7 +633,9 @@ def main():
         args.broadcast_port = server_comms_handler.broadcast_port
         args.handshake_port = server_comms_handler.handshake_port
 
-        handshake_thread = threading.Thread(target=server_comms_handler.wait_for_clients, args=(1,), daemon=True)
+        handshake_thread = threading.Thread(
+            target=server_comms_handler.wait_for_clients, args=(1,), daemon=True
+        )
         handshake_thread.start()
 
         def debug_data_generator():
@@ -644,15 +720,18 @@ def main():
         training_args = GRPOConfig(
             dataloader_num_workers=0,
             shuffle_dataset=False,
+            vllm_server_port=args.vllm_port,
             **trl_train_args,
         )
 
+        weight_update_callback = WeightUpdateCallback()
         trainer = ArborGRPOTrainer(
             model=args.model,
             args=training_args,
             train_dataset=BlockingQueueDataset(None, None),
-            callbacks=[LastStepTimeCallback()],
+            callbacks=[LastStepTimeCallback(), weight_update_callback],
             peft_config=lora_config,
+            vllm_group_port=args.vllm_group_port,
             **arbor_train_args,
         )
         # Create client handler
@@ -665,6 +744,8 @@ def main():
             handshake_port=args.handshake_port,
             is_main_process=trainer.accelerator.is_main_process,
         )
+        weight_update_callback.set_comms_handler(comms_handler)
+        weight_update_callback.set_trainer(trainer)
         trainer.comms_handler = comms_handler
 
         # Initialize the dataset with the actual accelerator
@@ -679,6 +760,18 @@ def main():
             base_model_name=args.model,
         )
 
+        # Add signal handlers for graceful shutdown
+        def signal_handler(signum, frame):
+            print(f"\nReceived signal {signum}. Initiating graceful shutdown...")
+            print("Ending training...")
+            trainer.accelerator.end_training()
+            print("Closing communications...")
+            comms_handler.close()
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+
         print("Training...")
         trainer.train()
 
@@ -689,7 +782,10 @@ def main():
         comms_handler.send_status({"status": "error", "error": str(e)})
         raise e
     finally:
+        print("Cleaning up resources...")
+        trainer.accelerator.end_training()
         comms_handler.close()
+        print("Cleanup complete")
 
 
 if __name__ == "__main__":

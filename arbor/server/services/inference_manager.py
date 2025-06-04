@@ -1,5 +1,4 @@
 import asyncio
-import json
 import os
 import random
 import signal
@@ -9,13 +8,14 @@ import sys
 import threading
 import time
 from datetime import datetime
+from enum import Enum
 from typing import Any, Dict, Optional
 
-import aiohttp
+import psutil
 import requests
-import zmq
 
 from arbor.server.core.config import Settings
+from arbor.server.services.inference.vllm_client import VLLMClient
 
 
 class InferenceManager:
@@ -24,12 +24,14 @@ class InferenceManager:
         self.process = None
         self.launch_kwargs = {}
         self.last_activity = None
-        self.restarting = False
         self._shutting_down = False
-        self.current_model = None
+        self.launched_model = None
         self.inference_count = 0
         self._session = None
-        self.worker_urls = []
+        self.port = None
+        self.group_port = None
+        self.vllm_client = None
+        self._is_updating = 0  # Counter for weight updates in progress
         # Set up signal handler for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -47,15 +49,7 @@ class InferenceManager:
     def is_server_running(self):
         return self.process is not None
 
-    def is_server_restarting(self):
-        return self.restarting
-
-    def launch(
-        self,
-        model: str,
-        launch_kwargs: Optional[Dict[str, Any]] = None,
-        max_retries: int = 3,
-    ):
+    def launch(self, model: str, launch_kwargs: Optional[Dict[str, Any]] = None):
         if self.is_server_running():
             print("Server is already launched.")
             return
@@ -67,126 +61,81 @@ class InferenceManager:
             if model.startswith(prefix):
                 model = model[len(prefix) :]
 
-        retries = 0
-        while retries < max_retries:
-            try:
-                print(
-                    f"Attempt {retries + 1} of {max_retries} to launch server for model {model}"
-                )
-                print(
-                    f"Grabbing a free port to launch an SGLang server for model {model}"
-                )
-                router_port = get_free_port()
-                dp_worker_base_port = get_free_port()
-                worker_urls_port = get_free_port()  # Get a port for worker URLs
+        print(f"Grabbing a free port to launch a vLLM server for model {model}")
+        self.port = get_free_port()
+        timeout = launch_kwargs.get("timeout", 1800)
+        my_env = os.environ.copy()
+        my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
+        n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
+        command = f"python -m arbor.server.services.inference.vllm_serve --model {model} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching True"
 
-                timeout = launch_kwargs.get("timeout", 1800)
-                my_env = os.environ.copy()
-                my_env["CUDA_VISIBLE_DEVICES"] = (
-                    self.settings.arbor_config.inference.gpu_ids
-                )
-                n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
-                command = f"python -m arbor.server.services.inference.sgl_router_launch_server --model-path {model} --dp-size {n_gpus} --port {router_port} --host 0.0.0.0 --disable-radix-cache --router-dp-worker-base-port {dp_worker_base_port} --worker-urls-port {worker_urls_port}"
-                print(f"Running command: {command}")
-                if launch_kwargs.get("max_context_length"):
-                    command += (
-                        f" --context-length {launch_kwargs['max_context_length']}"
-                    )
+        if launch_kwargs.get("max_context_length"):
+            command += f" --max_model_len {launch_kwargs['max_context_length']}"
 
-                # We will manually stream & capture logs.
-                process = subprocess.Popen(
-                    command.replace("\\\n", " ").replace("\\", " ").split(),
-                    text=True,
-                    stdout=subprocess.PIPE,  # We'll read from pipe
-                    stderr=subprocess.STDOUT,  # Merge stderr into stdout
-                    env=my_env,
-                )
+        print(f"Running command: {command}")
 
-                # A threading.Event to control printing after the server is ready.
-                # This will store *all* lines (both before and after readiness).
-                print(f"SGLang server process started with PID {process.pid}.")
-                stop_printing_event = threading.Event()
-                logs_buffer = []
+        # We will manually stream & capture logs.
+        process = subprocess.Popen(
+            command.replace("\\\n", " ").replace("\\", " ").split(),
+            text=True,
+            stdout=subprocess.PIPE,  # We'll read from pipe
+            stderr=subprocess.STDOUT,  # Merge stderr into stdout
+            env=my_env,
+        )
 
-                def _tail_process(proc, buffer, stop_event):
-                    while True:
-                        line = proc.stdout.readline()
-                        if not line and proc.poll() is not None:
-                            # Process ended and no new line
-                            break
-                        if line:
-                            buffer.append(line)
-                            # Print only if stop_event is not set
-                            if not stop_event.is_set():
-                                print(f"[SGLang LOG] {line}", end="")
+        # A threading.Event to control printing after the server is ready.
+        # This will store *all* lines (both before and after readiness).
+        print(f"vLLM server process started with PID {process.pid}.")
+        stop_printing_event = threading.Event()
+        logs_buffer = []
 
-                # Start a background thread to read from the process continuously
-                thread = threading.Thread(
-                    target=_tail_process,
-                    args=(process, logs_buffer, stop_printing_event),
-                    daemon=True,
-                )
-                thread.start()
+        def _tail_process(proc, buffer, stop_event):
+            while True:
+                line = proc.stdout.readline()
+                if not line and proc.poll() is not None:
+                    # Process ended and no new line
+                    break
+                if line:
+                    buffer.append(line)
+                    # Print only if stop_event is not set
+                    if not stop_event.is_set():
+                        print(f"[vLLM LOG] {line}", end="")
 
-                # Get worker URLs before waiting for server
-                try:
-                    worker_urls = get_worker_urls(worker_urls_port, timeout=300)
-                    print(f"Received worker URLs: {worker_urls}")
-                    self.worker_urls = worker_urls
-                except TimeoutError as e:
-                    raise Exception(f"Failed to get worker URLs: {e}")
+        # Start a background thread to read from the process continuously
+        thread = threading.Thread(
+            target=_tail_process,
+            args=(process, logs_buffer, stop_printing_event),
+            daemon=True,
+        )
+        thread.start()
 
-                # Wait until the server is ready (or times out)
-                base_url = f"http://localhost:{router_port}"
-                try:
-                    wait_for_server(base_url, timeout=timeout)
-                except TimeoutError:
-                    # If the server doesn't come up, we might want to kill it:
-                    process.kill()
-                    raise
+        # A convenience getter so the caller can see all logs so far (and future).
+        def get_logs() -> str:
+            # Join them all into a single string, or you might return a list
+            return "".join(logs_buffer)
 
-                # Once server is ready, we tell the thread to stop printing further lines.
-                stop_printing_event.set()
+        # Let the user know server is up
+        print(f"Server ready on random port {self.port}!")
 
-                # A convenience getter so the caller can see all logs so far (and future).
-                def get_logs() -> str:
-                    # Join them all into a single string, or you might return a list
-                    return "".join(logs_buffer)
+        # self.launch_kwargs["api_base"] = f"http://localhost:{port}/v1"
+        # self.launch_kwargs["api_key"] = "local"
+        self.get_logs = get_logs
+        self.process = process
+        self.thread = thread
+        self.launched_model = model
 
-                # Let the user know server is up
-                print(f"Server ready on random port {router_port}!")
+        # Get another free port for weight sync group communication
+        self.group_port = get_free_port()
+        self.vllm_client = VLLMClient(
+            port=self.port,
+            group_port=self.group_port,
+            connection_timeout=300,  # 5 minutes
+        )
 
-                self.launch_kwargs["api_base"] = f"http://localhost:{router_port}/v1"
-                self.launch_kwargs["api_key"] = "local"
-                self.get_logs = get_logs
-                self.process = process
-                self.thread = thread
-                self.current_model = model
-
-                # If we get here, the launch was successful
-                return
-
-            except Exception as e:
-                retries += 1
-                print(
-                    f"Failed to launch server (attempt {retries} of {max_retries}): {str(e)}"
-                )
-                # Clean up any failed processes
-                if "process" in locals():
-                    try:
-                        process.kill()
-                    except:
-                        pass
-                if retries == max_retries:
-                    raise Exception(
-                        f"Failed to launch server after {max_retries} attempts"
-                    ) from e
-                # Wait a bit before retrying
-                time.sleep(min(2**retries, 30))  # Exponential backoff, max 30 seconds
+        # Once server is ready, we tell the thread to stop printing further lines.
+        stop_printing_event.set()
 
     def kill(self):
-        from sglang.utils import terminate_process
-
         if self.process is None:
             print("No running server to kill.")
             return
@@ -201,24 +150,7 @@ class InferenceManager:
         self.last_activity = None
 
         try:
-            # Handle nested signal case
-            if self._shutting_down:
-                process.kill()  # Go straight to SIGKILL if we're shutting down
-            else:
-                terminate_process(process)
-                try:
-                    process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    print(
-                        "Process did not terminate after 10 seconds, forcing with SIGKILL..."
-                    )
-                    process.kill()
-
-            process.wait(timeout=5)
-
-            if thread and thread.is_alive():
-                thread.join(timeout=5)
-
+            kill_vllm_server(process.pid)
         except Exception as e:
             print(f"Error during cleanup: {e}")
             try:
@@ -229,127 +161,65 @@ class InferenceManager:
         print("Server killed.")
 
     async def run_inference(self, request_json: dict):
+        # Check if weights are being updated
+        while self.is_updating:
+            # weights are being updated...waiting
+            # print("Weights are being updated, waiting...")
+            await asyncio.sleep(1)  # Small sleep to prevent busy waiting
+
         model = request_json["model"]
         prefixes = ["openai/", "huggingface/", "local:", "arbor:"]
         for prefix in prefixes:
             if model.startswith(prefix):
                 model = model[len(prefix) :]
         print(f"Running inference for model {model}")
-        # Monkeypatch:
-        if model != self.current_model:
-            print(f"Model changed from {model} to {self.current_model}")
-            model = self.current_model
+
+        # Monkeypatch for GRPO runs:
+        # vllm complains if we don't give it the exact model name that was launched
+        # TODO: This should really throw an error unless in a GRPO run.
+        if model != self.launched_model:
+            # print(f"Model changed from {model} to {self.current_model}")
+            model = self.launched_model
             request_json["model"] = model
 
         # Update last_activity timestamp
         self.last_activity = datetime.now()
 
-        if self.process is None or self.launch_kwargs.get("api_base") is None:
+        if self.process is None:
             raise RuntimeError("Server is not running. Please launch it first.")
 
-        if self.restarting:
-            while self.restarting:
-                print("Inference is paused while server is restarting...")
-                await asyncio.sleep(5)
-            request_json["model"] = self.current_model
+        return await self.vllm_client.chat(json_body=request_json)
 
-        url = f"{self.launch_kwargs['api_base']}/chat/completions"
-        try:
-            self.inference_count += 1
-            session = await self._ensure_session()
-            async with session.post(url, json=request_json) as response:
-                content = await response.content.read()
-                return json.loads(content)
-        except aiohttp.ClientError as e:
-            print(f"Connection error: {type(e).__name__}: {str(e)}")
-            # Try to close and recreate the session on error
-            if self._session:
-                await self._session.close()
-                self._session = None
-            return None
-        except json.decoder.JSONDecodeError:
-            print(f"JSON Decode Error during inference: {content}")
-            return {
-                "error": "JSON Decode Error",
-                "content": content if content else "Content is null",
-            }
-        except Exception as e:
-            print(f"Error during inference: {e}")
-            raise
-        finally:
-            self.inference_count -= 1
+    def start_weight_update(self):
+        """Block inference during weight updates"""
+        self._is_updating += 1
 
-    def update_model(self, output_dir):
-        print("Restarting server with new model...")
-        self.restarting = True
+    def complete_weight_update(self):
+        """Allow inference after weight update is complete"""
+        self._is_updating = max(0, self._is_updating - 1)  # Prevent going negative
 
-        # Close existing session and reset inference count
-        if self._session:
-            # Create a new event loop if one doesn't exist
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
-            # Run the session closure in the event loop
-            loop.run_until_complete(self._session.close())
-            self._session = None
-        self.inference_count = 0
-
-        tik = time.time()
-        # self.kill()
-        # print("Just killed server")
-        # time.sleep(5)
-
-        # Check that output directory exists and was created successfully
-        print(f"Checking that output directory {output_dir} exists")
-        if not os.path.exists(output_dir):
-            raise RuntimeError(
-                f"Failed to save model - output directory {output_dir} does not exist"
-            )
-
-        print("Directly updating weights from disk")
-        for worker_url in self.worker_urls:
-            print(f"Updating weights from disk for worker {worker_url}")
-            try:
-                response = requests.post(
-                    f"{worker_url}/update_weights_from_disk",
-                    json={"model_path": output_dir},
-                )
-                response_json = response.json()
-                print(f"Response from update_weights_from_disk: {response_json}")
-                # TODO: Check that the response is successful
-            except Exception as e:
-                print(f"Error during update_weights_from_disk: {e}")
-                print(f"Full error during update_weights_from_disk: {str(e)}")
-                if hasattr(e, "response") and e.response is not None:
-                    print(f"Response status code: {e.response.status_code}")
-                    print(f"Response text: {e.response.text}")
-        self.current_model = output_dir
-
-        # print("Launching new server")
-        # self.launch(output_dir, self.launch_kwargs)
-        tok = time.time()
-        self.restarting = False
-        print(f"Time taken to update model: {tok - tik} seconds")
-
-    async def _ensure_session(self):
-        if self._session is None or self._session.closed:
-            timeout = aiohttp.ClientTimeout(
-                total=None
-            )  # No timeout...If it hangs, this might be the issue.
-            self._session = aiohttp.ClientSession(timeout=timeout)
-        return self._session
+    @property
+    def is_updating(self):
+        """Check if any weight updates are in progress"""
+        return self._is_updating > 0
 
 
 def get_free_port() -> int:
     """
-    Return a free TCP port on localhost.
+    Return a randomly selected free TCP port on localhost from a selection of 3-4 ports.
     """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("localhost", 0))
-        return s.getsockname()[1]
+    import random
+    import socket
+
+    ports = []
+    for _ in range(random.randint(5, 10)):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("localhost", 0))
+                ports.append(s.getsockname()[1])
+        except Exception as e:
+            print(f"Error binding to port: {e}")
+    return random.choice(ports)
 
 
 def wait_for_server(base_url: str, timeout: int = None) -> None:
@@ -379,26 +249,29 @@ def wait_for_server(base_url: str, timeout: int = None) -> None:
             time.sleep(1)
 
 
-def get_worker_urls(zmq_port: int, timeout: float = 30.0) -> list:
-    print(f"Attempting to get worker URLs on port {zmq_port} with timeout {timeout}s")
-    context = zmq.Context()
-    socket = context.socket(zmq.SUB)
-    socket.connect(f"tcp://localhost:{zmq_port}")
-    socket.setsockopt_string(zmq.SUBSCRIBE, "")  # Subscribe to all messages
-
-    # Set a timeout for receiving
-    socket.setsockopt(zmq.RCVTIMEO, int(timeout * 1000))
-
+def kill_vllm_server(main_process_pid):
     try:
-        print("Waiting for worker URLs message...")
-        message = socket.recv_json()
-        print(f"Received message: {message}")
-        if message.get("type") == "worker_urls":
-            return message["urls"]
-        else:
-            raise ValueError(f"Unexpected message type: {message.get('type')}")
-    except zmq.error.Again:
-        raise TimeoutError(f"Timeout waiting for worker URLs on port {zmq_port}")
-    finally:
-        socket.close()
-        context.term()
+        # Get the parent process
+        parent = psutil.Process(main_process_pid)
+
+        # Get all child processes recursively
+        children = parent.children(recursive=True)
+
+        # Send SIGTERM to all child processes first
+        for child in children:
+            child.send_signal(signal.SIGTERM)
+
+        # Send SIGTERM to parent process
+        parent.send_signal(signal.SIGTERM)
+
+        # Wait for processes to terminate gracefully
+        gone, alive = psutil.wait_procs(children + [parent], timeout=10)
+
+        # If any processes are still alive, force kill them
+        for p in alive:
+            p.kill()  # SIGKILL
+
+    except psutil.NoSuchProcess:
+        print(f"Process {main_process_pid} not found")
+    except Exception as e:
+        print(f"Error killing processes: {e}")
