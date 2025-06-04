@@ -202,11 +202,13 @@ class GRPOConfigRequest(BaseModel):
     report_to: Optional[str] = None
     log_completions: Optional[bool] = None
     logging_steps: Optional[int] = None
+    mask_truncated_completions: Optional[bool] = None
     # Arbor specific
     max_context_length: Optional[int] = None
     lora: Optional[bool] = None
     # To name the run
     suffix: Optional[str] = None
+    generation_batch_size: Optional[int] = None
 
 
 class GRPOConfigResponse(BaseModel):
@@ -220,7 +222,7 @@ class GRPOTerminateRequest(BaseModel):
 class GRPOTerminateResponse(BaseModel):
     status: str
     current_model: str
-    checkpoints: dict[str, str]
+    checkpoints: Optional[dict[str, str]] = None
     last_checkpoint: Optional[str] = None
 
 

@@ -23,7 +23,7 @@ wheels/
 
 # Virtual Environment
 .env
-.venv
+.*venv/
 env/
 venv/
 ENV/
@@ -46,9 +46,6 @@ ENV/
 # OS specific
 .DS_Store
 Thumbs.db
-
-/training_data_*.jsonl
-/validation_data_*.jsonl
 
 mise.toml
 uv.lock

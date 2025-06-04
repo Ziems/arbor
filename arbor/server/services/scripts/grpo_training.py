@@ -19,7 +19,7 @@ import torch
 import trl.extras.vllm_client
 import zmq
 from accelerate import Accelerator
-from accelerate.utils import gather, gather_object
+from accelerate.utils import broadcast_object_list, gather, gather_object
 from datasets import Dataset, IterableDataset, load_dataset
 from peft import AutoPeftModelForCausalLM, LoraConfig, PeftConfig  # type: ignore
 from torch.utils.data import Dataset
@@ -130,6 +130,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         self, batch: List[dict[str, Any]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
         device = self.accelerator.device
+        mode = "train" if self.model.training else "eval"
 
         # Process prompts and completions
         prompt_completion_texts = []
@@ -145,12 +146,12 @@ class ArborGRPOTrainer(GRPOTrainer):
             )
 
         # Tokenize prompts
-        prompt_texts = [
+        prompts_text = [
             prompt_completion_text["prompt"]
             for prompt_completion_text in prompt_completion_texts
         ]
         prompt_inputs = self.processing_class(
-            prompt_texts,
+            prompts_text,
             return_tensors="pt",
             padding=True,
             padding_side="left",
@@ -163,12 +164,12 @@ class ArborGRPOTrainer(GRPOTrainer):
         )
 
         # Tokenize completions
-        completion_texts = [
+        completions_text = [
             prompt_completion_text["completion"]
             for prompt_completion_text in prompt_completion_texts
         ]
         completion_ids = self.processing_class(
-            completion_texts,
+            completions_text,
             return_tensors="pt",
             padding=True,
             add_special_tokens=False,
@@ -190,6 +191,33 @@ class ArborGRPOTrainer(GRPOTrainer):
             completion_ids = completion_ids[:, : self.max_completion_length]
             completion_mask = completion_mask[:, : self.max_completion_length]
 
+        prompt_ids = broadcast_object_list(prompt_ids)
+        prompt_mask = broadcast_object_list(prompt_mask)
+        completion_ids = broadcast_object_list(completion_ids)
+        completion_mask = broadcast_object_list(completion_mask)
+
+        process_slice = slice(
+            self.accelerator.process_index * len(batch),
+            (self.accelerator.process_index + 1) * len(batch),
+        )
+
+        prompt_ids = prompt_ids[process_slice]
+        prompt_mask = prompt_mask[process_slice]
+        completion_ids = completion_ids[process_slice]
+        completion_mask = completion_mask[process_slice]
+
+        is_eos = completion_ids == self.processing_class.eos_token_id
+
+        # Sum along sequence dimension (dim=1) to get completion length per sequence, used for logging
+        completion_lengths = completion_mask.sum(1)
+
+        # If mask_truncated_completions is enabled, zero out truncated completions in completion_mask
+        if self.mask_truncated_completions:
+            truncated_completions = ~is_eos.any(dim=1)
+            completion_mask = (
+                completion_mask * (~truncated_completions).unsqueeze(1).int()
+            )
+
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B, P+C)
 
@@ -198,34 +226,29 @@ class ArborGRPOTrainer(GRPOTrainer):
         )
 
         logits_to_keep = completion_ids.size(1)
+        batch_size = (
+            self.args.per_device_train_batch_size
+            if mode == "train"
+            else self.args.per_device_eval_batch_size
+        )
 
         with torch.no_grad():
             # When using num_iterations == 1, old_per_token_logps == per_token_logps, so we can skip it's
             # computation here, and use per_token_logps.detach() instead.
-            if self.num_iterations > 1:
+            if (
+                self.num_iterations > 1
+                or self.args.steps_per_generation
+                > self.args.gradient_accumulation_steps
+            ):
                 old_per_token_logps = self._get_per_token_logps(
-                    self.model, prompt_completion_ids, attention_mask, logits_to_keep
-                )
-            else:
-                old_per_token_logps = None
-
-            if self.beta == 0.0:
-                ref_per_token_logps = None
-            elif self.ref_model is not None:
-                ref_per_token_logps = self._get_per_token_logps(
-                    self.ref_model,
+                    self.model,
                     prompt_completion_ids,
                     attention_mask,
                     logits_to_keep,
+                    batch_size,
                 )
             else:
-                with self.accelerator.unwrap_model(self.model).disable_adapter():
-                    ref_per_token_logps = self._get_per_token_logps(
-                        self.model,
-                        prompt_completion_ids,
-                        attention_mask,
-                        logits_to_keep,
-                    )
+                old_per_token_logps = None
 
         rewards = torch.tensor(
             [example["reward"] for example in batch], dtype=torch.float32
@@ -240,6 +263,8 @@ class ArborGRPOTrainer(GRPOTrainer):
         std_grouped_rewards = std_grouped_rewards.repeat_interleave(
             self.num_generations, dim=0
         )
+        is_std_zero = torch.isclose(std_grouped_rewards, torch.zeros_like(std_grouped_rewards))
+
         advantages = rewards - mean_grouped_rewards
 
         if self.scale_rewards:
@@ -251,47 +276,48 @@ class ArborGRPOTrainer(GRPOTrainer):
             self.accelerator.process_index * len(batch),
             (self.accelerator.process_index + 1) * len(batch),
         )
+        all_process_advantages = advantages.clone() # keep the aggregated advantages for logging
         advantages = advantages[process_slice]
 
-        ## Logged Metrics Removed Here
         # Log the metrics
-        mode = "eval" if self.control.should_evaluate else "train"
+        if mode == "train":
+            self.state.num_input_tokens_seen += self.accelerator.gather(attention_mask.sum()).sum().item()
+        self._metrics[mode]["num_tokens"] = [self.state.num_input_tokens_seen]
 
-        completion_length = self.accelerator.gather_for_metrics(completion_mask.sum(1)).float().mean().item()  # type: ignore
-        self._metrics[mode]["completion_length"].append(completion_length)
-        self._metrics[mode]["reward"].append(rewards.mean().item())
-        self._metrics[mode]["reward_std"].append(std_grouped_rewards.mean().item())  # type: ignore
+        # Log completion lengths, mean, min, max
+        agg_completion_lengths = self.accelerator.gather(completion_lengths)
+        self._metrics[mode]["completions/mean_length"].append(agg_completion_lengths.float().mean().item())
+        self._metrics[mode]["completions/min_length"].append(agg_completion_lengths.float().min().item())
+        self._metrics[mode]["completions/max_length"].append(agg_completion_lengths.float().max().item())
 
-        if (
-            self.log_completions
-            and self.state.global_step % self.args.logging_steps == 0
-        ):
-            prompts_to_log = gather_object(prompt_texts)
-            completions_to_log = gather_object(completion_texts)
-            rewards_to_log = rewards.tolist()
+        # Identify sequences that terminated with EOS and log their lengths
+        agg_terminated_with_eos = self.accelerator.gather(is_eos.any(dim=1))
+        term_completion_lengths = agg_completion_lengths[agg_terminated_with_eos]
+        clipped_completions_ratio = 1 - len(term_completion_lengths) / len(agg_completion_lengths)
+        self._metrics[mode]["completions/clipped_ratio"].append(clipped_completions_ratio)
+        if len(term_completion_lengths) == 0:  # edge case where no terminated sequences are found
+            term_completion_lengths = torch.zeros(1, device=device)
+        self._metrics[mode]["completions/mean_terminated_length"].append(term_completion_lengths.float().mean().item())
+        self._metrics[mode]["completions/min_terminated_length"].append(term_completion_lengths.float().min().item())
+        self._metrics[mode]["completions/max_terminated_length"].append(term_completion_lengths.float().max().item())
 
-            if self.accelerator.is_main_process:
-                if self.args.report_to and "wandb" in self.args.report_to and wandb.run is not None:  # type: ignore
-                    import pandas as pd
+        # Calculate mean reward per function, but only for samples where the function was applied (non-NaN values)
+        self._metrics[mode]["reward"].append(mean_grouped_rewards.mean().item())
+        self._metrics[mode]["reward_std"].append(std_grouped_rewards.mean().item())
+        self._metrics[mode]["frac_reward_zero_std"].append(is_std_zero.float().mean().item())
 
-                    # For logging
-                    table = {
-                        "step": [str(self.state.global_step)] * len(rewards),
-                        "prompt": prompts_to_log,
-                        "completion": completions_to_log,
-                        "reward": rewards_to_log,
-                    }
-                    df = pd.DataFrame(table)
-                    wandb.log({"completions": wandb.Table(dataframe=df)})  # type: ignore
+        # Log prompt and completion texts
+        self._textual_logs["prompt"].extend(gather_object(prompts_text))
+        self._textual_logs["completion"].extend(gather_object(completions_text))
+        self._textual_logs["advantages"].extend(all_process_advantages.tolist())
 
         return {
             "prompt_ids": prompt_ids,
             "prompt_mask": prompt_mask,
             "completion_ids": completion_ids,
             "completion_mask": completion_mask,
-            "old_per_token_logps": old_per_token_logps,
-            "ref_per_token_logps": ref_per_token_logps,
             "advantages": advantages,
+            "old_per_token_logps": old_per_token_logps,
         }
 
 
@@ -562,6 +588,11 @@ def main():
     args = parser.parse_args()
 
     if args.debug:
+        # python grpo_training.py --debug
+        #  --command_port 0 --status_port 0
+        #  --data_port 0 --broadcast_port 0
+        #  --handshake_port 0 --model Qwen/Qwen3-0.6B
+        #  --trl_train_kwargs '{"output_dir": ".", "report_to": "none"}'
         server_comms_handler = ArborServerCommsHandler(
             host=args.host,
         )
@@ -571,6 +602,9 @@ def main():
         args.data_port = server_comms_handler.data_port
         args.broadcast_port = server_comms_handler.broadcast_port
         args.handshake_port = server_comms_handler.handshake_port
+
+        handshake_thread = threading.Thread(target=server_comms_handler.wait_for_clients, args=(1,), daemon=True)
+        handshake_thread.start()
 
         def debug_data_generator():
             tldr_dataset = load_dataset("trl-lib/tldr", split="train")

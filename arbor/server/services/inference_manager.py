@@ -1,4 +1,5 @@
 import os
+import random
 import signal
 import socket
 import subprocess
@@ -67,10 +68,15 @@ class InferenceManager:
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
         n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
-        # command = f"vllm serve {model} --port {port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching"
-        # command = f"python -m sglang_router.launch_server --model-path {model} --dp-size {n_gpus} --port {port} --host 0.0.0.0 --disable-radix-cache"
-        command = f"python -m arbor.server.services.inference.vllm_serve --model {model} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --max_model_len 8192 --enable_prefix_caching True"
+        command = f"python -m arbor.server.services.inference.vllm_serve --model {model} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching True"
+
+        if launch_kwargs.get("max_context_length"):
+            command += (
+                f" --max_model_len {launch_kwargs['max_context_length']}"
+            )
+
         print(f"Running command: {command}")
+
 
         # We will manually stream & capture logs.
         process = subprocess.Popen(
@@ -98,7 +104,7 @@ class InferenceManager:
                     # Print only if stop_event is not set
                     if not stop_event.is_set():
                         print(f"[vLLM LOG] {line}", end="")
-
+        
         # Start a background thread to read from the process continuously
         thread = threading.Thread(
             target=_tail_process,
@@ -206,11 +212,20 @@ class InferenceManager:
 
 def get_free_port() -> int:
     """
-    Return a free TCP port on localhost.
+    Return a randomly selected free TCP port on localhost from a selection of 3-4 ports.
     """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("localhost", 0))
-        return s.getsockname()[1]
+    import random
+    import socket
+
+    ports = []
+    for _ in range(random.randint(5, 10)):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("localhost", 0))
+                ports.append(s.getsockname()[1])
+        except Exception as e:
+            print(f"Error binding to port: {e}")
+    return random.choice(ports)
 
 
 def wait_for_server(base_url: str, timeout: int = None) -> None:
