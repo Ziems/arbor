@@ -47,8 +47,8 @@ class GRPOManager:
     def _signal_handler(self, signum, frame):
         """Handle keyboard interrupt (SIGINT) gracefully."""
         print("\nReceived keyboard interrupt. Shutting down gracefully...")
-        self.terminate(None)
-        sys.exit(0)
+        if self.training_process is not None:
+            self.terminate(None)
 
     def make_output_dir(
         self, model_name: str, run_suffix: Optional[str] = None

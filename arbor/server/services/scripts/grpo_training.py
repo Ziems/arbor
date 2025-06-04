@@ -393,11 +393,6 @@ class CommandMonitor:
         )
         self.command_thread.start()
 
-        self.broadcast_thread = threading.Thread(
-            target=self._monitor_broadcasts, daemon=True
-        )
-        self.broadcast_thread.start()
-
     def _monitor_commands(self):
         """Background thread that monitors for commands from the server."""
         if not self.comms_handler:
@@ -530,16 +525,6 @@ class CommandMonitor:
 
         except Exception as e:
             print(e)
-            self.comms_handler.send_status({"status": "error", "error": str(e)})
-
-    def _monitor_broadcasts(self):
-        """Background thread that monitors for broadcasts from the server."""
-        if not self.comms_handler:
-            return
-        try:
-            for broadcast in self.comms_handler.receive_broadcast():
-                print(f"!!!Received broadcast: {broadcast}")
-        except Exception as e:
             self.comms_handler.send_status({"status": "error", "error": str(e)})
 
 
