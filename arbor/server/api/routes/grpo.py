@@ -50,7 +50,9 @@ def update_model(request: Request):
 def checkpoint(request: Request, grpo_checkpoint_request: GRPOCheckpointRequest):
     grpo_manager = request.app.state.grpo_manager
     inference_manager = request.app.state.inference_manager
-    checkpoint_data = grpo_manager.checkpoint(grpo_checkpoint_request, inference_manager)
+    checkpoint_data = grpo_manager.checkpoint(
+        grpo_checkpoint_request, inference_manager
+    )
     return GRPOCheckpointResponse(status="success", **checkpoint_data)
 
 

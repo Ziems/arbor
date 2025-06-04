@@ -15,7 +15,7 @@ def initialize_grpo(
     model, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/initialize"
 ):
     headers = {"Content-Type": "application/json"}
-    data = {"model": model, "num_generations": 8, "update_interval": 5, 'lora': True}
+    data = {"model": model, "num_generations": 8, "update_interval": 5, "lora": True}
     response = requests.post(url, headers=headers, json=data)
     return response
 
@@ -31,9 +31,7 @@ def run_grpo_step(
     return response
 
 
-def update_model(
-    url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/update_model"
-):
+def update_model(url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/update_model"):
     headers = {"Content-Type": "application/json"}
     response = requests.post(url, headers=headers)
     return response
@@ -94,20 +92,19 @@ def main():
 
             checkpoint_response = checkpoint(checkpoint_name=f"checkpoint_{i}")
             last_checkpoint_name = checkpoint_response.json()["last_checkpoint"]
-        
+
         if i == 20:
             break
-            
 
     terminate_response = terminate_grpo()
-    import pdb; pdb.set_trace()
+    import pdb
+
+    pdb.set_trace()
     inputs = dataset[-1]
     input_messages = [{"role": "user", "content": inputs["prompt"]}]
     response = client.chat.completions.create(
         model=current_model, messages=input_messages, temperature=0.7, n=8
     )
-
-
 
 
 if __name__ == "__main__":
