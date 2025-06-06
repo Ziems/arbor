@@ -38,14 +38,6 @@ def run_grpo_step(
     return GRPOStepResponse(status="success", **step_data)
 
 
-@router.post("/update_model", response_model=GRPOStepResponse)
-def update_model(request: Request):
-    grpo_manager = request.app.state.grpo_manager
-    inference_manager = request.app.state.inference_manager
-    update_model_data = grpo_manager.update_model(request, inference_manager)
-    return GRPOStepResponse(status="success", **update_model_data)
-
-
 @router.post("/checkpoint", response_model=GRPOCheckpointResponse)
 def checkpoint(request: Request, grpo_checkpoint_request: GRPOCheckpointRequest):
     grpo_manager = request.app.state.grpo_manager

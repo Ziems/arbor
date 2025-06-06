@@ -139,7 +139,11 @@ class ArborGRPOTrainer(GRPOTrainer):
                 maybe_apply_chat_template(
                     {
                         "prompt": example["messages"],
-                        "completion": [example["completion"]],
+                        "completion": (
+                            example["completion"]
+                            if isinstance(example["completion"], list)
+                            else [example["completion"]]
+                        ),
                     },
                     self.processing_class,
                 )
@@ -168,15 +172,15 @@ class ArborGRPOTrainer(GRPOTrainer):
             prompt_completion_text["completion"]
             for prompt_completion_text in prompt_completion_texts
         ]
-        completion_ids = self.processing_class(
+        completion_inputs = self.processing_class(
             completions_text,
             return_tensors="pt",
             padding=True,
             add_special_tokens=False,
         ).to(device)
         completion_ids, completion_mask = (
-            completion_ids["input_ids"],
-            completion_ids["attention_mask"],
+            completion_inputs["input_ids"],
+            completion_inputs["attention_mask"],
         )
 
         if self.max_prompt_length is not None:

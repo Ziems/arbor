@@ -314,14 +314,6 @@ class GRPOManager:
             "last_checkpoint": self.last_checkpoint,
         }
 
-    def update_model(self, request, inference_manager: InferenceManager):
-        # No longer used
-        return {
-            "current_model": self.current_model,
-            "checkpoints": self.checkpoints,
-            "last_checkpoint": self.last_checkpoint,
-        }
-
     def checkpoint(
         self, request: GRPOCheckpointRequest, inference_manager: InferenceManager
     ):

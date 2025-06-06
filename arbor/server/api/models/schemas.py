@@ -178,7 +178,6 @@ class ChatCompletionModel(BaseModel):
 
 class GRPORequest(BaseModel):
     model: str
-    update_inference_model: bool
     batch: List[dict]
 
 
