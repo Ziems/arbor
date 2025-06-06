@@ -16,6 +16,11 @@ Install Arbor via pip:
 pip install arbor-ai
 ```
 
+Optionally, you can also install:
+```bash
+pip install flash-attn --no-build-isolation
+```
+
 ---
 
 ## ⚡ Quick Start
