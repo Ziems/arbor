@@ -21,16 +21,61 @@ class ArborConfig(BaseModel):
 
 class Settings(BaseModel):
 
-    STORAGE_PATH: str = "./storage"
+    # STORAGE_PATH: str = "./storage"
+    STORAGE_PATH: str = str(Path.home() / ".arbor" / "storage")
     INACTIVITY_TIMEOUT: int = 30  # 5 seconds
     arbor_config: ArborConfig
+    
+    def __init__(self, **data):
+        super().__init__(**data)
+        
+        # Create ~/.arbor directories if it DNE
+        self._init_arbor_directories()
+
+
+    def _init_arbor_directories(self):
+        arbor_root = Path.home() / ".arbor"
+        config_dir = arbor_root / "config"
+        storage_dir = Path(self.STORAGE_PATH)
+        
+        arbor_root.mkdir(exist_ok=True)
+        config_dir.mkdir(exist_ok=True)
+        storage_dir.mkdir(exist_ok=True)
+        (storage_dir / "logs").mkdir(exist_ok=True)
+        (storage_dir / "models").mkdir(exist_ok=True)
+        (storage_dir / "uploads").mkdir(exist_ok=True)
+
+    @classmethod
+    def find_config_path(cls) -> Optional[str]:
+        """ Search 1st for: ~/.arbor/config/default.yaml 2nd: ./arbor.yaml (backward compatibility)"""
+
+        # Check ~/.arbor/config
+        arbor_config = Path.home() / ".arbor" / "config" / "default.yaml"
+        if arbor_config.exists(): 
+            return str(arbor_config)
+        
+        # Fall back to local dir
+        local_config = Path("./arbor.yaml")
+        if local_config.exists(): 
+            return str(local_config)
+        
+        return None
 
     @classmethod
     def load_from_yaml(cls, yaml_path: str) -> "Settings":
+        # If yaml file is not provided, try to use ~/.arbor/config/default.yaml or ./arbor.yaml
         if not yaml_path:
-            raise ValueError("Config file path is required")
+            yaml_path = cls.find_config_path()
+        
+        if not yaml_path:
+            raise ValueError(
+                "No config file found. Please create ~/.arbor/config/default.yaml or "
+                "provide a config file path with --arbor-config"
+            )
+            
         if not Path(yaml_path).exists():
             raise ValueError(f"Config file {yaml_path} does not exist")
+
 
         try:
             with open(yaml_path, "r") as f:
@@ -45,3 +90,7 @@ class Settings(BaseModel):
             return settings
         except Exception as e:
             raise ValueError(f"Error loading config file {yaml_path}: {e}")
+
+
+
+        

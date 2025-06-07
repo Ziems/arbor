@@ -30,7 +30,7 @@ def create_app(arbor_config_path: str):
     """Create and configure the Arbor API application
 
     Args:
-        storage_path (str): Path to store models and uploaded training files
+        arbor_config_path (str): Path to config file 
 
     Returns:
         FastAPI: Configured FastAPI application
@@ -102,10 +102,12 @@ def stop_server(server):
 @cli.command()
 @click.option("--host", default="0.0.0.0", help="Host to bind to")
 @click.option("--port", default=7453, help="Port to bind to")
-@click.option("--arbor-config", required=True, help="Path to the Arbor config file")
+@click.option("--arbor-config", required=False, help="Path to the Arbor config file")
 def serve(host, port, arbor_config):
     """Start the Arbor API server"""
-    app = create_app(arbor_config)
+    config_path = arbor_config if arbor_config else Settings.find_config_path()
+    create_app(config_path)
+        
     uvicorn.run(app, host=host, port=port)
 
 
