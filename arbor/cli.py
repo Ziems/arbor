@@ -5,6 +5,7 @@ import click
 import uvicorn
 
 from arbor.server.core.config import Settings
+from arbor.server.core.config_manager import ConfigManager
 from arbor.server.main import app
 from arbor.server.services.file_manager import FileManager
 from arbor.server.services.grpo_manager import GRPOManager
@@ -23,6 +24,11 @@ def make_log_dir(storage_path: str):
 
 @click.group()
 def cli():
+    pass
+
+@cli.group()
+def config():
+    """Manage Arbor configuration."""
     pass
 
 
@@ -109,6 +115,58 @@ def serve(host, port, arbor_config):
     create_app(config_path)
         
     uvicorn.run(app, host=host, port=port)
+
+
+@config.command()
+@click.option("--inference", default="0", help="GPU IDs for inference (default: 0)")
+@click.option("--training", default="1, 2", help="GPU IDs for training (default: 1, 2)")
+def init(inference, training):
+    """ Init Arbor configuration. """
+    try:
+        click.echo("Setting up Arbor configuration...")
+        click.echo()
+        
+        # Get config details
+        inference = click.prompt("GPU IDs for inference", default=inference)
+        training = click.prompt("GPU IDs for training", default=training)
+        click.echo()
+        
+        # Get config file path
+        config_path = click.prompt("Enter path to save config file in", default=ConfigManager.get_default_config_path())
+        click.echo()
+        
+        # Update or create config at path
+        config_path = ConfigManager.update_config(inference, training, config_path)
+        click.echo(f"Created configuration at: {config_path}")
+        
+        
+        click.echo(f"\nYou can now start Arbor with: arbor serve")
+        
+        # Confirm config file to use
+        config_path = click.prompt("Please enter the config file path you wish to use. Press enter if you wish to use the config file you just created.", default=config_path)
+        
+        # Check if it is a valid config file
+        is_valid, msg = ConfigManager.validate_config_file(config_path)
+        if not is_valid: raise click.ClickException(f"Invalid config file: {msg}")
+
+        # Read and display the contents
+        _, content = ConfigManager.get_config_contents(config_path)
+
+        click.echo("\nConfiguration file contents:")
+        click.echo("---")
+        click.echo(content)
+        click.echo("---")
+        
+        # Get host and port
+        host = click.prompt("Host to bind to", default="0.0.0.0")
+        port = click.prompt("Port to bind to", default=7453)
+        
+        create_app(config_path)
+        uvicorn.run(app, host=host, port=int(port))
+     
+    except Exception as e:
+        click.echo(f"Failed to setup Arbor: {e}", err=True)
+        raise click.Abort()
 
 
 if __name__ == "__main__":
