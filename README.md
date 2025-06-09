@@ -13,7 +13,7 @@
 Install Arbor via pip:
 
 ```bash
-pip install arbor-ai
+pip install -U arbor-ai
 ```
 
 Optionally, you can also install:
