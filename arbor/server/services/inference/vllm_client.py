@@ -1,4 +1,4 @@
-# adapted from trl/extras/vllm_client.py (huggingface/trl)
+# adapted from Will Brown's verifiers library (https://github.com/willccbb/verifiers)
 
 import atexit
 import logging
@@ -8,7 +8,6 @@ from typing import Optional
 import httpx
 import requests
 import torch
-from openai import OpenAI
 from requests import ConnectionError
 from requests.adapters import HTTPAdapter
 from torch import nn
@@ -31,7 +30,7 @@ class InferenceBlockedError(Exception):
     pass
 
 
-class VLLMClient(OpenAI):
+class VLLMClient:
     """
     A client class to interact with a vLLM server.
 
@@ -90,7 +89,7 @@ class VLLMClient(OpenAI):
                 "vLLM is not installed. Please install it with `pip install vllm`."
             )
 
-        super().__init__(base_url=f"http://{host}:{port}/v1", api_key="local")
+        self.base_url = f"http://{host}:{port}/v1"
         self.session = requests.Session()
         # Configure connection pooling to handle rapid requests better
         adapter = HTTPAdapter(

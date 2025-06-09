@@ -1,3 +1,4 @@
+# adapted from Will Brown's verifiers library (https://github.com/willccbb/verifiers)
 """
 OpenAI-compatible vLLM server with weight synchronization.
 
