@@ -19,10 +19,25 @@ async def run_inference(
     with open(f"{request.app.state.log_dir}/inference_requests.jsonl", "a") as f:
         f.write(json.dumps({"id": request_id, "request": raw_json}) + "\n")
 
+    request_model = raw_json["model"]
+    prefixes = ["openai/", "huggingface/", "local:", "arbor:"]
+    for prefix in prefixes:
+        if request_model.startswith(prefix):
+            request_model = request_model[len(prefix) :]
+
     # if a server isnt running, launch one
     if not inference_manager.is_server_running():
         print("No model is running, launching model...")
-        inference_manager.launch(raw_json["model"])
+        inference_manager.launch(request_model)
+
+    # if the requested model is different from the launched model, swap the server
+    if request_model != inference_manager.launched_model:
+        print(
+            f"Model changed from {inference_manager.launched_model} to {request_model}, swapping server..."
+        )
+        inference_manager.kill()
+        inference_manager.launch(request_model)
+        print(f"Model swapped to {request_model}")
 
     # forward the request to the inference server
     completion = await inference_manager.run_inference(raw_json)
