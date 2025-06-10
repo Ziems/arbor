@@ -1,5 +1,6 @@
 # adapted from Will Brown's verifiers library (https://github.com/willccbb/verifiers)
 
+import asyncio
 import atexit
 import logging
 import time
@@ -239,7 +240,7 @@ class VLLMClient:
                     response.raise_for_status()
                     return response.json()
 
-            except httpx.TimeoutError:
+            except httpx.TimeoutException:
                 logger.error("Request timed out")
                 raise
             except InferenceBlockedError:
