@@ -14,11 +14,9 @@ class ConfigManager:
     
     def _init_arbor_directories(self):
         arbor_root = Path.home() / ".arbor"
-        config_dir = arbor_root / "config"
         storage_dir = Path(self.STORAGE_PATH)
         
         arbor_root.mkdir(exist_ok=True)
-        config_dir.mkdir(exist_ok=True)
         storage_dir.mkdir(exist_ok=True)
         (storage_dir / "logs").mkdir(exist_ok=True)
         (storage_dir / "models").mkdir(exist_ok=True)
@@ -27,7 +25,7 @@ class ConfigManager:
     
     @staticmethod
     def get_default_config_path() -> Path:
-        return str(Path.home() / ".arbor" / "config" / "default.yaml")
+        return str(Path.home() / ".arbor" / "config.yaml")
 
     @staticmethod
     def get_config_template() -> Dict:
@@ -44,13 +42,15 @@ class ConfigManager:
     @classmethod
     def update_config(cls, inference_gpus: Optional[str] = None, training_gpus: Optional[str] = None, config_path: Optional[str] = None) -> str:
         """ Update existing config or create new one. """
+
         if config_path is None:
-            config_path = Settings.find_config_path()
+            config_path = Settings.use_default_config()
             if config_path is None:
                 config_path = str(cls.get_default_config_path())
         
         
         config_file = Path(config_path)
+        config_file.parent.mkdir(parents=True, exist_ok=True)
         
         # Load existing config or use template
         if config_file.exists():
@@ -62,16 +62,16 @@ class ConfigManager:
         # Update values given
         if inference_gpus is not None:
             if "inference" not in config: config["inference"] = {}
-            config["inference"]["gpu_ids"] = inference_gpus
+            config["inference"]["gpu_ids"] = str(inference_gpus)
         
         if training_gpus is not None:
             if "training" not in config: config["training"] = {}
-            config["training"]["gpu_ids"] = training_gpus
+            config["training"]["gpu_ids"] = str(training_gpus)
         
         temp_path = config_file.with_suffix('.tmp')
         try:
             with open(temp_path, 'w') as f:
-                yaml.dump(config, f, default_flow_style=False)
+                yaml.dump(config, f, default_flow_style=False, default_style="'")
             temp_path.rename(config_file)
         except Exception:
             if temp_path.exists():

@@ -26,11 +26,6 @@ def make_log_dir(storage_path: str):
 def cli():
     pass
 
-@cli.group()
-def config():
-    """Manage Arbor configuration."""
-    pass
-
 
 def create_app(arbor_config_path: str):
     """Create and configure the Arbor API application
@@ -111,43 +106,57 @@ def stop_server(server):
 @click.option("--arbor-config", required=False, help="Path to the Arbor config file")
 def serve(host, port, arbor_config):
     """Start the Arbor API server"""
-    config_path = arbor_config if arbor_config else Settings.find_config_path()
-    create_app(config_path)
+    
+    if arbor_config:
+        config_path = arbor_config
+    else:
+        config_path = Settings.use_default_config()
         
-    uvicorn.run(app, host=host, port=port)
+        # If no config found, run first-time setup
+        if config_path is None:
+            config_path = run_first_time_setup()
+    
+    # Validate config exists and is readable
+    is_valid, msg = ConfigManager.validate_config_file(config_path)
 
-
-@config.command()
-@click.option("--inference", default="0", help="GPU IDs for inference (default: 0)")
-@click.option("--training", default="1, 2", help="GPU IDs for training (default: 1, 2)")
-def init(inference, training):
-    """ Init Arbor configuration. """
+    if not is_valid:
+        click.echo(msg)
+        raise click.Abort()
+    
     try:
-        click.echo("Setting up Arbor configuration...")
-        click.echo()
-        
+        create_app(config_path)
+        uvicorn.run(app, host=host, port=port)
+    except Exception as e:
+        click.echo(f"Failed to start server: {e}", err=True)
+        raise click.Abort()
+
+
+
+def run_first_time_setup() -> str:
+    """Run first-time setup and return created config path"""
+    click.echo("Welcome to Arbor!")
+    click.echo("It looks like this is your first time running Arbor.")
+    click.echo("Let's set up your configuration...\n")
+    
+    try:
         # Get config details
-        inference = click.prompt("GPU IDs for inference", default=inference)
-        training = click.prompt("GPU IDs for training", default=training)
+        inference = click.prompt("Which gpu ids should be used for inference (separated by comma)", default="0")
+        training = click.prompt("Which gpu ids should be used for training (separated by comma)", default="1, 2")
         click.echo()
         
         # Get config file path
-        config_path = click.prompt("Enter path to save config file in", default=ConfigManager.get_default_config_path())
+        config_path = click.prompt("Enter path to save config file in. We recommend (~/.arbor/config.yaml)", default=ConfigManager.get_default_config_path())
+        print(config_path)
         click.echo()
         
         # Update or create config at path
         config_path = ConfigManager.update_config(inference, training, config_path)
         click.echo(f"Created configuration at: {config_path}")
         
-        
-        click.echo(f"\nYou can now start Arbor with: arbor serve")
-        
-        # Confirm config file to use
-        config_path = click.prompt("Please enter the config file path you wish to use. Press enter if you wish to use the config file you just created.", default=config_path)
-        
         # Check if it is a valid config file
         is_valid, msg = ConfigManager.validate_config_file(config_path)
-        if not is_valid: raise click.ClickException(f"Invalid config file: {msg}")
+        if not is_valid: 
+            raise click.ClickException(f"Invalid config file: {msg}")
 
         # Read and display the contents
         _, content = ConfigManager.get_config_contents(config_path)
@@ -157,15 +166,11 @@ def init(inference, training):
         click.echo(content)
         click.echo("---")
         
-        # Get host and port
-        host = click.prompt("Host to bind to", default="0.0.0.0")
-        port = click.prompt("Port to bind to", default=7453)
+        click.echo("\nSetup complete! Starting Arbor server...")
+        return config_path
         
-        create_app(config_path)
-        uvicorn.run(app, host=host, port=int(port))
-     
     except Exception as e:
-        click.echo(f"Failed to setup Arbor: {e}", err=True)
+        click.echo(f"Failed initial setup of Arbor: {e}", err=True)
         raise click.Abort()
 
 
