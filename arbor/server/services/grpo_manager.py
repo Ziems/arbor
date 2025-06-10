@@ -156,7 +156,7 @@ class GRPOManager:
         main_process_port = get_free_port()
 
         params = [
-            "python",
+            sys.executable,
             "-m",
             "accelerate.commands.launch",
             "--num_processes",

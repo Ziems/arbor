@@ -2,4 +2,4 @@ inference:
   gpu_ids: '0'
 
 training:
-  gpu_ids: '1, 2'
+  gpu_ids: '2'

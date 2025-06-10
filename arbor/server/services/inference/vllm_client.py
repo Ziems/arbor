@@ -239,7 +239,7 @@ class VLLMClient:
                     response.raise_for_status()
                     return response.json()
 
-            except httpx.TimeoutError:
+            except httpx.TimeoutException:
                 logger.error("Request timed out")
                 raise
             except InferenceBlockedError:
