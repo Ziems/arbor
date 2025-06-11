@@ -3,6 +3,7 @@
 import asyncio
 import atexit
 import logging
+import traceback
 import time
 from typing import Optional
 
@@ -31,8 +32,7 @@ class InferenceBlockedError(Exception):
 
     pass
 
-
-class VLLMClient(OpenAI):
+class VLLMClient:
     """
     A client class to interact with a vLLM server.
 
@@ -91,7 +91,7 @@ class VLLMClient(OpenAI):
                 "vLLM is not installed. Please install it with `pip install vllm`."
             )
 
-        super().__init__(base_url=f"http://{host}:{port}/v1", api_key="local")
+        self.base_url = f"http://{host}:{port}/v1"
         self.session = requests.Session()
         # Configure connection pooling to handle rapid requests better
         adapter = HTTPAdapter(
@@ -245,8 +245,11 @@ class VLLMClient(OpenAI):
                 logger.error("Request timed out")
                 raise
             except InferenceBlockedError:
+                logger.error(f"Inference blocked by weight updates. {traceback.format_exc()}")
                 raise
             except Exception as e:
+                logger.error(f"Request failed. Error: {e}\n"
+                        f"Stack trace:\n{traceback.format_exc()}")
                 retries += 1
                 if retries < MAX_INFERENCE_RETRIES:
                     logger.warning(
@@ -255,7 +258,8 @@ class VLLMClient(OpenAI):
                     await asyncio.sleep(INFERENCE_RETRY_DELAY)
                 else:
                     logger.error(
-                        f"Request failed after {MAX_INFERENCE_RETRIES} retries"
+                        f"Request failed after {MAX_INFERENCE_RETRIES} retries. Error: {e}\n"
+                        f"Stack trace:\n{traceback.format_exc()}"
                     )
                     raise
 
