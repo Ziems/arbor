@@ -78,9 +78,9 @@ class MMGRPOTrainer(GRPOTrainer):
         # # vLLM specific sampling arguments
         # self.guided_decoding_regex = args.vllm_guided_decoding_regex
 
-        # self._last_loaded_step = (
-        #     -1
-        # )  # tag to avoid useless loading during grad accumulation
+        self._last_loaded_step = (
+            -1
+        )  # tag to avoid useless loading during grad accumulation
 
         # # When using vLLM, the main process is responsible for loading the model weights. This can cause process
         # # desynchronization and seems to lead to DeepSpeed hanging during initialization. To prevent this, we
@@ -96,21 +96,117 @@ class MMGRPOTrainer(GRPOTrainer):
     def _get_train_sampler(self, dataset: Optional[Dataset] = None):
         return Trainer._get_train_sampler(self, dataset)
 
+    def _tensorize_prompts_completions(
+        self, generation_batch: dict[str, Union[torch.Tensor, Any]]
+    ) -> dict[str, Union[torch.Tensor, Any]]:
+        prompt_completion_texts = []
+        for example in generation_batch:
+            prompt_completion_texts.append(
+                maybe_apply_chat_template(
+                    {
+                        "prompt": example["messages"],
+                        "completion": (
+                            example["completion"]
+                            if isinstance(example["completion"], list)
+                            else [example["completion"]]
+                        ),
+                    },
+                    self.processing_class,
+                )
+            )
+        prompts_text = [
+            prompt_completion_text["prompt"]
+            for prompt_completion_text in prompt_completion_texts
+        ]
+        prompt_inputs = self.processing_class(
+            prompts_text,
+            return_tensors="pt",
+            padding=True,
+            padding_side="left",
+            add_special_tokens=False,
+        )
+        prompt_ids, prompt_mask = (
+            prompt_inputs["input_ids"],
+            prompt_inputs["attention_mask"],
+        )
+
+        completion_text = [
+            prompt_completion_text["completion"]
+            for prompt_completion_text in prompt_completion_texts
+        ]
+        completion_inputs = self.processing_class(
+            completion_text,
+            return_tensors="pt",
+            padding=True,
+            add_special_tokens=False,
+        )
+        completion_ids, completion_mask = (
+            completion_inputs["input_ids"],
+            completion_inputs["attention_mask"],
+        )
+
+        if self.max_prompt_length is not None:
+            if prompt_ids.shape[1] > self.max_prompt_length:
+                print(f"Truncating prompt to {self.max_prompt_length} tokens")
+            prompt_ids = prompt_ids[:, -self.max_prompt_length :]
+            prompt_mask = prompt_mask[:, -self.max_prompt_length :]
+
+        if self.max_completion_length is not None:
+            if completion_ids.shape[1] > self.max_completion_length:
+                print(f"Truncating completion to {self.max_completion_length} tokens")
+            completion_ids = completion_ids[:, : self.max_completion_length]
+            completion_mask = completion_mask[:, : self.max_completion_length]
+
+        return {
+            "prompt_ids": prompt_ids,
+            "prompt_mask": prompt_mask,
+            "completion_ids": completion_ids,
+            "completion_mask": completion_mask,
+        }
+
+    def _get_trajectory_lengths(
+        self, generation_batch: dict[str, Union[torch.Tensor, Any]]
+    ) -> torch.Tensor:
+        trajectory_lengths = []
+        for example in generation_batch:
+            full_trajectory = example["trajectory"]
+            prompt_completion_tensors = self._tensorize_prompts_completions(
+                full_trajectory
+            )
+            completion_mask = prompt_completion_tensors["completion_mask"]
+            trajectory_lengths.append(completion_mask.sum())
+        return torch.tensor(trajectory_lengths)
+
     def _prepare_inputs(
         self, generation_batch: dict[str, Union[torch.Tensor, Any]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
-
-        return Trainer._prepare_inputs(self, generation_batch)
-
-    def _generate_and_score_completions(
-        self, inputs: list[dict[str, Union[torch.Tensor, Any]]]
-    ) -> dict[str, Union[torch.Tensor, Any]]:
-        import pdb
-
-        pdb.set_trace()
-        raise NotImplementedError(
-            "_generate_and_score_completions must be implemented by subclass"
+        device = self.accelerator.device
+        mode = "train" if self.model.training else "eval"
+        prompt_completion_tensors = self._tensorize_prompts_completions(
+            generation_batch
         )
+        prompt_ids, prompt_mask = prompt_completion_tensors["prompt_ids"].to(
+            device
+        ), prompt_completion_tensors["prompt_mask"].to(device)
+        completion_ids, completion_mask = prompt_completion_tensors[
+            "completion_ids"
+        ].to(device), prompt_completion_tensors["completion_mask"].to(device)
+
+        advantages = torch.tensor(
+            [example["advantage"] for example in generation_batch]
+        ).to(device)
+        trajectory_lengths = self._get_trajectory_lengths(generation_batch).to(device)
+
+        out = {
+            "prompt_ids": prompt_ids,
+            "prompt_mask": prompt_mask,
+            "completion_ids": completion_ids,
+            "completion_mask": completion_mask,
+            "advantages": advantages,
+            "old_per_token_logps": None,
+            "trajectory_lengths": trajectory_lengths,
+        }
+        return out
 
     def _compute_loss(self, model, inputs, return_outputs=False):
         if return_outputs:
@@ -147,6 +243,7 @@ class MMGRPOTrainer(GRPOTrainer):
             )
 
         advantages = inputs["advantages"]
+        trajectory_lengths = inputs["trajectory_lengths"]
         # When using num_iterations == 1 and steps_per_generation <= gradient_accumulation_steps
         # old_per_token_logps == per_token_logps, so we can skip it's computation
         # (see _generate_and_score_completions) and use per_token_logps.detach() instead.
@@ -167,6 +264,8 @@ class MMGRPOTrainer(GRPOTrainer):
         if self.beta != 0.0:
             per_token_loss = per_token_loss + self.beta * per_token_kl
 
+        self.loss_type = "mmgrpo"
+
         if self.loss_type == "grpo":
             loss = (
                 (per_token_loss * completion_mask).sum(-1)
@@ -180,6 +279,13 @@ class MMGRPOTrainer(GRPOTrainer):
             loss = (per_token_loss * completion_mask).sum() / (
                 per_token_loss.size(0) * self.max_completion_length
             )
+        elif self.loss_type == "mmgrpo":
+            # Sum the loss over tokens for each trajectory
+            trajectory_losses = (per_token_loss * completion_mask).sum(dim=-1)
+            # Normalize by the actual trajectory lengths
+            normalized_losses = trajectory_losses / trajectory_lengths.clamp(min=1.0)
+            # Take the mean over the batch
+            loss = normalized_losses.mean()
         else:
             raise ValueError(f"Unknown loss type: {self.loss_type}")
 

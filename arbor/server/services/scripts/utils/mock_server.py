@@ -76,7 +76,9 @@ if __name__ == "__main__":
 
     # Print the command that would be used to connect to this mock server
     print("\nTo connect to this mock server, run the following command:")
-    print(f"python arbor/server/services/scripts/mmgrpo_training.py \\")
+    print(
+        f"CUDA_VISIBLE_DEVICES=2 python arbor/server/services/scripts/mmgrpo_training.py \\"
+    )
     print(f"    --debug \\")
     print(f"    --command_port {command_port} \\")
     print(f"    --status_port {status_port} \\")

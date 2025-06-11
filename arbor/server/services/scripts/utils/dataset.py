@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 from functools import lru_cache
@@ -85,7 +86,11 @@ class BlockingQueueDataset(Dataset):
                 group = self.comms_handler.receive_data()
                 if group is not None:
                     self._logger.debug("Received group from comms handler")
-                    [self._buffer.append(item) for sublist in group for item in sublist]
+                    for trajectory in group:
+                        trajectory_copy = json.loads(json.dumps(trajectory))
+                        for item in trajectory:
+                            item["trajectory"] = trajectory_copy
+                            self._buffer.append(item)
 
             except Exception as e:
                 if "Context was terminated" in str(e):
