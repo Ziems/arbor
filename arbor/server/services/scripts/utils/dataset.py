@@ -1,5 +1,7 @@
+import logging
 import time
 from functools import lru_cache
+from typing import Any, Dict, List
 
 from accelerate import Accelerator
 from datasets import Dataset
@@ -61,18 +63,70 @@ class BlockingRotatingQueueDataset(Dataset):
 class BlockingQueueDataset(Dataset):
     def __init__(
         self,
-        accelerator: Accelerator,
-        comms_handler: ArborScriptCommsHandler,
-        size=10_000,  # Just a random number
     ):
-        self.size = size
+        self._buffer: List[Dict[str, Any]] = []
+        self._logger = logging.getLogger(__name__)
+
+    def set_accelerator(self, accelerator: Accelerator):
         self.accelerator = accelerator
+
+    def set_comms_handler(self, comms_handler: ArborScriptCommsHandler):
         self.comms_handler = comms_handler
 
-    def __len__(self):
-        return self.size
+    def __len__(self) -> int:
+        return 1_000_000
 
-    def __getitem__(self, idx):
-        item = self.comms_handler.receive_data()
-        print(f"Received item: {item}")
-        return item
+    def _fill_buffer(self, target_size: int) -> None:
+        while len(self._buffer) < target_size:
+            try:
+                if self.comms_handler is None:
+                    raise ValueError("comms_handler is not initialized")
+
+                group = self.comms_handler.receive_data()
+                if group is not None:
+                    self._logger.debug("Received group from comms handler")
+                    [self._buffer.append(item) for sublist in group for item in sublist]
+
+            except Exception as e:
+                if "Context was terminated" in str(e):
+                    self._logger.error(
+                        "ZMQ context was terminated while filling buffer"
+                    )
+                    raise RuntimeError("ZMQ context was terminated") from e
+                self._logger.warning(f"Error receiving data: {e}")
+                continue
+
+    def _transform_batch(self, items: List[Dict[str, Any]]) -> Dict[str, List[Any]]:
+        if not items:
+            raise ValueError("Cannot transform empty batch")
+
+        return {key: [item[key] for item in items] for key in items[0].keys()}
+
+    def __getitem__(self, idx: List[int]) -> Dict[str, List[Any]]:
+        if self.accelerator is None:
+            self._logger.error("Accelerator not initialized")
+            raise ValueError("Accelerator must be initialized before getting items")
+        if self.comms_handler is None:
+            self._logger.error("Comms handler not initialized")
+            raise ValueError("Comms handler must be initialized before getting items")
+
+        batch_size = len(idx)
+        if batch_size == 0:
+            raise ValueError("Batch size must be greater than 0")
+
+        try:
+            self._fill_buffer(batch_size)
+
+            if len(self._buffer) < batch_size:
+                raise RuntimeError(
+                    f"Not enough items in buffer (got {len(self._buffer)}, need {batch_size})"
+                )
+
+            batch_items = self._buffer[:batch_size]
+            self._buffer = self._buffer[batch_size:]
+
+            return self._transform_batch(batch_items)
+
+        except Exception as e:
+            self._logger.error(f"Error getting batch: {e}")
+            raise

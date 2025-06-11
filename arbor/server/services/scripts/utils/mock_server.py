@@ -6,16 +6,16 @@ import zmq
 
 from arbor.server.services.comms.comms import ArborServerCommsHandler
 
-batch_example = [
+group_example = [
     [  # module with different completions (Geography Expert)
         {  # geogrphy module
             "messages": [{"role": "user", "content": "What is the capital of France?"}],
-            "completion": [{"role": "assistant", "content": "Paris"}],
+            "completion": {"role": "assistant", "content": "Paris"},
             "advantage": 0.9,
         },
         {  # math module
             "messages": [{"role": "user", "content": "What is 2 * 2 + 2?"}],
-            "completion": [{"role": "assistant", "content": "6"}],
+            "completion": {"role": "assistant", "content": "6"},
             "advantage": 0.8,
         },
     ],
@@ -24,9 +24,10 @@ batch_example = [
             "messages": [
                 {"role": "user", "content": "What is the capital of Germany?"}
             ],
-            "completion": [
-                {"role": "assistant", "content": "Berlin is the capital of Germany"}
-            ],
+            "completion": {
+                "role": "assistant",
+                "content": "Berlin is the capital of Germany",
+            },
             "advantage": 0.1,
         },
         {  # math module
@@ -42,31 +43,15 @@ def flatten_batch(batch):
     return [item for sublist in batch for item in sublist]
 
 
-import pdb
-
-pdb.set_trace()
-
-
 def debug_data_generator(server_comms_handler):
     idx = 0
-    batch_size = 2  # Number of examples to send in each batch
     while True:
-        # Create a batch of examples
-        start_idx = (idx * batch_size) % len(batch_example)
-        end_idx = min(start_idx + batch_size, len(batch_example))
-        batch = batch_example[start_idx:end_idx]
-
-        # If we don't have enough examples for a full batch, wrap around
-        if len(batch) < batch_size:
-            remaining = batch_size - len(batch)
-            batch.extend(batch_example[:remaining])
-
-        print(f"Sending batch: {batch}")  # Debug print
-        server_comms_handler.send_data(batch)
+        print(f"Sending group:")  # Debug print
+        server_comms_handler.send_data(group_example)
         idx += 1
         time.sleep(1)
 
-        if idx >= 25:
+        if idx >= 100:
             server_comms_handler.send_command({"command": "save_model"})
 
 
@@ -82,10 +67,6 @@ if __name__ == "__main__":
         host="localhost",
     )
 
-    # launch the trainer here
-    import subprocess
-    import sys
-
     # Get available ports from the server comms handler
     command_port = server_comms_handler.command_port
     status_port = server_comms_handler.status_port
@@ -93,56 +74,25 @@ if __name__ == "__main__":
     broadcast_port = server_comms_handler.broadcast_port
     handshake_port = server_comms_handler.handshake_port
 
-    # Construct the command
-    cmd = [
-        sys.executable,
-        "arbor/server/services/scripts/mmgrpo_training.py",
-        "--debug",
-        "--command_port",
-        str(command_port),
-        "--status_port",
-        str(status_port),
-        "--data_port",
-        str(data_port),
-        "--broadcast_port",
-        str(broadcast_port),
-        "--handshake_port",
-        str(handshake_port),
-        "--vllm_group_port",
-        str(0),  # TODO: This is unused rn
-        "--vllm_port",
-        str(0),  # TODO: This is unused rn
-        "--model",
-        "Qwen/Qwen3-0.6B",
-        "--trl_train_kwargs",
-        '{"output_dir": ".", "report_to": "none"}',
-    ]
-
-    # Launch the training process
-    training_process = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    # Print the command that would be used to connect to this mock server
+    print("\nTo connect to this mock server, run the following command:")
+    print(f"python arbor/server/services/scripts/mmgrpo_training.py \\")
+    print(f"    --debug \\")
+    print(f"    --command_port {command_port} \\")
+    print(f"    --status_port {status_port} \\")
+    print(f"    --data_port {data_port} \\")
+    print(f"    --broadcast_port {broadcast_port} \\")
+    print(f"    --handshake_port {handshake_port} \\")
+    print(f"    --vllm_group_port 0 \\")
+    print(f"    --vllm_port 0 \\")
+    print(f"    --model Qwen/Qwen3-0.6B \\")
+    print(f'    --trl_train_kwargs \'{{"output_dir": ".", "report_to": "none"}}\'')
+    print(
+        "\nThis mock server will simulate sending training data to the training process."
     )
+    print("Press Ctrl+C to exit the mock server.\n")
 
-    # Start threads to monitor stdout/stderr
-    def monitor_output(pipe, prefix):
-        for line in pipe:
-            print(f"{prefix}: {line.strip()}")
-
-    stdout_thread = threading.Thread(
-        target=monitor_output, args=(training_process.stdout, "TRAINER"), daemon=True
-    )
-    stderr_thread = threading.Thread(
-        target=monitor_output,
-        args=(training_process.stderr, "TRAINER-ERROR"),
-        daemon=True,
-    )
-    stdout_thread.start()
-    stderr_thread.start()
-
-    handshake_thread = threading.Thread(
-        target=server_comms_handler.wait_for_clients, args=(1,), daemon=True
-    )
-    handshake_thread.start()
+    server_comms_handler.wait_for_clients(1)
 
     debug_thread = threading.Thread(
         target=debug_data_generator, args=(server_comms_handler,), daemon=True
@@ -155,18 +105,11 @@ if __name__ == "__main__":
     status_listener_thread.start()
 
     try:
-        print("Server started. Press Ctrl+C to exit.")
-        # Keep the main thread alive
+        print("Mock server started and waiting for training process to connect...")
         while True:
             time.sleep(1)
-            # Check if training process is still alive
-            if training_process.poll() is not None:
-                print("Training process has terminated!")
-                break
     except KeyboardInterrupt:
-        print("\nShutting down gracefully...")
+        print("\nShutting down mock server...")
     finally:
-        # Clean up
-        training_process.terminate()
         server_comms_handler.close()
-        print("Server shutdown complete.")
+        print("Mock server shutdown complete.")

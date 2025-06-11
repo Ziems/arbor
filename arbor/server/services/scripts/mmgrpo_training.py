@@ -41,7 +41,6 @@ class MMGRPOTrainer(GRPOTrainer):
             Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]
         ] = (None, None),
         peft_config: Optional["PeftConfig"] = None,
-        comms_handler: Optional[ArborScriptCommsHandler] = None,
         lora: Optional[bool] = False,
         vllm_group_port: Optional[int] = None,
         max_context_length: Optional[int] = None,
@@ -60,7 +59,6 @@ class MMGRPOTrainer(GRPOTrainer):
             **kwargs,
         )
         self.peft_config = peft_config
-        self.comms_handler = comms_handler
 
         # self.vllm_client = None
         # args.use_vllm = True
@@ -89,6 +87,9 @@ class MMGRPOTrainer(GRPOTrainer):
         # # synchronize all processes after vLLM has been fully initialized.
         # self.accelerator.wait_for_everyone()
 
+    def set_comms_handler(self, comms_handler: ArborScriptCommsHandler):
+        self.comms_handler = comms_handler
+
     def get_train_dataloader(self):
         return Trainer.get_train_dataloader(self)
 
@@ -104,6 +105,9 @@ class MMGRPOTrainer(GRPOTrainer):
     def _generate_and_score_completions(
         self, inputs: list[dict[str, Union[torch.Tensor, Any]]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
+        import pdb
+
+        pdb.set_trace()
         raise NotImplementedError(
             "_generate_and_score_completions must be implemented by subclass"
         )
@@ -321,11 +325,12 @@ def main():
             **trl_train_args,
         )
 
+        train_dataset = BlockingQueueDataset()
         weight_update_callback = WeightUpdateCallback()
         trainer = MMGRPOTrainer(
             model=args.model,
             args=training_args,
-            train_dataset=BlockingQueueDataset(None, None),
+            train_dataset=train_dataset,
             callbacks=[weight_update_callback],
             peft_config=lora_config,
             vllm_group_port=args.vllm_group_port,
@@ -342,15 +347,13 @@ def main():
             is_main_process=trainer.accelerator.is_main_process,
         )
 
+        train_dataset.set_comms_handler(comms_handler)
+        train_dataset.set_accelerator(trainer.accelerator)
+
         weight_update_callback.set_comms_handler(comms_handler)
         weight_update_callback.set_trainer(trainer)
-        trainer.comms_handler = comms_handler
 
-        # Initialize the dataset with the actual accelerator
-        trainer.train_dataset = BlockingQueueDataset(
-            accelerator=trainer.accelerator,
-            comms_handler=trainer.comms_handler,
-        )
+        trainer.set_comms_handler(comms_handler)
 
         command_monitor = CommandMonitor(
             comms_handler=comms_handler,
@@ -358,6 +361,8 @@ def main():
             base_model_name=args.model,
         )
         command_monitor.start()
+
+        print("command monitor started")
 
         # Add signal handlers for graceful shutdown
         def signal_handler(signum, frame):
@@ -371,11 +376,17 @@ def main():
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
+        print("Signal handlers added")
+
         print("Training...")
         trainer.train()
 
     except Exception as e:
+        import traceback
+
         print(f"Error: {e}")
+        print("Stack trace:")
+        traceback.print_exc()
         comms_handler.send_status({"status": "error", "error": str(e)})
         raise e
     finally:

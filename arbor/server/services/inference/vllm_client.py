@@ -4,6 +4,7 @@ import asyncio
 import atexit
 import logging
 import time
+import traceback
 from typing import Optional
 
 import httpx
@@ -254,7 +255,8 @@ class VLLMClient:
                     await asyncio.sleep(INFERENCE_RETRY_DELAY)
                 else:
                     logger.error(
-                        f"Request failed after {MAX_INFERENCE_RETRIES} retries"
+                        f"Request failed after {MAX_INFERENCE_RETRIES} retries. Error: {e}\n"
+                        f"Stack trace:\n{traceback.format_exc()}"
                     )
                     raise
 
