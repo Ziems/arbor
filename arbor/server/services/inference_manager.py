@@ -69,7 +69,6 @@ class InferenceManager:
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
         n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
         command = f"python -m arbor.server.services.inference.vllm_serve --model {model} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching True"
-
         if launch_kwargs.get("max_context_length"):
             command += (
                 f" --max_model_len {launch_kwargs['max_context_length']}"
@@ -137,7 +136,7 @@ class InferenceManager:
         )
 
         # Once server is ready, we tell the thread to stop printing further lines.
-        stop_printing_event.set()
+        # stop_printing_event.set()
 
     def kill(self):
         if self.process is None:
