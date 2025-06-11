@@ -1,5 +1,6 @@
 # adapted from Will Brown's verifiers library (https://github.com/willccbb/verifiers)
 
+import asyncio
 import atexit
 import logging
 import time
