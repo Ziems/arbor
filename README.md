@@ -52,6 +52,16 @@ Follow the DSPy tutorials here to see usage examples:
 
 ---
 
+### Troubleshooting
+
+**NCCL Errors**
+Certain GPU setups, particularly with newer GPUs, seem to have issues with NCCL that cause Arbor to crash. Often times of these can be fixed with the following environment variables:
+
+```bash
+export NCCL_P2P_DISABLE=1
+export NCCL_IB_DISABLE=1
+```
+
 ## 🙏 Acknowledgements
 
 Arbor builds on the shoulders of great work. We extend our thanks to:
