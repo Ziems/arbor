@@ -4,14 +4,14 @@
 ###############################################################################
 
 import argparse
-import shutil
-import os
 import json
+import os
 import random
-import threading
-import time
+import shutil
 import signal
 import sys
+import threading
+import time
 from functools import lru_cache
 from typing import Any, List, Optional, Union
 
@@ -350,6 +350,7 @@ class LastStepTimeCallback(TrainerCallback):
 
 class WeightUpdateCallback(TrainerCallback):
     """A callback that sends weight update completion status after each step"""
+
     def __init__(self):
         self.comms_handler = None
         self.trainer = None
@@ -365,10 +366,66 @@ class WeightUpdateCallback(TrainerCallback):
             if state.global_step != self.trainer._last_loaded_step:
                 print("Updating inference model...")
                 self.comms_handler.send_status({"status": "weight_update_start"})
-                self.trainer._move_model_to_vllm()
-                self.trainer._last_loaded_step = state.global_step
-                print("[DEBUG] Sending weight update completion status")
-                self.comms_handler.send_status({"status": "weight_update_complete"})
+
+                # Add retry logic for weight updates
+                max_weight_update_retries = 3
+                weight_update_retry_delay = 5.0  # seconds
+
+                for attempt in range(max_weight_update_retries):
+                    try:
+                        self.trainer._move_model_to_vllm()
+                        self.trainer._last_loaded_step = state.global_step
+                        print(
+                            "[DEBUG] Weight update successful, sending completion status"
+                        )
+                        self.comms_handler.send_status(
+                            {"status": "weight_update_complete"}
+                        )
+                        break  # Success - exit retry loop
+
+                    except Exception as e:
+                        error_msg = str(e)
+                        print(
+                            f"[WEIGHT_UPDATE] Attempt {attempt + 1}/{max_weight_update_retries} failed: {error_msg}"
+                        )
+
+                        # Check if this is a recoverable NCCL/communication error
+                        if any(
+                            keyword in error_msg.lower()
+                            for keyword in [
+                                "nccl",
+                                "failed to recv",
+                                "connection",
+                                "network",
+                                "timeout",
+                                "barrier",
+                                "communicator",
+                            ]
+                        ):
+                            if attempt < max_weight_update_retries - 1:
+                                print(
+                                    f"[WEIGHT_UPDATE] Retrying weight update in {weight_update_retry_delay}s..."
+                                )
+                                time.sleep(weight_update_retry_delay)
+                                continue
+                            else:
+                                print(
+                                    f"[WEIGHT_UPDATE] All retry attempts failed. Skipping weight update for step {state.global_step}"
+                                )
+                                # Send failure status but don't crash the training
+                                self.comms_handler.send_status(
+                                    {
+                                        "status": "weight_update_failed",
+                                        "error": error_msg,
+                                        "step": state.global_step,
+                                    }
+                                )
+                                # Don't update _last_loaded_step so we'll try again next time
+                                break
+                        else:
+                            # Non-recoverable error, re-raise
+                            print(f"[WEIGHT_UPDATE] Non-recoverable error: {error_msg}")
+                            raise
 
 
 class BlockingQueueDataset(Dataset):
@@ -533,9 +590,12 @@ class CommandMonitor:
                         )
 
                     # Copy checkpoint files to root output directory
-                    checkpoint_dir = self.trainer.args.output_dir + f"/checkpoints/{command.get('checkpoint_name')}/"
-                    root_dir = self.trainer.args.output_dir 
-                    
+                    checkpoint_dir = (
+                        self.trainer.args.output_dir
+                        + f"/checkpoints/{command.get('checkpoint_name')}/"
+                    )
+                    root_dir = self.trainer.args.output_dir
+
                     # Copy all files from checkpoint dir to root dir, overwriting if they exist
                     # (effectively saves the checkpoint to the output directory)
                     for item in os.listdir(checkpoint_dir):
