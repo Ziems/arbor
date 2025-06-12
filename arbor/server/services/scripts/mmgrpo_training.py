@@ -18,7 +18,7 @@ from transformers import (
     is_wandb_available,
 )
 from trl.data_utils import maybe_apply_chat_template
-from trl.trainer.grpo_trainer import GRPOConfig, GRPOTrainer
+from trl.trainer.grpo_trainer import GRPOConfig, GRPOTrainer, nanmax, nanmin
 
 from arbor.server.services.comms.comms import ArborScriptCommsHandler
 from arbor.server.services.inference.vllm_client import VLLMClient
@@ -59,6 +59,7 @@ class MMGRPOTrainer(GRPOTrainer):
             **kwargs,
         )
         self.peft_config = peft_config
+        self.loss_type = "mmgrpo"
 
         # self.vllm_client = None
         # args.use_vllm = True
@@ -264,8 +265,6 @@ class MMGRPOTrainer(GRPOTrainer):
         if self.beta != 0.0:
             per_token_loss = per_token_loss + self.beta * per_token_kl
 
-        self.loss_type = "mmgrpo"
-
         if self.loss_type == "grpo":
             loss = (
                 (per_token_loss * completion_mask).sum(-1)
@@ -309,24 +308,24 @@ class MMGRPOTrainer(GRPOTrainer):
         high_clip = (is_high_clipped * completion_mask).sum() / completion_mask.sum()
         clip_ratio = (is_region_clipped * completion_mask).sum() / completion_mask.sum()
 
-        # gathered_low_clip = self.accelerator.gather(low_clip)
-        # self._metrics[mode]["clip_ratio/low_mean"].append(
-        #     gathered_low_clip.nanmean().item()
-        # )
-        # self._metrics[mode]["clip_ratio/low_min"].append(
-        #     nanmin(gathered_low_clip).item()
-        # )
-        # gathered_high_clip = self.accelerator.gather(high_clip)
-        # self._metrics[mode]["clip_ratio/high_mean"].append(
-        #     gathered_high_clip.nanmean().item()
-        # )
-        # self._metrics[mode]["clip_ratio/high_max"].append(
-        #     nanmax(gathered_high_clip).item()
-        # )
-        # gathered_clip_ratio = self.accelerator.gather(clip_ratio)
-        # self._metrics[mode]["clip_ratio/region_mean"].append(
-        #     gathered_clip_ratio.nanmean().item()
-        # )
+        gathered_low_clip = self.accelerator.gather(low_clip)
+        self._metrics[mode]["clip_ratio/low_mean"].append(
+            gathered_low_clip.nanmean().item()
+        )
+        self._metrics[mode]["clip_ratio/low_min"].append(
+            nanmin(gathered_low_clip).item()
+        )
+        gathered_high_clip = self.accelerator.gather(high_clip)
+        self._metrics[mode]["clip_ratio/high_mean"].append(
+            gathered_high_clip.nanmean().item()
+        )
+        self._metrics[mode]["clip_ratio/high_max"].append(
+            nanmax(gathered_high_clip).item()
+        )
+        gathered_clip_ratio = self.accelerator.gather(clip_ratio)
+        self._metrics[mode]["clip_ratio/region_mean"].append(
+            gathered_clip_ratio.nanmean().item()
+        )
 
         return loss
 
