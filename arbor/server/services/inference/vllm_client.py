@@ -3,8 +3,8 @@
 import asyncio
 import atexit
 import logging
-import traceback
 import time
+import traceback
 from typing import Optional
 
 import httpx
@@ -31,6 +31,7 @@ class InferenceBlockedError(Exception):
     """Raised when inference is blocked due to weight updates in progress."""
 
     pass
+
 
 class VLLMClient:
     """
@@ -245,11 +246,15 @@ class VLLMClient:
                 logger.error("Request timed out")
                 raise
             except InferenceBlockedError:
-                logger.error(f"Inference blocked by weight updates. {traceback.format_exc()}")
+                logger.error(
+                    f"Inference blocked by weight updates. {traceback.format_exc()}"
+                )
                 raise
             except Exception as e:
-                logger.error(f"Request failed. Error: {e}\n"
-                        f"Stack trace:\n{traceback.format_exc()}")
+                logger.error(
+                    f"Request failed. Error: {e}\n"
+                    f"Stack trace:\n{traceback.format_exc()}"
+                )
                 retries += 1
                 if retries < MAX_INFERENCE_RETRIES:
                     logger.warning(
@@ -299,13 +304,20 @@ class VLLMClient:
             f"[VLLM_CLIENT] Server responded, starting NCCL broadcast for {name}"
         )
 
-        # Broadcast the weights to the other processes
-        self.pynccl_comm.broadcast(weights, src=self.rank)
-        logger.debug(
-            f"[VLLM_CLIENT] NCCL broadcast complete, waiting at barrier for {name}"
-        )
-        self.pynccl_comm.group.barrier()
-        logger.debug(f"[VLLM_CLIENT] Barrier passed for {name}")
+        try:
+            # Broadcast the weights to the other processes
+            self.pynccl_comm.broadcast(weights, src=self.rank)
+            logger.debug(
+                f"[VLLM_CLIENT] NCCL broadcast complete, waiting at barrier for {name}"
+            )
+            self.pynccl_comm.group.barrier()
+            logger.debug(f"[VLLM_CLIENT] Barrier passed for {name}")
+        except Exception as e:
+            # Provide more detailed error information for debugging
+            error_msg = f"NCCL communication failed for {name}: {str(e)}"
+            logger.error(f"[VLLM_CLIENT] {error_msg}")
+            # Re-raise with more context
+            raise Exception(error_msg) from e
 
     def update_model_params(self, model: nn.Module):
         """
@@ -315,9 +327,17 @@ class VLLMClient:
             model (`nn.Module`):
                 Model whose parameters (weights/biases) are to be updated.
         """
-        for name, param in model.named_parameters():
+        total_params = sum(1 for _ in model.named_parameters())
+        logger.info(f"[VLLM_CLIENT] Starting update of {total_params} parameters")
+
+        for i, (name, param) in enumerate(model.named_parameters()):
+            logger.debug(
+                f"[VLLM_CLIENT] Updating parameter {i+1}/{total_params}: {name}"
+            )
             # Update each parameter individually
             self.update_named_param(name, param.data)
+
+        logger.info(f"[VLLM_CLIENT] Successfully updated all {total_params} parameters")
 
     def batch_update_model_params(self, model: nn.Module, batch_size: int = 50):
         """

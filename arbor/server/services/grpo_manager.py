@@ -12,6 +12,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
 import psutil
 
 from arbor.server.api.models.schemas import (
@@ -265,6 +266,14 @@ class GRPOManager:
                 elif status["status"] == "weight_update_complete":
                     # Decrement counter to potentially allow inference calls again
                     inference_manager.complete_weight_update()
+                elif status["status"] == "weight_update_failed":
+                    # Handle weight update failure - still need to unblock inference
+                    print(
+                        f"Weight update failed for step {status.get('step', 'unknown')}: {status.get('error', 'Unknown error')}"
+                    )
+                    inference_manager.complete_weight_update()
+                    # Log the failure but don't crash the training
+                    print("Inference unblocked despite weight update failure")
                 elif status["status"] == "model_saved":
                     print("Updating inference model...")
                     # There is a case where this status is sent multiple times
@@ -291,7 +300,9 @@ class GRPOManager:
             except:
                 pass
 
-    def grpo_step(self, request: GRPORequest, inference_manager: InferenceManager) -> str:
+    def grpo_step(
+        self, request: GRPORequest, inference_manager: InferenceManager
+    ) -> str:
         while self.saving_checkpoint:
             print("Saving checkpoint, pausing GRPO steps until checkpoint is saved...")
             time.sleep(5)
@@ -304,7 +315,7 @@ class GRPOManager:
         except Exception as e:
             print(f"Failed to send batch to training process: {e}")
             raise
-        
+
         return {
             "current_model": self.current_model,
             "checkpoints": self.checkpoints,
@@ -319,8 +330,12 @@ class GRPOManager:
             "last_checkpoint": self.last_checkpoint,
         }
 
-    def checkpoint(self, request: GRPOCheckpointRequest, inference_manager: InferenceManager):
-        while inference_manager.is_updating:  # Use the property instead of direct access
+    def checkpoint(
+        self, request: GRPOCheckpointRequest, inference_manager: InferenceManager
+    ):
+        while (
+            inference_manager.is_updating
+        ):  # Use the property instead of direct access
             print("Waiting for weight updates to finish before checkpointing...")
             time.sleep(5)
 
@@ -341,15 +356,15 @@ class GRPOManager:
         """Clean up resources and save the final model."""
         time.sleep(5)
 
-        while inference_manager and inference_manager.is_updating:  # Use the property instead of direct access
+        while (
+            inference_manager and inference_manager.is_updating
+        ):  # Use the property instead of direct access
             print("Waiting for final weight updates to finish before saving...")
             time.sleep(5)
 
         print("sending save model command")
         self.saving_model = True
-        self.server_comms_handler.send_command(
-            {"command": "save_model"}
-        )
+        self.server_comms_handler.send_command({"command": "save_model"})
         while self.saving_model:
             print("Waiting for final model to be saved...")
             time.sleep(5)
@@ -369,11 +384,13 @@ class GRPOManager:
         start_time = time.time()
         while self.terminating:
             if time.time() - start_time > 15:
-                print("Termination wait timed out after 15 seconds, proceeding with cleanup...")
+                print(
+                    "Termination wait timed out after 15 seconds, proceeding with cleanup..."
+                )
                 break
             print("Waiting for run to be terminated...")
             time.sleep(3)
-        
+
         print("Doing cleanup")
         self.cleanup_termination(inference_manager)
 
@@ -402,27 +419,27 @@ class GRPOManager:
                     parent = psutil.Process(self.training_process.pid)
                     # Get all child processes including grandchildren
                     children = parent.children(recursive=True)
-                    
+
                     # Send SIGTERM to children first
                     for child in children:
                         try:
                             child.send_signal(signal.SIGTERM)
                         except psutil.NoSuchProcess:
                             pass
-                    
+
                     # Send SIGTERM to parent
                     parent.send_signal(signal.SIGTERM)
-                    
+
                     # Wait for processes to terminate gracefully
                     gone, alive = psutil.wait_procs(children + [parent], timeout=10)
-                    
+
                     # If any processes are still alive, force kill them
                     for p in alive:
                         try:
                             p.kill()  # SIGKILL
                         except psutil.NoSuchProcess:
                             pass
-                        
+
                 except psutil.NoSuchProcess:
                     print(f"Process {self.training_process.pid} not found")
                 except Exception as e:
@@ -434,7 +451,7 @@ class GRPOManager:
                     except subprocess.TimeoutExpired:
                         self.training_process.kill()
                         self.training_process.wait(timeout=10)
-            
+
             # Clean up ZMQ connections
             if self.server_comms_handler:
                 print("Closing ZMQ connections...")
@@ -443,7 +460,7 @@ class GRPOManager:
             if inference_manager and inference_manager.process is not None:
                 print("Killing inference manager...")
                 inference_manager.kill()
-            
+
             # Reinitialize in case we want to start a new training run
             self.training_process = None
             self.current_model = None
@@ -461,13 +478,13 @@ class GRPOManager:
             self.data_count = 0
 
 
-
 def get_free_port() -> int:
     """
     Return a randomly selected free TCP port on localhost from a selection of 3-4 ports.
     """
     import random
     import socket
+
     ports = []
     for _ in range(random.randint(5, 10)):
         try:
