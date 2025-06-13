@@ -72,9 +72,7 @@ class GRPOManager:
         name, output_dir = self.make_output_dir(request.model, request.suffix)
 
         # Here are defaults for training. We can adjust them if we disagree w the huggingface defaults
-        default_train_kwargs = {
-            "output_dir": output_dir,
-        }
+        default_train_kwargs = {"output_dir": output_dir, "grpo_flavor": "grpo"}
 
         train_kwargs = request.model_dump(exclude_unset=True)
         return {**default_train_kwargs, **(train_kwargs or {})}
@@ -108,7 +106,7 @@ class GRPOManager:
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
         }
 
-        arbor_keys = ["max_context_length", "lora"]
+        arbor_keys = ["max_context_length", "lora", "grpo_flavor"]
         arbor_train_kwargs = {
             key: train_kwargs[key] for key in arbor_keys if key in train_kwargs
         }
@@ -121,7 +119,7 @@ class GRPOManager:
         """Initialize the training process with ZMQ-based communication."""
         self.train_kwargs = self.find_training_args(request)
 
-        trl_train_kwargs, arbor_train_kwargs = self.process_training_args(
+        self.trl_train_kwargs, self.arbor_train_kwargs = self.process_training_args(
             self.train_kwargs
         )
 
@@ -132,8 +130,8 @@ class GRPOManager:
         # launch_kwargs = {
         #     k: v for k, v in arbor_train_kwargs.items() if k in ["max_context_length"]
         # }
-        inference_manager.launch_kwargs["max_context_length"] = arbor_train_kwargs.get(
-            "max_context_length", None
+        inference_manager.launch_kwargs["max_context_length"] = (
+            self.arbor_train_kwargs.get("max_context_length", None)
         )
         print("Launching inference server...")
         inference_manager.launch(self.current_model)
@@ -142,7 +140,10 @@ class GRPOManager:
         self.server_comms_handler = ArborServerCommsHandler()
 
         script_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
-        script_path = os.path.join(script_dir, "grpo_training.py")
+        script_name = {"mmgrpo": "mmgrpo_training.py", "grpo": "grpo_training.py"}[
+            self.arbor_train_kwargs["grpo_flavor"]
+        ]
+        script_path = os.path.join(script_dir, script_name)
 
         # Start the training process with ZMQ ports
         my_env = os.environ.copy()
@@ -195,9 +196,9 @@ class GRPOManager:
                 "--model",
                 self.current_model,
                 "--trl_train_kwargs",
-                json.dumps(trl_train_kwargs),
+                json.dumps(self.trl_train_kwargs),
                 "--arbor_train_kwargs",
-                json.dumps(arbor_train_kwargs),
+                json.dumps(self.arbor_train_kwargs),
             ]
         )
         print(f"Running following command\n: {' '.join(params)}")
@@ -292,14 +293,45 @@ class GRPOManager:
             except:
                 pass
 
-    def grpo_step(
-        self, request: GRPORequest, inference_manager: InferenceManager
-    ) -> str:
+    def validate_batch(self, batch):
+        if not isinstance(batch, list):
+            raise ValueError("Batch must be a list")
+
+        if self.arbor_train_kwargs["grpo_flavor"] == "mmgrpo":
+            for group in batch:
+                if not isinstance(group, list):
+                    raise ValueError("Each group in batch must be a list")
+                for item in group:
+                    if not isinstance(item, dict):
+                        raise ValueError("Each item in group must be a dictionary")
+                    required_keys = {"messages", "completion", "advantage"}
+                    if not all(key in item for key in required_keys):
+                        raise ValueError(
+                            f"Each item must contain keys: {required_keys}"
+                        )
+            return True
+        elif self.arbor_train_kwargs["grpo_flavor"] == "grpo":
+            for item in batch:
+                if not isinstance(item, dict):
+                    raise ValueError("Each item in batch must be a dictionary")
+                required_keys = {"messages", "completion", "reward"}
+                if not all(key in item for key in required_keys):
+                    raise ValueError(f"Each item must contain keys: {required_keys}")
+            return True
+        else:
+            raise NotImplementedError(
+                f"GRPO flavor batch validation not implemented for {self.arbor_train_kwargs['grpo_flavor']}"
+            )
+
+    def grpo_step(self, request: GRPORequest) -> str:
         while self.saving_checkpoint:
             print("Saving checkpoint, pausing GRPO steps until checkpoint is saved...")
             time.sleep(5)
 
+        self.validate_batch(request.batch)
+
         try:
+
             # Send the batch to the training process
             self.server_comms_handler.send_data(request.batch)
             self.data_count += 1

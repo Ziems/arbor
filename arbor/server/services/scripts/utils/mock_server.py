@@ -6,21 +6,28 @@ import zmq
 
 from arbor.server.services.comms.comms import ArborServerCommsHandler
 
-group_example = [
-    [  # module with different completions (Geography Expert)
-        {  # geogrphy module
+group_example = [  # Entire group of trajectories
+    [  # Trajectory with different modules
+        {  # geography module
             "messages": [{"role": "user", "content": "What is the capital of France?"}],
-            "completion": {"role": "assistant", "content": "Paris"},
+            "completion": [{"role": "assistant", "content": "Paris"}],
             "advantage": 0.9,
         },
         {  # math module
             "messages": [{"role": "user", "content": "What is 2 * 2 + 2?"}],
-            "completion": {"role": "assistant", "content": "6"},
+            "completion": [{"role": "assistant", "content": "6"}],
             "advantage": 0.8,
         },
+        {  # car module
+            "messages": [
+                {"role": "user", "content": "When did the first honda civic come out?"}
+            ],
+            "completion": [{"role": "assistant", "content": "1973"}],
+            "advantage": 0.7,
+        },
     ],
-    [  # module with different completions (Math Expert)
-        {  # geogrphy module
+    [  # Trajectory with different modules
+        {  # geography module
             "messages": [
                 {"role": "user", "content": "What is the capital of Germany?"}
             ],

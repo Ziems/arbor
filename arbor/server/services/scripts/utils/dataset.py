@@ -2,7 +2,7 @@ import json
 import logging
 import time
 from functools import lru_cache
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 from accelerate import Accelerator
 from datasets import Dataset
@@ -64,9 +64,11 @@ class BlockingRotatingQueueDataset(Dataset):
 class BlockingQueueDataset(Dataset):
     def __init__(
         self,
+        set_last_queue_pop_time_fn: Callable[[float], None],
     ):
         self._buffer: List[Dict[str, Any]] = []
         self._logger = logging.getLogger(__name__)
+        self.set_last_queue_pop_time = set_last_queue_pop_time_fn
 
     def set_accelerator(self, accelerator: Accelerator):
         self.accelerator = accelerator
@@ -84,6 +86,7 @@ class BlockingQueueDataset(Dataset):
                     raise ValueError("comms_handler is not initialized")
 
                 group = self.comms_handler.receive_data()
+
                 if group is not None:
                     self._logger.debug("Received group from comms handler")
                     for trajectory in group:
@@ -129,6 +132,8 @@ class BlockingQueueDataset(Dataset):
 
             batch_items = self._buffer[:batch_size]
             self._buffer = self._buffer[batch_size:]
+
+            self.set_last_queue_pop_time(time.time())
 
             return self._transform_batch(batch_items)
 

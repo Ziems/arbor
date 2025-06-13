@@ -2,6 +2,7 @@ import os
 import shutil
 import threading
 import time
+from typing import Callable
 
 from peft import AutoPeftModelForCausalLM
 from transformers import Trainer
@@ -15,6 +16,8 @@ class CommandMonitor:
         comms_handler: ArborScriptCommsHandler,
         trainer: Trainer,
         base_model_name: str,
+        time_since_last_step_fn: Callable[[], float],
+        time_since_last_queue_pop_fn: Callable[[], float],
     ):
         self.comms_handler = comms_handler
         self.trainer = trainer
@@ -22,6 +25,8 @@ class CommandMonitor:
         self.command_thread = threading.Thread(
             target=self._monitor_commands, daemon=True
         )
+        self.time_since_last_step_fn = time_since_last_step_fn
+        self.time_since_last_queue_pop_fn = time_since_last_queue_pop_fn
 
     def start(self):
         self.command_thread.start()
@@ -41,15 +46,15 @@ class CommandMonitor:
                         f"[Training Script] Instructed to save model at {self.trainer.args.output_dir}"
                     )
                     while (
-                        time_since_last_step() <= 10
-                        or get_time_since_last_queue_pop() <= 10
+                        self.time_since_last_step_fn() <= 10
+                        or self.time_since_last_queue_pop_fn() <= 10
                     ):
                         print(f"Waiting for steps to finish")
                         print(
-                            f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
+                            f"Time since last step: {self.time_since_last_step_fn():.1f} (needs to be >= 10)"
                         )
                         print(
-                            f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
+                            f"Time since last queue pop: {self.time_since_last_queue_pop_fn():.1f} (needs to be >= 10)"
                         )
                         time.sleep(5)
                     print("[Training Script] Saving model...")
@@ -84,15 +89,15 @@ class CommandMonitor:
                         f"[Training Script] Instructed to save checkpoint {command.get('checkpoint_name')}"
                     )
                     while (
-                        time_since_last_step() <= 10
-                        or get_time_since_last_queue_pop() <= 10
+                        self.time_since_last_step_fn() <= 10
+                        or self.time_since_last_queue_pop_fn() <= 10
                     ):
                         print(f"Waiting for steps to finish")
                         print(
-                            f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
+                            f"Time since last step: {self.time_since_last_step_fn():.1f} (needs to be >= 10)"
                         )
                         print(
-                            f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
+                            f"Time since last queue pop: {self.time_since_last_queue_pop_fn():.1f} (needs to be >= 10)"
                         )
                         time.sleep(5)
                     if self.trainer.peft_config:

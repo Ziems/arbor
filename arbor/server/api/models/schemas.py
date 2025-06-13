@@ -178,7 +178,7 @@ class ChatCompletionModel(BaseModel):
 
 class GRPORequest(BaseModel):
     model: str
-    batch: List[dict]
+    batch: List[dict] | List[List[dict]]
 
 
 class GRPOConfigRequest(BaseModel):
@@ -205,6 +205,7 @@ class GRPOConfigRequest(BaseModel):
     # Arbor specific
     max_context_length: Optional[int] = None
     lora: Optional[bool] = None
+    grpo_flavor: Optional[Literal["grpo", "mmgrpo"]] = None
     # To name the run
     suffix: Optional[str] = None
     generation_batch_size: Optional[int] = None

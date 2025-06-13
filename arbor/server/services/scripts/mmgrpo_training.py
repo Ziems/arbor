@@ -28,6 +28,34 @@ from arbor.server.services.scripts.utils.dataset import BlockingQueueDataset
 trl.extras.vllm_client.VLLMClient = VLLMClient
 
 
+last_step_time = None
+last_queue_pop_time = None
+
+
+def time_since_last_step():
+    global last_step_time
+    if last_step_time is None:
+        return float("inf")
+    return time.time() - last_step_time
+
+
+def time_since_last_queue_pop():
+    global last_queue_pop_time
+    if last_queue_pop_time is None:
+        return float("inf")
+    return time.time() - last_queue_pop_time
+
+
+def set_last_queue_pop_time(time):
+    global last_queue_pop_time
+    last_queue_pop_time = time
+
+
+def set_last_step_time(time):
+    global last_step_time
+    last_step_time = time
+
+
 class MMGRPOTrainer(GRPOTrainer):
     def __init__(
         self,
@@ -44,6 +72,7 @@ class MMGRPOTrainer(GRPOTrainer):
         lora: Optional[bool] = False,
         vllm_group_port: Optional[int] = None,
         max_context_length: Optional[int] = None,
+        grpo_flavor: Optional[str] = "mmgrpo",
         **kwargs,
     ):
         super().__init__(
@@ -61,32 +90,32 @@ class MMGRPOTrainer(GRPOTrainer):
         self.peft_config = peft_config
         self.loss_type = "mmgrpo"
 
-        # self.vllm_client = None
-        # args.use_vllm = True
-        # self.use_vllm = True
-        # if self.accelerator.is_main_process:
-        #     print(
-        #         f"Initializing vLLM client with server port {args.vllm_server_port} and group port {vllm_group_port}"
-        #     )
-        #     self.vllm_client = VLLMClient(
-        #         args.vllm_server_host,
-        #         args.vllm_server_port,
-        #         group_port=vllm_group_port,
-        #         connection_timeout=args.vllm_server_timeout,
-        #     )
-        #     self.vllm_client.init_communicator()
+        self.vllm_client = None
+        args.use_vllm = True
+        self.use_vllm = True
+        if self.accelerator.is_main_process:
+            print(
+                f"Initializing vLLM client with server port {args.vllm_server_port} and group port {vllm_group_port}"
+            )
+            self.vllm_client = VLLMClient(
+                args.vllm_server_host,
+                args.vllm_server_port,
+                group_port=vllm_group_port,
+                connection_timeout=args.vllm_server_timeout,
+            )
+            self.vllm_client.init_communicator()
 
-        # # vLLM specific sampling arguments
-        # self.guided_decoding_regex = args.vllm_guided_decoding_regex
+        # vLLM specific sampling arguments
+        self.guided_decoding_regex = args.vllm_guided_decoding_regex
 
         self._last_loaded_step = (
             -1
         )  # tag to avoid useless loading during grad accumulation
 
-        # # When using vLLM, the main process is responsible for loading the model weights. This can cause process
-        # # desynchronization and seems to lead to DeepSpeed hanging during initialization. To prevent this, we
-        # # synchronize all processes after vLLM has been fully initialized.
-        # self.accelerator.wait_for_everyone()
+        # When using vLLM, the main process is responsible for loading the model weights. This can cause process
+        # desynchronization and seems to lead to DeepSpeed hanging during initialization. To prevent this, we
+        # synchronize all processes after vLLM has been fully initialized.
+        self.accelerator.wait_for_everyone()
 
     def set_comms_handler(self, comms_handler: ArborScriptCommsHandler):
         self.comms_handler = comms_handler
@@ -209,7 +238,9 @@ class MMGRPOTrainer(GRPOTrainer):
         }
         return out
 
-    def _compute_loss(self, model, inputs, return_outputs=False):
+    def compute_loss(
+        self, model, inputs, return_outputs=False, num_items_in_batch=None
+    ):
         if return_outputs:
             raise ValueError("The GRPOTrainer does not support returning outputs")
 
@@ -326,6 +357,7 @@ class MMGRPOTrainer(GRPOTrainer):
         self._metrics[mode]["clip_ratio/region_mean"].append(
             gathered_clip_ratio.nanmean().item()
         )
+        print(f"Loss: {loss.item()}")
 
         return loss
 
@@ -333,9 +365,10 @@ class MMGRPOTrainer(GRPOTrainer):
 class WeightUpdateCallback(TrainerCallback):
     """A callback that sends weight update completion status after each step"""
 
-    def __init__(self):
+    def __init__(self, set_last_step_time_fn):
         self.comms_handler = None
         self.trainer = None
+        self.set_last_step_time_fn = set_last_step_time_fn
 
     def set_comms_handler(self, comms_handler: ArborScriptCommsHandler):
         self.comms_handler = comms_handler
@@ -344,10 +377,15 @@ class WeightUpdateCallback(TrainerCallback):
         self.trainer = trainer
 
     def on_step_end(self, args, state, control, **kwargs):
+        self.set_last_step_time_fn(time.time())
         if self.comms_handler and self.comms_handler.is_main_process and self.trainer:
             if state.global_step != self.trainer._last_loaded_step:
                 print("Updating inference model...")
                 self.comms_handler.send_status({"status": "weight_update_start"})
+                self.trainer._move_model_to_vllm()
+                self.trainer._last_loaded_step = state.global_step
+                print("[DEBUG] Sending weight update completion status")
+                self.comms_handler.send_status({"status": "weight_update_complete"})
 
 
 def main():
@@ -430,8 +468,12 @@ def main():
             **trl_train_args,
         )
 
-        train_dataset = BlockingQueueDataset()
-        weight_update_callback = WeightUpdateCallback()
+        train_dataset = BlockingQueueDataset(
+            set_last_queue_pop_time_fn=set_last_queue_pop_time,
+        )
+        weight_update_callback = WeightUpdateCallback(
+            set_last_step_time_fn=set_last_step_time,
+        )
         trainer = MMGRPOTrainer(
             model=args.model,
             args=training_args,
@@ -464,6 +506,8 @@ def main():
             comms_handler=comms_handler,
             trainer=trainer,
             base_model_name=args.model,
+            time_since_last_step_fn=time_since_last_step,
+            time_since_last_queue_pop_fn=time_since_last_queue_pop,
         )
         command_monitor.start()
 
