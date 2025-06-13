@@ -74,10 +74,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         ] = (None, None),
         peft_config: Optional["PeftConfig"] = None,
         comms_handler: Optional[ArborScriptCommsHandler] = None,
-        lora: Optional[bool] = False,
-        # We do nothing with max_context_length right now
         vllm_group_port: Optional[int] = None,
-        max_context_length: Optional[int] = None,
         **kwargs,
     ):
         super().__init__(
@@ -514,6 +511,12 @@ def main():
                 inference_mode=False,
             )
 
+        if "report_to" in trl_train_args and trl_train_args["report_to"] == "wandb":
+            import wandb
+
+            if "wandb_kwargs" in arbor_train_args and arbor_train_args["wandb_kwargs"]:
+                wandb.init(**arbor_train_args["wandb_kwargs"])
+
         training_args = GRPOConfig(
             dataloader_num_workers=0,
             shuffle_dataset=False,
@@ -529,7 +532,6 @@ def main():
             callbacks=[LastStepTimeCallback(), weight_update_callback],
             peft_config=lora_config,
             vllm_group_port=args.vllm_group_port,
-            **arbor_train_args,
         )
         # Create client handler
         comms_handler = ArborScriptCommsHandler(

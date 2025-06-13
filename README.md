@@ -16,7 +16,8 @@ Install Arbor via pip:
 pip install -U arbor-ai
 ```
 
-Optionally, you can also install:
+Optionally, you can also install flash attention to speed up inference. <br/>
+This can take 15+ minutes to install on some setups:
 ```bash
 pip install flash-attn --no-build-isolation
 ```
@@ -51,6 +52,16 @@ Follow the DSPy tutorials here to see usage examples:
 [DSPy RL Optimization Examples](https://dspy.ai/tutorials/rl_papillon/)
 
 ---
+
+### Troubleshooting
+
+**NCCL Errors**
+Certain GPU setups, particularly with newer GPUs, seem to have issues with NCCL that cause Arbor to crash. Often times of these can be fixed with the following environment variables:
+
+```bash
+export NCCL_P2P_DISABLE=1
+export NCCL_IB_DISABLE=1
+```
 
 ## 🙏 Acknowledgements
 
