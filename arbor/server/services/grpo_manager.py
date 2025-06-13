@@ -278,7 +278,6 @@ class GRPOManager:
                     print("Updating inference model...")
                     # There is a case where this status is sent multiple times
                     # We need to make sure we only update the model once
-                    self.current_model = status["output_dir"]
                     self.saving_model = False
                     print("Model update complete")
                 elif status["status"] == "checkpoint_saved":
@@ -315,6 +314,9 @@ class GRPOManager:
         except Exception as e:
             print(f"Failed to send batch to training process: {e}")
             raise
+
+        self.current_model = self.train_kwargs["output_dir"]
+        inference_manager.launched_model = self.current_model
 
         return {
             "current_model": self.current_model,
