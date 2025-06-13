@@ -16,7 +16,8 @@ Install Arbor via pip:
 pip install -U arbor-ai
 ```
 
-Optionally, you can also install:
+Optionally, you can also install flash attention to speed up inference. <br/>
+This can take 15+ minutes to install on some setups:
 ```bash
 pip install flash-attn --no-build-isolation
 ```
