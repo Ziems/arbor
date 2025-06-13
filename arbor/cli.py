@@ -5,6 +5,7 @@ import click
 import uvicorn
 
 from arbor.server.core.config import Settings
+from arbor.server.core.config_manager import ConfigManager
 from arbor.server.main import app
 from arbor.server.services.file_manager import FileManager
 from arbor.server.services.grpo_manager import GRPOManager
@@ -30,7 +31,7 @@ def create_app(arbor_config_path: str):
     """Create and configure the Arbor API application
 
     Args:
-        storage_path (str): Path to store models and uploaded training files
+        arbor_config_path (str): Path to config file 
 
     Returns:
         FastAPI: Configured FastAPI application
@@ -102,11 +103,75 @@ def stop_server(server):
 @cli.command()
 @click.option("--host", default="0.0.0.0", help="Host to bind to")
 @click.option("--port", default=7453, help="Port to bind to")
-@click.option("--arbor-config", required=True, help="Path to the Arbor config file")
+@click.option("--arbor-config", required=False, help="Path to the Arbor config file")
 def serve(host, port, arbor_config):
     """Start the Arbor API server"""
-    app = create_app(arbor_config)
-    uvicorn.run(app, host=host, port=port)
+    
+    if arbor_config:
+        config_path = arbor_config
+    else:
+        config_path = Settings.use_default_config()
+        
+        # If no config found, run first-time setup
+        if config_path is None:
+            config_path = run_first_time_setup()
+    
+    # Validate config exists and is readable
+    is_valid, msg = ConfigManager.validate_config_file(config_path)
+
+    if not is_valid:
+        click.echo(msg)
+        raise click.Abort()
+    
+    try:
+        create_app(config_path)
+        uvicorn.run(app, host=host, port=port)
+    except Exception as e:
+        click.echo(f"Failed to start server: {e}", err=True)
+        raise click.Abort()
+
+
+
+def run_first_time_setup() -> str:
+    """Run first-time setup and return created config path"""
+    click.echo("Welcome to Arbor!")
+    click.echo("It looks like this is your first time running Arbor.")
+    click.echo("Let's set up your configuration...\n")
+    
+    try:
+        # Get config details
+        inference = click.prompt("Which gpu ids should be used for inference (separated by comma)", default="0")
+        training = click.prompt("Which gpu ids should be used for training (separated by comma)", default="1, 2")
+        click.echo()
+        
+        # Get config file path
+        config_path = click.prompt("Enter path to save config file in. We recommend (~/.arbor/config.yaml)", default=ConfigManager.get_default_config_path())
+        print(config_path)
+        click.echo()
+        
+        # Update or create config at path
+        config_path = ConfigManager.update_config(inference, training, config_path)
+        click.echo(f"Created configuration at: {config_path}")
+        
+        # Check if it is a valid config file
+        is_valid, msg = ConfigManager.validate_config_file(config_path)
+        if not is_valid: 
+            raise click.ClickException(f"Invalid config file: {msg}")
+
+        # Read and display the contents
+        _, content = ConfigManager.get_config_contents(config_path)
+
+        click.echo("\nConfiguration file contents:")
+        click.echo("---")
+        click.echo(content)
+        click.echo("---")
+        
+        click.echo("\nSetup complete! Starting Arbor server...")
+        return config_path
+        
+    except Exception as e:
+        click.echo(f"Failed initial setup of Arbor: {e}", err=True)
+        raise click.Abort()
 
 
 if __name__ == "__main__":
