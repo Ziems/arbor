@@ -15,7 +15,7 @@ def initialize_grpo(
     model, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/initialize"
 ):
     headers = {"Content-Type": "application/json"}
-    data = {"model": model, "num_generations": 8, "update_interval": 5, "lora": True}
+    data = {"model": model, "num_generations": 8, "lora": True}
     response = requests.post(url, headers=headers, json=data)
     return response
 
@@ -26,14 +26,8 @@ def run_grpo_step(
     model_name, batch, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/step"
 ):
     headers = {"Content-Type": "application/json"}
-    data = {"model": model_name, "update_inference_model": True, "batch": batch}
+    data = {"model": model_name, "batch": batch}
     response = requests.post(url, headers=headers, json=data)
-    return response
-
-
-def update_model(url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/update_model"):
-    headers = {"Content-Type": "application/json"}
-    response = requests.post(url, headers=headers)
     return response
 
 
@@ -87,9 +81,6 @@ def main():
         current_model = step_response.json()["current_model"]
 
         if i == 10:
-            update_response = update_model()
-            current_model = update_response.json()["current_model"]
-
             checkpoint_response = checkpoint(checkpoint_name=f"checkpoint_{i}")
             last_checkpoint_name = checkpoint_response.json()["last_checkpoint"]
 
