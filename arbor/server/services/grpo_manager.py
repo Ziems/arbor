@@ -108,7 +108,7 @@ class GRPOManager:
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
         }
 
-        arbor_keys = ["max_context_length", "lora"]
+        arbor_keys = ["max_context_length", "lora", "wandb_kwargs"]
         arbor_train_kwargs = {
             key: train_kwargs[key] for key in arbor_keys if key in train_kwargs
         }

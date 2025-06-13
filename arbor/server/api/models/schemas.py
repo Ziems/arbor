@@ -205,6 +205,7 @@ class GRPOConfigRequest(BaseModel):
     # Arbor specific
     max_context_length: Optional[int] = None
     lora: Optional[bool] = None
+    wandb_kwargs: Optional[dict] = None
     # To name the run
     suffix: Optional[str] = None
     generation_batch_size: Optional[int] = None
