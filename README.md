@@ -33,7 +33,7 @@ pip install flash-attn --no-build-isolation
 ```bash
 python -m arbor.cli serve
 ```
-On the first run you'll be asked which gpus will be used for training and which for inference. For more that one GPU, separate them by comma: `1, 2`. Your config file will be saved in `~/.arbor/config.yaml` should you want to edit these configs in the future.
+On the first run you'll be asked which GPUs will be used for training and which for inference. For more that one GPU, separate the ids by comma: `1, 2`. Your config file will be saved in `~/.arbor/config.yaml` should you want to edit these configs in the future.
 
 ### 2️⃣ Optimize a DSPy Program
 
