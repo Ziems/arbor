@@ -11,6 +11,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import SFTConfig, SFTTrainer, setup_chat_format
 
 from arbor.server.services.scripts.utils.arg_parser import get_training_arg_parser
+from arbor.server.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def main():
@@ -25,7 +28,7 @@ def main():
         # TODO: These assertions should be done in some better way
         assert "output_dir" in trl_train_kwargs, "output_dir is required"
         if "gradient_checkpointing_kwargs" in trl_train_kwargs and args.lora:
-            print(
+            logger.info(
                 "Setting gradient_checkpointing_kwargs to use_reentrant=False for LORA training"
             )
             trl_train_kwargs["gradient_checkpointing_kwargs"] = {
@@ -35,7 +38,7 @@ def main():
 
         lora_config = None
         if args.lora:
-            print("Using LORA for PEFT")
+            logger.info("Using LORA for PEFT")
             lora_config = LoraConfig(
                 r=16,
                 lora_alpha=64,
@@ -91,13 +94,13 @@ def main():
             base_model_name=args.model,
         )
 
-        print("Training...")
+        logger.info("Starting training...")
         trainer.train()
 
     except KeyboardInterrupt:
-        print("\nReceived interrupt, shutting down...")
+        logger.info("Received interrupt, shutting down...")
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"Training error: {e}")
         comms_handler.send_status({"status": "error", "error": str(e)})
         raise e
     finally:

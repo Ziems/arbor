@@ -23,6 +23,9 @@ from arbor.server.api.models.schemas import (
 from arbor.server.core.config import Settings
 from arbor.server.services.comms.comms import ArborServerCommsHandler
 from arbor.server.services.inference_manager import InferenceManager
+from arbor.server.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class GRPOManager:
@@ -47,7 +50,7 @@ class GRPOManager:
 
     def _signal_handler(self, signum, frame):
         """Handle keyboard interrupt (SIGINT) gracefully."""
-        print("\nReceived keyboard interrupt. Shutting down gracefully...")
+        logger.info("Received keyboard interrupt. Shutting down gracefully...")
         # Sleep for a bit to let async operations go through
         time.sleep(2)
         if self.training_process is not None:
@@ -135,7 +138,7 @@ class GRPOManager:
         inference_manager.launch_kwargs["max_context_length"] = arbor_train_kwargs.get(
             "max_context_length", None
         )
-        print("Launching inference server...")
+        logger.info("Launching inference server...")
         inference_manager.launch(self.current_model)
 
         # Initialize ZMQ socket manager - no need for connection acceptance thread anymore
@@ -200,7 +203,7 @@ class GRPOManager:
                 json.dumps(arbor_train_kwargs),
             ]
         )
-        print(f"Running following command\n: {' '.join(params)}")
+        logger.info(f"Running GRPO training command: {' '.join(params)}")
 
         self.training_process = subprocess.Popen(
             params,
@@ -222,9 +225,9 @@ class GRPOManager:
                     break
                 if line:
                     buffer.append(line)
-                    # Print only if stop_event is not set
+                    # Log only if stop_event is not set
                     if not stop_event.is_set():
-                        print(f"[GRPO LOG] {line}", end="")
+                        logger.debug(f"[GRPO LOG] {line.strip()}")
 
         # Start a background thread to read from the process continuously
         thread = threading.Thread(
@@ -256,10 +259,10 @@ class GRPOManager:
 
     def _handle_status_updates(self, inference_manager: InferenceManager):
         """Handle status updates from training process using ZMQ SUB socket"""
-        print("Starting status update handler...")
+        logger.info("Starting status update handler...")
         try:
             for status in self.server_comms_handler.receive_status():
-                print(f"Received status update: {status}")
+                logger.debug(f"Received status update: {status}")
                 if status["status"] == "weight_update_start":
                     # Block inference calls by incrementing counter
                     inference_manager.start_weight_update()
@@ -267,24 +270,26 @@ class GRPOManager:
                     # Decrement counter to potentially allow inference calls again
                     inference_manager.complete_weight_update()
                 elif status["status"] == "model_saved":
-                    print("Updating inference model...")
+                    logger.info("Updating inference model...")
                     # There is a case where this status is sent multiple times
                     # We need to make sure we only update the model once
                     self.saving_model = False
-                    print("Model update complete")
+                    logger.info("Model update complete")
                 elif status["status"] == "checkpoint_saved":
-                    print("Received checkpoint saved status")
+                    logger.info("Received checkpoint saved status")
                     self.checkpoints[status["checkpoint_name"]] = status["output_dir"]
                     self.last_checkpoint = status["checkpoint_name"]
                     self.saving_checkpoint = False
-                    print("Checkpoint saved")
+                    logger.info("Checkpoint saved")
                 elif status["status"] == "error":
-                    print(f"Training error: {status.get('error', 'Unknown error')}")
+                    logger.error(
+                        f"Training error: {status.get('error', 'Unknown error')}"
+                    )
                 elif status["status"] == "terminated":
                     self.terminating = False
-                    print("Training process terminated")
+                    logger.info("Training process terminated")
         except Exception as e:
-            print(f"Error in status update handler: {e}")
+            logger.error(f"Error in status update handler: {e}")
             # Make sure to allow inference if there's an error
             try:
                 inference_manager.complete_weight_update()
@@ -295,7 +300,9 @@ class GRPOManager:
         self, request: GRPORequest, inference_manager: InferenceManager
     ) -> str:
         while self.saving_checkpoint:
-            print("Saving checkpoint, pausing GRPO steps until checkpoint is saved...")
+            logger.info(
+                "Saving checkpoint, pausing GRPO steps until checkpoint is saved..."
+            )
             time.sleep(5)
 
         try:
@@ -304,7 +311,7 @@ class GRPOManager:
             self.data_count += 1
 
         except Exception as e:
-            print(f"Failed to send batch to training process: {e}")
+            logger.error(f"Failed to send batch to training process: {e}")
             raise
 
         self.current_model = self.train_kwargs["output_dir"]
@@ -322,7 +329,7 @@ class GRPOManager:
         while (
             inference_manager.is_updating
         ):  # Use the property instead of direct access
-            print("Waiting for weight updates to finish before checkpointing...")
+            logger.info("Waiting for weight updates to finish before checkpointing...")
             time.sleep(5)
 
         self.saving_checkpoint = True
@@ -330,7 +337,7 @@ class GRPOManager:
             {"command": "save_checkpoint", "checkpoint_name": request.checkpoint_name}
         )
         while self.saving_checkpoint:
-            print("Waiting for checkpoint to be saved...")
+            logger.info("Waiting for checkpoint to be saved...")
             time.sleep(5)
         return {
             "current_model": self.current_model,
@@ -345,14 +352,14 @@ class GRPOManager:
         while (
             inference_manager and inference_manager.is_updating
         ):  # Use the property instead of direct access
-            print("Waiting for final weight updates to finish before saving...")
+            logger.info("Waiting for final weight updates to finish before saving...")
             time.sleep(5)
 
-        print("sending save model command")
+        logger.info("Sending save model command")
         self.saving_model = True
         self.server_comms_handler.send_command({"command": "save_model"})
         while self.saving_model:
-            print("Waiting for final model to be saved...")
+            logger.info("Waiting for final model to be saved...")
             time.sleep(5)
 
         termination_data = {
@@ -361,37 +368,37 @@ class GRPOManager:
             "last_checkpoint": self.last_checkpoint,
         }
 
-        print("sending termination command")
+        logger.info("Sending termination command")
         self.terminating = True
         self.server_comms_handler.send_command({"command": "terminate"})
-        print("Waiting for training process to finish...")
+        logger.info("Waiting for training process to finish...")
 
         # Wait for at most 15 seconds for termination
         start_time = time.time()
         while self.terminating:
             if time.time() - start_time > 15:
-                print(
+                logger.warning(
                     "Termination wait timed out after 15 seconds, proceeding with cleanup..."
                 )
                 break
-            print("Waiting for run to be terminated...")
+            logger.info("Waiting for run to be terminated...")
             time.sleep(3)
 
-        print("Doing cleanup")
+        logger.info("Starting cleanup")
         self.cleanup_termination(inference_manager)
 
         if self.train_kwargs and "output_dir" in self.train_kwargs:
-            print(
+            logger.info(
                 f"Training completed. Model saved to {self.train_kwargs['output_dir']}"
             )
             if not os.path.exists(self.train_kwargs["output_dir"]):
-                print(
-                    f"Warning: Output directory {self.train_kwargs['output_dir']} does not exist"
+                logger.warning(
+                    f"Output directory {self.train_kwargs['output_dir']} does not exist"
                 )
             output_dir = self.train_kwargs["output_dir"]
             self.train_kwargs = None
         else:
-            print("Training terminated, no output directory specified")
+            logger.info("Training terminated, no output directory specified")
             self.train_kwargs = None
 
         return termination_data
@@ -400,7 +407,7 @@ class GRPOManager:
         try:
             # Kill training process and all its children (accelerate launcher creates multiple processes)
             if self.training_process:
-                print("Terminating training process and its children...")
+                logger.info("Terminating training process and its children...")
                 try:
                     parent = psutil.Process(self.training_process.pid)
                     # Get all child processes including grandchildren
@@ -427,9 +434,9 @@ class GRPOManager:
                             pass
 
                 except psutil.NoSuchProcess:
-                    print(f"Process {self.training_process.pid} not found")
+                    logger.warning(f"Process {self.training_process.pid} not found")
                 except Exception as e:
-                    print(f"Error killing training process tree: {e}")
+                    logger.error(f"Error killing training process tree: {e}")
                     # Fallback to basic termination
                     self.training_process.terminate()
                     try:
@@ -440,11 +447,11 @@ class GRPOManager:
 
             # Clean up ZMQ connections
             if self.server_comms_handler:
-                print("Closing ZMQ connections...")
+                logger.info("Closing ZMQ connections...")
                 self.server_comms_handler.close()
 
             if inference_manager and inference_manager.process is not None:
-                print("Killing inference manager...")
+                logger.info("Killing inference manager...")
                 inference_manager.kill()
 
             # Reinitialize in case we want to start a new training run
@@ -453,9 +460,9 @@ class GRPOManager:
             self.server_comms_handler = None
             self.status_thread = None
             self.data_count = 0
-            print("Cleanup completed successfully")
+            logger.info("Cleanup completed successfully")
         except Exception as e:
-            print(f"Error during cleanup: {e}")
+            logger.error(f"Error during cleanup: {e}")
             # Still reset state even if cleanup fails
             self.training_process = None
             self.current_model = None
@@ -478,5 +485,5 @@ def get_free_port() -> int:
                 s.bind(("localhost", 0))
                 ports.append(s.getsockname()[1])
         except Exception as e:
-            print(f"Error binding to port: {e}")
+            logger.error(f"Error binding to port: {e}")
     return random.choice(ports)

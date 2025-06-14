@@ -8,6 +8,9 @@ from pathlib import Path
 from fastapi import UploadFile
 
 from arbor.server.core.config import Settings
+from arbor.server.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class FileValidationError(Exception):
@@ -284,6 +287,6 @@ class FileManager:
                     }
                     fout.write(json.dumps(new_line) + "\n")
                 except Exception as e:
-                    print(f"Error parsing line {line_num}: {e}")
+                    logger.error(f"Error parsing line {line_num}: {e}")
 
         os.replace(output_path, file_path)

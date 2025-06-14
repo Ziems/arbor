@@ -6,6 +6,10 @@ import time
 
 import zmq
 
+from arbor.server.utils.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class ArborServerCommsHandler:
     """Handles socket communication between manager and training process"""
@@ -64,14 +68,14 @@ class ArborServerCommsHandler:
     def wait_for_clients(self, expected_count):
         connected_clients = []
         while len(connected_clients) < expected_count:
-            print(f"Waiting for {expected_count} clients to connect...")
+            logger.info(f"Waiting for {expected_count} clients to connect...")
             msg = self.handshake_socket.recv_json()
             if msg.get("type") == "hello":
                 client_id = msg.get("client_id")
                 connected_clients.append(client_id)
                 self.handshake_socket.send_json({"status": "ack"})
-            print(f"Received handshake from {client_id}")
-        print(f"All {expected_count} clients connected!")
+            logger.info(f"Received handshake from {client_id}")
+        logger.info(f"All {expected_count} clients connected!")
 
 
 class ArborScriptCommsHandler:
@@ -138,7 +142,7 @@ class ArborScriptCommsHandler:
                     data = self.data_socket.recv_json()
                     self.data_queue.put(data)
                 except Exception as e:
-                    print(f"Error receiving data: {e}")
+                    logger.error(f"Error receiving data: {e}")
                     break
 
         self.receiver_thread = threading.Thread(target=_receiver, daemon=True)
@@ -170,7 +174,7 @@ class ArborScriptCommsHandler:
         return f"{socket.gethostname()}_{os.getpid()}"
 
     def _send_handshake(self):
-        print(f"Sending handshake to {self.handshake_socket}")
+        logger.debug(f"Sending handshake to {self.handshake_socket}")
         self.handshake_socket.send_json(
             {"type": "hello", "client_id": self._get_client_id()}
         )
@@ -187,12 +191,12 @@ if __name__ == "__main__":
 
     def _client_thread(script_comms):
         for data in script_comms.receive_data():
-            print("Client received data:", data)
+            logger.info("Client received data:", data)
 
     server_comms = ArborServerCommsHandler()
     t1 = threading.Thread(target=_server_thread, args=(server_comms,))
     t1.start()
-    print("Server started")
+    logger.info("Server started")
 
     client_threads = []
     script_comms_list = []
@@ -222,9 +226,9 @@ if __name__ == "__main__":
         for t in client_threads:
             t.join()
     except KeyboardInterrupt:
-        print("Keyboard interrupt")
+        logger.info("Keyboard interrupt")
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"Error: {e}")
     finally:
         for script_comms in script_comms_list:
             script_comms.close()

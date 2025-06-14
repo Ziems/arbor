@@ -131,11 +131,11 @@ class VLLMClient:
                     ) from exc
             else:
                 if response.status_code == 200:
-                    logger.info("Server is up!")
+                    logger.debug("Server is up!")
                     return None
 
-            # Retry logic: wait before trying again
-            logger.info(
+            # Retry logic: wait before tryng again
+            logger.debug(
                 f"Server is not up yet. Retrying in {retry_interval} seconds..."
             )
             time.sleep(retry_interval)
