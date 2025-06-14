@@ -26,27 +26,16 @@ pip install flash-attn --no-build-isolation
 
 ## ⚡ Quick Start
 
-### 1️⃣ Make an `arbor.yaml` File
-
-This is all dependent on your setup. Here is an example of one:
-```yaml
-inference:
-  gpu_ids: '0'
-
-training:
-  gpu_ids: '1, 2'
-```
-Which will use the `GPU:0` for inference with `GPU:1` and `GPU:2` reserved for training. We generally recommend splitting the GPUs roughly evenly between inference and training.
-
-### 2️⃣ Start the Server
+### 1️⃣ Start the Server
 
 **CLI:**
 
 ```bash
-python -m arbor.cli serve --arbor-config arbor.yaml
+python -m arbor.cli serve
 ```
+On the first run you'll be asked which gpus will be used for training and which for inference. For more that one GPU, separate them by comma: `1, 2`. Your config file will be saved in `~/.arbor/config.yaml` should you want to edit these configs in the future.
 
-### 3️⃣ Optimize a DSPy Program
+### 2️⃣ Optimize a DSPy Program
 
 Follow the DSPy tutorials here to see usage examples:
 [DSPy RL Optimization Examples](https://dspy.ai/tutorials/rl_papillon/)
