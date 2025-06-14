@@ -24,9 +24,33 @@ class ColoredFormatter(logging.Formatter):
     }
 
     def format(self, record):
-        # Add color to level name
-        if record.levelname in self.COLORS:
-            record.levelname = f"{self.COLORS[record.levelname]}{record.levelname}{self.COLORS['RESET']}"
+        # Make logger name uppercase and add brackets with left bracket hugging text
+        name = record.name.upper()
+        record.name = f"[{name}]".rjust(
+            8
+        )  # Right-align the whole bracketed name (8 chars max)
+
+        # Store original level name for color lookup
+        original_level = record.levelname
+
+        # Convert level names to 4-character abbreviations
+        level_abbreviations = {
+            "DEBUG": "DEBG",
+            "INFO": "INFO",
+            "WARNING": "WARN",
+            "ERROR": "ERRO",
+            "CRITICAL": "CRIT",
+        }
+
+        # Get abbreviated level name and add brackets with padding
+        abbreviated_level = level_abbreviations.get(original_level, original_level[:4])
+        record.levelname = f"[{abbreviated_level}]"
+
+        # Add color to the bracketed level name
+        if original_level in self.COLORS:
+            record.levelname = (
+                f"{self.COLORS[original_level]}{record.levelname}{self.COLORS['RESET']}"
+            )
 
         return super().format(record)
 
@@ -56,8 +80,8 @@ def setup_logging(
     if log_format is None:
         log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
-    # Console format with colors
-    console_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    # Console format with colors and tight alignment
+    console_format = "%(name)s - %(levelname)s - %(message)s"
 
     # Create formatters
     file_formatter = logging.Formatter(log_format)
@@ -116,16 +140,20 @@ def setup_logging(
 def configure_component_loggers(log_level: str):
     """Configure loggers for specific Arbor components."""
 
-    # Arbor component loggers with shorter names
+    # Arbor component loggers with shorter names (8 chars max for proper centering)
     component_loggers = {
-        "arbor.server.services.inference_manager": "inference",
+        "arbor.server.services.inference_manager": "infer",
         "arbor.server.services.grpo_manager": "grpo",
         "arbor.server.services.file_manager": "files",
         "arbor.server.services.health_manager": "health",
         "arbor.server.services.job_manager": "jobs",
-        "arbor.server.services.training_manager": "training",
+        "arbor.server.services.training_manager": "train",
         "arbor.server.services.comms": "comms",
+        "arbor.server.services.scripts.sft_training": "sft",
+        "arbor.server.services.scripts.grpo_training": "grpo",
+        "arbor.config": "config",
         "arbor.cli": "cli",
+        "__main__": "main",
     }
 
     # Create shorter logger aliases
@@ -165,18 +193,20 @@ def get_logger(name: str) -> logging.Logger:
     Returns:
         Configured logger instance with short name if available
     """
-    # Mapping of full module names to short names
+    # Mapping of full module names to short names (8 chars max for proper centering)
     name_mappings = {
-        "arbor.server.services.inference_manager": "inference",
+        "arbor.server.services.inference_manager": "infer",
         "arbor.server.services.grpo_manager": "grpo",
         "arbor.server.services.file_manager": "files",
         "arbor.server.services.health_manager": "health",
         "arbor.server.services.job_manager": "jobs",
-        "arbor.server.services.training_manager": "training",
+        "arbor.server.services.training_manager": "train",
         "arbor.server.services.comms.comms": "comms",
-        "arbor.server.services.scripts.sft_training": "sft_training",
-        "arbor.server.services.scripts.grpo_training": "grpo_training",
+        "arbor.server.services.scripts.sft_training": "sft",
+        "arbor.server.services.scripts.grpo_training": "grpo",
+        "arbor.config": "config",
         "arbor.cli": "cli",
+        "__main__": "main",
     }
 
     # Use short name if available, otherwise use the provided name
