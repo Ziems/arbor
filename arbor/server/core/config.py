@@ -242,3 +242,12 @@ class Settings(BaseModel):
             return settings
         except Exception as e:
             raise ValueError(f"Error loading config file {yaml_path}: {e}")
+    
+    @classmethod
+    def from_gpus(cls, inference_gpus: str = "0", training_gpus: str ="1,2"):
+        # create settings without yaml file
+        config = ArborConfig(
+            inference=InferenceConfig(gpu_ids=inference_gpus),
+            training=TrainingConfig(gpu_ids=training_gpus)
+        )
+        return cls(arbor_config=config)
