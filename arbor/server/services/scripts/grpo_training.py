@@ -38,6 +38,10 @@ from arbor.server.services.scripts.utils.dataset import BlockingRotatingQueueDat
 
 trl.extras.vllm_client.VLLMClient = VLLMClient
 
+from arbor.server.utils.logging import get_logger
+
+logger = get_logger(__name__)
+
 if is_wandb_available():
     import wandb
 
@@ -97,7 +101,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         args.use_vllm = True
         self.use_vllm = True
         if self.accelerator.is_main_process:
-            print(
+            logger.info(
                 f"Initializing vLLM client with server port {args.vllm_server_port} and group port {vllm_group_port}"
             )
             self.vllm_client = VLLMClient(
@@ -179,13 +183,15 @@ class ArborGRPOTrainer(GRPOTrainer):
 
         if self.max_prompt_length is not None:
             if prompt_ids.shape[1] > self.max_prompt_length:
-                print(f"Truncating prompt to {self.max_prompt_length} tokens")
+                logger.info(f"Truncating prompt to {self.max_prompt_length} tokens")
             prompt_ids = prompt_ids[:, -self.max_prompt_length :]
             prompt_mask = prompt_mask[:, -self.max_prompt_length :]
 
         if self.max_completion_length is not None:
             if completion_ids.shape[1] > self.max_completion_length:
-                print(f"Truncating completion to {self.max_completion_length} tokens")
+                logger.info(
+                    f"Truncating completion to {self.max_completion_length} tokens"
+                )
             completion_ids = completion_ids[:, : self.max_completion_length]
             completion_mask = completion_mask[:, : self.max_completion_length]
 
@@ -219,7 +225,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B, P+C)
 
-        print(
+        logger.info(
             f"prompt_completion_ids.shape (after truncation, if enabled): {prompt_completion_ids.shape}, prompt_ids.shape: {prompt_ids.shape}, completion_ids.shape: {completion_ids.shape}"
         )
 
@@ -350,7 +356,7 @@ class LastStepTimeCallback(TrainerCallback):
 
     def on_step_end(self, args, state, control, **kwargs):
         global last_step_time
-        print(f"Time since last step: {time_since_last_step()}")
+        logger.info(f"Time since last step: {time_since_last_step()}")
         last_step_time = time.time()
 
 
@@ -370,11 +376,10 @@ class WeightUpdateCallback(TrainerCallback):
     def on_step_end(self, args, state, control, **kwargs):
         if self.comms_handler and self.comms_handler.is_main_process and self.trainer:
             if state.global_step != self.trainer._last_loaded_step:
-                print("Updating inference model...")
+                logger.info("Updating inference model...")
                 self.comms_handler.send_status({"status": "weight_update_start"})
                 self.trainer._move_model_to_vllm()
                 self.trainer._last_loaded_step = state.global_step
-                print("[DEBUG] Sending weight update completion status")
                 self.comms_handler.send_status({"status": "weight_update_complete"})
 
 
@@ -469,7 +474,7 @@ def main():
             # Need to set subscription for PUB/SUB pattern
             server_comms_handler.status_socket.setsockopt_string(zmq.SUBSCRIBE, "")
             for status in server_comms_handler.receive_status():
-                print(f"Status: {status}")
+                logger.info(f"Status: {status}")
 
         status_listener_thread = threading.Thread(target=status_listener, daemon=True)
         status_listener_thread.start()
@@ -483,7 +488,7 @@ def main():
         if "gradient_checkpointing_kwargs" in trl_train_args and arbor_train_args.get(
             "lora", False
         ):
-            print(
+            logger.info(
                 "Setting gradient_checkpointing_kwargs to use_reentrant=False for LORA training"
             )
             trl_train_args["gradient_checkpointing_kwargs"] = {
@@ -493,7 +498,7 @@ def main():
 
         lora_config = None
         if arbor_train_args.get("lora", False):
-            print("Using LORA for PEFT")
+            logger.info("Using LORA for PEFT")
             lora_config = LoraConfig(
                 r=16,
                 lora_alpha=64,
@@ -562,30 +567,30 @@ def main():
 
         # Add signal handlers for graceful shutdown
         def signal_handler(signum, frame):
-            print(f"\nReceived signal {signum}. Initiating graceful shutdown...")
-            print("Ending training...")
+            logger.info(f"\nReceived signal {signum}. Initiating graceful shutdown...")
+            logger.info("Ending training...")
             trainer.accelerator.end_training()
-            print("Closing communications...")
+            logger.info("Closing communications...")
             comms_handler.close()
             sys.exit(0)
 
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
-        print("Training...")
+        logger.info("Training...")
         trainer.train()
 
     except KeyboardInterrupt:
-        print("\nReceived interrupt, shutting down...")
+        logger.info("\nReceived interrupt, shutting down...")
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"Error: {e}")
         comms_handler.send_status({"status": "error", "error": str(e)})
         raise e
     finally:
-        print("Cleaning up resources...")
+        logger.info("Cleaning up resources...")
         trainer.accelerator.end_training()
         comms_handler.close()
-        print("Cleanup complete")
+        logger.info("Cleanup complete")
 
 
 if __name__ == "__main__":
