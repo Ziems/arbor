@@ -423,13 +423,11 @@ class GRPOManager:
             output_dir = self.train_kwargs["output_dir"]
             logger.info(f"Training completed. Model saved to {output_dir}")
             logger.info(f"Training logs and checkpoints are stored in: {output_dir}")
-            logger.info(f"System logs are stored in: {self.settings.LOG_DIR}")
             if not os.path.exists(output_dir):
                 logger.warning(f"Output directory {output_dir} does not exist")
             self.train_kwargs = None
         else:
             logger.info("Training terminated, no output directory specified")
-            logger.info(f"System logs are stored in: {self.settings.LOG_DIR}")
             self.train_kwargs = None
 
         return termination_data
