@@ -510,7 +510,7 @@ def main():
             model=args.model,
             args=training_args,
             train_dataset=train_dataset,
-            callbacks=[LastStepTimeCallback(), weight_update_callback],
+            callbacks=[LastStepTimeCallback(ingestion_monitor), weight_update_callback],
             peft_config=lora_config,
             vllm_group_port=args.vllm_group_port,
         )
