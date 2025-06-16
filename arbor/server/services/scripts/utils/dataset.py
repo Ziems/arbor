@@ -13,20 +13,18 @@ from arbor.server.services.comms.comms import ArborScriptCommsHandler
 class BlockingRotatingQueueDataset(Dataset):
     def __init__(
         self,
-        accelerator: Accelerator,
-        comms_handler: ArborScriptCommsHandler,
         size=10_000,  # Just a random number
         maxsize=100,
         ingestion_monitor: Optional["IngestionMonitor"] = None,
     ):
         self.size = size
-        self.accelerator = accelerator
-        self.comms_handler = comms_handler
         # Use a regular cache dict instead of lru_cache to avoid unhashable type issues
         self._data_cache = {}
         self._cache_maxsize = maxsize
         self.completion_counters = {}
         self.ingestion_monitor = ingestion_monitor
+        self.accelerator = None
+        self.comms_handler = None
 
     def set_accelerator(self, accelerator: Accelerator):
         self.accelerator = accelerator
