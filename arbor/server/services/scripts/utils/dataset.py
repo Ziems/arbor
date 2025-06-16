@@ -5,14 +5,15 @@ from functools import lru_cache
 from typing import Any, Callable, Dict, List, Optional
 
 from accelerate import Accelerator
-from torch.utils.data import Dataset
+from datasets import Dataset as HuggingFaceDataset
+from torch.utils.data import Dataset as TorchDataset
 
 from arbor.server.services.comms.comms import ArborScriptCommsHandler
 
 logger = logging.getLogger(__name__)
 
 
-class BlockingRotatingQueueDataset(Dataset):
+class BlockingRotatingQueueDataset(TorchDataset):
     def __init__(
         self,
         size=10_000,  # Just a random number
@@ -93,7 +94,7 @@ class BlockingRotatingQueueDataset(Dataset):
         return item
 
 
-class BlockingQueueDataset(Dataset):
+class BlockingQueueDataset(HuggingFaceDataset):
     def __init__(
         self,
         ingestion_monitor: Optional["IngestionMonitor"] = None,
