@@ -81,7 +81,7 @@ class BlockingRotatingQueueDataset(Dataset):
         return data
 
     def __getitem__(self, idx):
-        logging.info(f"Getting item {idx}")
+        print(f"Getting item {idx}")
         data = self.get_cached_data(idx)
 
         if data is None:
