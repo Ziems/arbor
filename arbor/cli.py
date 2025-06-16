@@ -13,6 +13,12 @@ from arbor.server.services.health_manager import HealthManager
 from arbor.server.services.inference_manager import InferenceManager
 from arbor.server.services.job_manager import JobManager
 from arbor.server.services.training_manager import TrainingManager
+from arbor.server.utils.logging import (
+    get_logger,
+    log_configuration,
+    log_system_info,
+    setup_logging,
+)
 
 
 def make_log_dir(storage_path: str):
@@ -39,15 +45,47 @@ def create_app(arbor_config_path: str):
     """
     # Create new settings instance with overrides
     settings = Settings.load_from_yaml(arbor_config_path)
-    app.state.log_dir = make_log_dir(settings.STORAGE_PATH)
+    log_dir = make_log_dir(settings.STORAGE_PATH)
+    app.state.log_dir = log_dir
+
+    # Setup logging
+    logging_config = setup_logging(
+        log_level="INFO",
+        log_dir=log_dir,
+        enable_file_logging=True,
+        enable_console_logging=True,
+    )
+
+    # Log configuration and system info
+    log_configuration(logging_config)
+
+    # Get logger for this module
+    logger = get_logger(__name__)
+    logger.info("Initializing Arbor application...")
+
+    # Log system information via health manager
+    health_manager = HealthManager(settings=settings)
+    try:
+        versions = settings.get_system_versions()
+        logger.info("System versions:")
+        for category, version_info in versions.items():
+            if isinstance(version_info, dict):
+                logger.info(f"  {category}:")
+                for lib, version in version_info.items():
+                    logger.info(f"    {lib}: {version}")
+            else:
+                logger.info(f"  {category}: {version_info}")
+    except Exception as e:
+        logger.warning(f"Could not log system versions: {e}")
 
     # Initialize services with settings
-    health_manager = HealthManager(settings=settings)
+    logger.info("Initializing services...")
     file_manager = FileManager(settings=settings)
     job_manager = JobManager(settings=settings)
     training_manager = TrainingManager(settings=settings)
     inference_manager = InferenceManager(settings=settings)
     grpo_manager = GRPOManager(settings=settings)
+
     # Inject settings into app state
     app.state.settings = settings
     app.state.file_manager = file_manager
@@ -57,6 +95,7 @@ def create_app(arbor_config_path: str):
     app.state.grpo_manager = grpo_manager
     app.state.health_manager = health_manager
 
+    logger.info("Arbor application initialized successfully")
     return app
 
 
@@ -76,6 +115,7 @@ def start_server(host="0.0.0.0", port=7453, storage_path="./storage", timeout=10
         raise RuntimeError(f"Port {port} is already in use")
 
     app = create_app(storage_path)
+    # configure_uvicorn_logging()
     config = uvicorn.Config(app, host=host, port=port, log_level="info")
     server = uvicorn.Server(config)
 
@@ -128,6 +168,8 @@ def serve(host, port, arbor_config):
 
     try:
         create_app(config_path)
+        # Temporarily disable custom uvicorn logging configuration
+        # configure_uvicorn_logging()
         uvicorn.run(app, host=host, port=port)
     except Exception as e:
         click.echo(f"Failed to start server: {e}", err=True)
@@ -157,7 +199,8 @@ def run_first_time_setup() -> str:
             "Enter path to save config file in. We recommend (~/.arbor/config.yaml)",
             default=ConfigManager.get_default_config_path(),
         )
-        print(config_path)
+        logger = get_logger(__name__)
+        logger.info(f"Config path selected: {config_path}")
         click.echo()
 
         # Update or create config at path

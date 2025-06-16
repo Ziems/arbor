@@ -3,6 +3,10 @@ import uuid
 
 from fastapi import APIRouter, Request
 
+from arbor.server.utils.logging import get_logger
+
+logger = get_logger(__name__)
+
 router = APIRouter()
 
 
@@ -27,17 +31,17 @@ async def run_inference(
 
     # if a server isnt running, launch one
     if not inference_manager.is_server_running():
-        print("No model is running, launching model...")
+        logger.info("No model is running, launching model...")
         inference_manager.launch(request_model)
 
     # if the requested model is different from the launched model, swap the server
     if request_model != inference_manager.launched_model:
-        print(
+        logger.info(
             f"Model changed from {inference_manager.launched_model} to {request_model}, swapping server..."
         )
         inference_manager.kill()
         inference_manager.launch(request_model)
-        print(f"Model swapped to {request_model}")
+        logger.info(f"Model swapped to {request_model}")
 
     # forward the request to the inference server
     completion = await inference_manager.run_inference(raw_json)

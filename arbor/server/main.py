@@ -1,8 +1,16 @@
 from fastapi import FastAPI, Request
 
 from arbor.server.api.routes import files, grpo, inference, jobs
+from arbor.server.utils.logging import apply_uvicorn_formatting
 
 app = FastAPI(title="Arbor API")
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Configure uvicorn logging after the app starts up."""
+    apply_uvicorn_formatting()
+
 
 # Include routers
 app.include_router(files.router, prefix="/v1/files")
