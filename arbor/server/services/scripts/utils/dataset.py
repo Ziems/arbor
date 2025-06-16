@@ -5,7 +5,7 @@ from functools import lru_cache
 from typing import Any, Callable, Dict, List, Optional
 
 from accelerate import Accelerator
-from datasets import Dataset
+from torch.utils.data import Dataset
 
 from arbor.server.services.comms.comms import ArborScriptCommsHandler
 
