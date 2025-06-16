@@ -9,6 +9,8 @@ from datasets import Dataset
 
 from arbor.server.services.comms.comms import ArborScriptCommsHandler
 
+logger = logging.getLogger(__name__)
+
 
 class BlockingRotatingQueueDataset(Dataset):
     def __init__(
@@ -79,7 +81,7 @@ class BlockingRotatingQueueDataset(Dataset):
         return data
 
     def __getitem__(self, idx):
-        logger.info(f"Getting item {idx}")
+        logging.info(f"Getting item {idx}")
         data = self.get_cached_data(idx)
 
         if data is None:
