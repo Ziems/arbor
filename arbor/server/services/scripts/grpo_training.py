@@ -41,9 +41,9 @@ from arbor.server.services.inference.vllm_client import VLLMClient
 
 trl.extras.vllm_client.VLLMClient = VLLMClient
 
-from arbor.server.utils.logging import get_logger
+# from arbor.server.utils.logging import get_logger
 
-logger = get_logger(__name__)
+# logger = get_logger(__name__)
 
 if is_wandb_available():
     import wandb
@@ -104,7 +104,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         args.use_vllm = True
         self.use_vllm = True
         if self.accelerator.is_main_process:
-            logger.info(
+            print(
                 f"Initializing vLLM client with server port {args.vllm_server_port} and group port {vllm_group_port}"
             )
             self.vllm_client = VLLMClient(
@@ -186,15 +186,13 @@ class ArborGRPOTrainer(GRPOTrainer):
 
         if self.max_prompt_length is not None:
             if prompt_ids.shape[1] > self.max_prompt_length:
-                logger.info(f"Truncating prompt to {self.max_prompt_length} tokens")
+                print(f"Truncating prompt to {self.max_prompt_length} tokens")
             prompt_ids = prompt_ids[:, -self.max_prompt_length :]
             prompt_mask = prompt_mask[:, -self.max_prompt_length :]
 
         if self.max_completion_length is not None:
             if completion_ids.shape[1] > self.max_completion_length:
-                logger.info(
-                    f"Truncating completion to {self.max_completion_length} tokens"
-                )
+                print(f"Truncating completion to {self.max_completion_length} tokens")
             completion_ids = completion_ids[:, : self.max_completion_length]
             completion_mask = completion_mask[:, : self.max_completion_length]
 
@@ -228,7 +226,7 @@ class ArborGRPOTrainer(GRPOTrainer):
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B, P+C)
 
-        logger.info(
+        print(
             f"prompt_completion_ids.shape (after truncation, if enabled): {prompt_completion_ids.shape}, prompt_ids.shape: {prompt_ids.shape}, completion_ids.shape: {completion_ids.shape}"
         )
 
@@ -359,7 +357,7 @@ class LastStepTimeCallback(TrainerCallback):
 
     def on_step_end(self, args, state, control, **kwargs):
         global last_step_time
-        logger.info(f"Time since last step: {time_since_last_step()}")
+        print(f"Time since last step: {time_since_last_step()}")
         last_step_time = time.time()
 
 
@@ -379,7 +377,7 @@ class WeightUpdateCallback(TrainerCallback):
     def on_step_end(self, args, state, control, **kwargs):
         if self.comms_handler and self.comms_handler.is_main_process and self.trainer:
             if state.global_step != self.trainer._last_loaded_step:
-                logger.info("Updating inference model...")
+                print("Updating inference model...")
                 self.comms_handler.send_status({"status": "weight_update_start"})
                 self.trainer._move_model_to_vllm()
                 self.trainer._last_loaded_step = state.global_step
@@ -418,7 +416,7 @@ class BlockingQueueDataset(Dataset):
             new_data = self.comms_handler.receive_data()
 
         except Exception as e:
-            logger.error(f"[rank {rank}] Error receiving data: {e}")
+            print(f"[rank {rank}] Error receiving data: {e}")
             new_data = None
 
         return new_data
@@ -458,27 +456,25 @@ class CommandMonitor:
             return
         try:
             for command in self.comms_handler.receive_command():
-                logger.info(f"Main process received command: {command}")
+                print(f"Main process received command: {command}")
                 if (
                     command.get("command") == "save_model"
                     and self.trainer.accelerator.is_main_process
                 ):
-                    logger.info(
-                        f"Instructed to save model at {self.trainer.args.output_dir}"
-                    )
+                    print(f"Instructed to save model at {self.trainer.args.output_dir}")
                     while (
                         time_since_last_step() <= 10
                         or get_time_since_last_queue_pop() <= 10
                     ):
-                        logger.info(f"Waiting for steps to finish")
-                        logger.info(
+                        print(f"Waiting for steps to finish")
+                        print(
                             f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
                         )
-                        logger.info(
+                        print(
                             f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
                         )
                         time.sleep(5)
-                    logger.info("Saving model...")
+                    print("Saving model...")
                     if self.trainer.peft_config:
                         self.trainer.save_model(
                             output_dir=self.trainer.args.output_dir + "/adapter/"
@@ -498,7 +494,7 @@ class CommandMonitor:
                     else:
                         self.trainer.save_model()
 
-                    logger.info("Model saved")
+                    print("Model saved")
                     self.comms_handler.send_status(
                         {
                             "status": "model_saved",
@@ -506,18 +502,18 @@ class CommandMonitor:
                         }
                     )
                 elif command.get("command") == "save_checkpoint":
-                    logger.info(
+                    print(
                         f"Instructed to save checkpoint {command.get('checkpoint_name')}"
                     )
                     while (
                         time_since_last_step() <= 10
                         or get_time_since_last_queue_pop() <= 10
                     ):
-                        logger.info(f"Waiting for steps to finish")
-                        logger.info(
+                        print(f"Waiting for steps to finish")
+                        print(
                             f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
                         )
-                        logger.info(
+                        print(
                             f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
                         )
                         time.sleep(5)
@@ -581,12 +577,12 @@ class CommandMonitor:
                         }
                     )
                 elif command.get("command") == "terminate":
-                    logger.info("TERMINATED")
+                    print("TERMINATED")
                     self.trainer.accelerator.end_training()
                     self.comms_handler.send_status({"status": "terminated"})
 
         except Exception as e:
-            logger.error(e)
+            print(e)
             self.comms_handler.send_status({"status": "error", "error": str(e)})
 
 
@@ -681,7 +677,7 @@ def main():
             # Need to set subscription for PUB/SUB pattern
             server_comms_handler.status_socket.setsockopt_string(zmq.SUBSCRIBE, "")
             for status in server_comms_handler.receive_status():
-                logger.info(f"Status: {status}")
+                print(f"Status: {status}")
 
         status_listener_thread = threading.Thread(target=status_listener, daemon=True)
         status_listener_thread.start()
@@ -695,7 +691,7 @@ def main():
         if "gradient_checkpointing_kwargs" in trl_train_args and arbor_train_args.get(
             "lora", False
         ):
-            logger.info(
+            print(
                 "Setting gradient_checkpointing_kwargs to use_reentrant=False for LORA training"
             )
             trl_train_args["gradient_checkpointing_kwargs"] = {
@@ -705,7 +701,7 @@ def main():
 
         lora_config = None
         if arbor_train_args.get("lora", False):
-            logger.info("Using LORA for PEFT")
+            print("Using LORA for PEFT")
             lora_config = LoraConfig(
                 r=16,
                 lora_alpha=64,
@@ -773,30 +769,30 @@ def main():
 
         # Add signal handlers for graceful shutdown
         def signal_handler(signum, frame):
-            logger.info(f"\nReceived signal {signum}. Initiating graceful shutdown...")
-            logger.info("Ending training...")
+            print(f"\nReceived signal {signum}. Initiating graceful shutdown...")
+            print("Ending training...")
             trainer.accelerator.end_training()
-            logger.info("Closing communications...")
+            print("Closing communications...")
             comms_handler.close()
             sys.exit(0)
 
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
-        logger.info("Training...")
+        print("Training...")
         trainer.train()
 
     except KeyboardInterrupt:
-        logger.info("\nReceived interrupt, shutting down...")
+        print("\nReceived interrupt, shutting down...")
     except Exception as e:
-        logger.error(f"Error: {e}")
+        print(f"Error: {e}")
         comms_handler.send_status({"status": "error", "error": str(e)})
         raise e
     finally:
-        logger.info("Cleaning up resources...")
+        print("Cleaning up resources...")
         trainer.accelerator.end_training()
         comms_handler.close()
-        logger.info("Cleanup complete")
+        print("Cleanup complete")
 
 
 if __name__ == "__main__":
