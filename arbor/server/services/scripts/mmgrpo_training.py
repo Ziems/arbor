@@ -22,38 +22,12 @@ from trl.trainer.grpo_trainer import GRPOConfig, GRPOTrainer, nanmax, nanmin
 
 from arbor.server.services.comms.comms import ArborScriptCommsHandler
 from arbor.server.services.inference.vllm_client import VLLMClient
+from arbor.server.services.scripts.utils.callbacks import WeightUpdateCallback
 from arbor.server.services.scripts.utils.comms_monitors import CommandMonitor
 from arbor.server.services.scripts.utils.dataset import BlockingQueueDataset
+from arbor.server.services.scripts.utils.ingestion_monitor import IngestionMonitor
 
 trl.extras.vllm_client.VLLMClient = VLLMClient
-
-
-last_step_time = None
-last_queue_pop_time = None
-
-
-def time_since_last_step():
-    global last_step_time
-    if last_step_time is None:
-        return float("inf")
-    return time.time() - last_step_time
-
-
-def time_since_last_queue_pop():
-    global last_queue_pop_time
-    if last_queue_pop_time is None:
-        return float("inf")
-    return time.time() - last_queue_pop_time
-
-
-def set_last_queue_pop_time(time):
-    global last_queue_pop_time
-    last_queue_pop_time = time
-
-
-def set_last_step_time(time):
-    global last_step_time
-    last_step_time = time
 
 
 class MMGRPOTrainer(GRPOTrainer):
@@ -362,32 +336,6 @@ class MMGRPOTrainer(GRPOTrainer):
         return loss
 
 
-class WeightUpdateCallback(TrainerCallback):
-    """A callback that sends weight update completion status after each step"""
-
-    def __init__(self, set_last_step_time_fn):
-        self.comms_handler = None
-        self.trainer = None
-        self.set_last_step_time_fn = set_last_step_time_fn
-
-    def set_comms_handler(self, comms_handler: ArborScriptCommsHandler):
-        self.comms_handler = comms_handler
-
-    def set_trainer(self, trainer):
-        self.trainer = trainer
-
-    def on_step_end(self, args, state, control, **kwargs):
-        self.set_last_step_time_fn(time.time())
-        if self.comms_handler and self.comms_handler.is_main_process and self.trainer:
-            if state.global_step != self.trainer._last_loaded_step:
-                print("Updating inference model...")
-                self.comms_handler.send_status({"status": "weight_update_start"})
-                self.trainer._move_model_to_vllm()
-                self.trainer._last_loaded_step = state.global_step
-                print("[DEBUG] Sending weight update completion status")
-                self.comms_handler.send_status({"status": "weight_update_complete"})
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--debug", action="store_true")
@@ -468,11 +416,14 @@ def main():
             **trl_train_args,
         )
 
+        # Create ingestion monitor
+        ingestion_monitor = IngestionMonitor()
+
         train_dataset = BlockingQueueDataset(
-            set_last_queue_pop_time_fn=set_last_queue_pop_time,
+            ingestion_monitor=ingestion_monitor,
         )
         weight_update_callback = WeightUpdateCallback(
-            set_last_step_time_fn=set_last_step_time,
+            ingestion_monitor=ingestion_monitor,
         )
         trainer = MMGRPOTrainer(
             model=args.model,
@@ -506,8 +457,7 @@ def main():
             comms_handler=comms_handler,
             trainer=trainer,
             base_model_name=args.model,
-            time_since_last_step_fn=time_since_last_step,
-            time_since_last_queue_pop_fn=time_since_last_queue_pop,
+            ingestion_monitor=ingestion_monitor,
         )
         command_monitor.start()
 
@@ -527,8 +477,18 @@ def main():
 
         print("Signal handlers added")
 
-        print("Training...")
-        trainer.train()
+        print("Starting training...")
+        try:
+            trainer.train()
+        except Exception as e:
+            print(f"Error during training: {e}")
+            print(f"Error type: {type(e).__name__}")
+            if "unhashable" in str(e):
+                print("DEBUGGING: Unhashable type error during training")
+                print(
+                    "This could be in data loading, model forward pass, or metrics collection"
+                )
+            raise
 
     except Exception as e:
         import traceback

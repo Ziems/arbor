@@ -2,7 +2,7 @@ import json
 import logging
 import time
 from functools import lru_cache
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from accelerate import Accelerator
 from datasets import Dataset
@@ -17,12 +17,22 @@ class BlockingRotatingQueueDataset(Dataset):
         comms_handler: ArborScriptCommsHandler,
         size=10_000,  # Just a random number
         maxsize=100,
+        ingestion_monitor: Optional["IngestionMonitor"] = None,
     ):
         self.size = size
         self.accelerator = accelerator
         self.comms_handler = comms_handler
-        self.get_cached_data = lru_cache(maxsize=maxsize)(self._get_data)
+        # Use a regular cache dict instead of lru_cache to avoid unhashable type issues
+        self._data_cache = {}
+        self._cache_maxsize = maxsize
         self.completion_counters = {}
+        self.ingestion_monitor = ingestion_monitor
+
+    def set_accelerator(self, accelerator: Accelerator):
+        self.accelerator = accelerator
+
+    def set_comms_handler(self, comms_handler: ArborScriptCommsHandler):
+        self.comms_handler = comms_handler
 
     def __len__(self):
         return self.size
@@ -31,9 +41,8 @@ class BlockingRotatingQueueDataset(Dataset):
         rank = self.accelerator.process_index
         world_size = self.accelerator.num_processes
 
-        if self.accelerator.is_main_process:
-            global last_queue_pop_time
-            last_queue_pop_time = time.time()
+        if self.accelerator.is_main_process and self.ingestion_monitor:
+            self.ingestion_monitor.set_last_queue_pop_time()
 
         if idx not in self.completion_counters:
             self.completion_counters[idx] = 0
@@ -43,14 +52,36 @@ class BlockingRotatingQueueDataset(Dataset):
 
         except Exception as e:
             print(f"[rank {rank}] Error receiving data: {e}")
+            if "unhashable" in str(e):
+                print(
+                    f"[rank {rank}] DEBUGGING: Unhashable type error in data reception"
+                )
+                print(
+                    f"[rank {rank}] This might be related to caching or data structure issues"
+                )
             new_data = None
 
         return new_data
 
+    def get_cached_data(self, idx):
+        """Get data with simple dictionary caching instead of lru_cache"""
+        if idx in self._data_cache:
+            return self._data_cache[idx]
+
+        # If cache is full, clear oldest entries (simple FIFO)
+        if len(self._data_cache) >= self._cache_maxsize:
+            # Remove first half of cache entries
+            keys_to_remove = list(self._data_cache.keys())[: self._cache_maxsize // 2]
+            for key in keys_to_remove:
+                del self._data_cache[key]
+
+        # Get new data and cache it
+        data = self._get_data(idx)
+        self._data_cache[idx] = data
+        return data
+
     def __getitem__(self, idx):
         data = self.get_cached_data(idx)
-        # Create hash of data to detect if processes are using the same idx for the same data
-        data_hash = format(abs(hash(str(data))) % (16**8), "08x")
 
         if data is None:
             return None
@@ -64,11 +95,11 @@ class BlockingRotatingQueueDataset(Dataset):
 class BlockingQueueDataset(Dataset):
     def __init__(
         self,
-        set_last_queue_pop_time_fn: Callable[[float], None],
+        ingestion_monitor: Optional["IngestionMonitor"] = None,
     ):
         self._buffer: List[Dict[str, Any]] = []
         self._logger = logging.getLogger(__name__)
-        self.set_last_queue_pop_time = set_last_queue_pop_time_fn
+        self.ingestion_monitor = ingestion_monitor
 
     def set_accelerator(self, accelerator: Accelerator):
         self.accelerator = accelerator
@@ -133,7 +164,8 @@ class BlockingQueueDataset(Dataset):
             batch_items = self._buffer[:batch_size]
             self._buffer = self._buffer[batch_size:]
 
-            self.set_last_queue_pop_time(time.time())
+            if self.ingestion_monitor:
+                self.ingestion_monitor.set_last_queue_pop_time()
 
             return self._transform_batch(batch_items)
 

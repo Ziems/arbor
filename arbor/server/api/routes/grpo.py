@@ -28,7 +28,8 @@ def initialize_grpo(request: Request, grpo_config_request: GRPOConfigRequest):
 @router.post("/step", response_model=GRPOStepResponse)
 def run_grpo_step(request: Request, grpo_request: GRPORequest):
     grpo_manager = request.app.state.grpo_manager
-    step_data = grpo_manager.grpo_step(grpo_request)
+    inference_manager = request.app.state.inference_manager
+    step_data = grpo_manager.grpo_step(grpo_request, inference_manager)
 
     return GRPOStepResponse(status="success", **step_data)
 

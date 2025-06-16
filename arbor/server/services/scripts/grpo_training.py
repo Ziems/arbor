@@ -33,8 +33,10 @@ from arbor.server.services.comms.comms import (
     ArborServerCommsHandler,
 )
 from arbor.server.services.inference.vllm_client import VLLMClient
+from arbor.server.services.scripts.utils.callbacks import WeightUpdateCallback
 from arbor.server.services.scripts.utils.comms_monitors import CommandMonitor
 from arbor.server.services.scripts.utils.dataset import BlockingRotatingQueueDataset
+from arbor.server.services.scripts.utils.ingestion_monitor import IngestionMonitor
 
 trl.extras.vllm_client.VLLMClient = VLLMClient
 
@@ -44,23 +46,6 @@ logger = get_logger(__name__)
 
 if is_wandb_available():
     import wandb
-
-last_step_time = None
-last_queue_pop_time = None
-
-
-def time_since_last_step():
-    global last_step_time
-    if last_step_time is None:
-        return float("inf")
-    return time.time() - last_step_time
-
-
-def get_time_since_last_queue_pop():
-    global last_queue_pop_time
-    if last_queue_pop_time is None:
-        return float("inf")
-    return time.time() - last_queue_pop_time
 
 
 class ArborGRPOTrainer(GRPOTrainer):
@@ -354,33 +339,14 @@ class ArborGRPOTrainer(GRPOTrainer):
 class LastStepTimeCallback(TrainerCallback):
     "A callback that prints a message at the beginning of training"
 
-    def on_step_end(self, args, state, control, **kwargs):
-        global last_step_time
-        logger.info(f"Time since last step: {time_since_last_step()}")
-        last_step_time = time.time()
-
-
-class WeightUpdateCallback(TrainerCallback):
-    """A callback that sends weight update completion status after each step"""
-
-    def __init__(self):
-        self.comms_handler = None
-        self.trainer = None
-
-    def set_comms_handler(self, comms_handler: ArborScriptCommsHandler):
-        self.comms_handler = comms_handler
-
-    def set_trainer(self, trainer):
-        self.trainer = trainer
+    def __init__(self, ingestion_monitor: IngestionMonitor):
+        self.ingestion_monitor = ingestion_monitor
 
     def on_step_end(self, args, state, control, **kwargs):
-        if self.comms_handler and self.comms_handler.is_main_process and self.trainer:
-            if state.global_step != self.trainer._last_loaded_step:
-                logger.info("Updating inference model...")
-                self.comms_handler.send_status({"status": "weight_update_start"})
-                self.trainer._move_model_to_vllm()
-                self.trainer._last_loaded_step = state.global_step
-                self.comms_handler.send_status({"status": "weight_update_complete"})
+        logger.info(
+            f"Time since last step: {self.ingestion_monitor.time_since_last_step()}"
+        )
+        self.ingestion_monitor.set_last_step_time()
 
 
 def main():
@@ -529,11 +495,21 @@ def main():
             **trl_train_args,
         )
 
-        weight_update_callback = WeightUpdateCallback()
+        # Create ingestion monitor
+        ingestion_monitor = IngestionMonitor()
+
+        train_dataset = BlockingRotatingQueueDataset(
+            ingestion_monitor=ingestion_monitor,
+        )
+
+        weight_update_callback = WeightUpdateCallback(
+            ingestion_monitor=ingestion_monitor,
+        )
+
         trainer = ArborGRPOTrainer(
             model=args.model,
             args=training_args,
-            train_dataset=BlockingRotatingQueueDataset(None, None),
+            train_dataset=train_dataset,
             callbacks=[LastStepTimeCallback(), weight_update_callback],
             peft_config=lora_config,
             vllm_group_port=args.vllm_group_port,
@@ -548,20 +524,37 @@ def main():
             handshake_port=args.handshake_port,
             is_main_process=trainer.accelerator.is_main_process,
         )
+
+        train_dataset.set_comms_handler(comms_handler)
+        train_dataset.set_accelerator(trainer.accelerator)
+
         weight_update_callback.set_comms_handler(comms_handler)
         weight_update_callback.set_trainer(trainer)
         trainer.comms_handler = comms_handler
 
         # Initialize the dataset with the actual accelerator
-        trainer.train_dataset = BlockingRotatingQueueDataset(
-            accelerator=trainer.accelerator,
-            comms_handler=trainer.comms_handler,
-        )
+        try:
+            logger.info("Initializing dataset...")
+            trainer.train_dataset = BlockingRotatingQueueDataset(
+                accelerator=trainer.accelerator,
+                comms_handler=trainer.comms_handler,
+                ingestion_monitor=ingestion_monitor,
+            )
+            logger.info("Dataset initialized successfully")
+        except Exception as e:
+            logger.error(f"Error initializing dataset: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            if "unhashable" in str(e):
+                logger.error(
+                    "DEBUGGING: Unhashable type error during dataset initialization"
+                )
+            raise
 
         command_monitor = CommandMonitor(
             comms_handler=comms_handler,
             trainer=trainer,
             base_model_name=args.model,
+            ingestion_monitor=ingestion_monitor,
         )
         command_monitor.start()
 
@@ -577,8 +570,18 @@ def main():
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
-        logger.info("Training...")
-        trainer.train()
+        logger.info("Starting training...")
+        try:
+            trainer.train()
+        except Exception as e:
+            logger.error(f"Error during training: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            if "unhashable" in str(e):
+                logger.error("DEBUGGING: Unhashable type error during training")
+                logger.error(
+                    "This could be in data loading, model forward pass, or metrics collection"
+                )
+            raise
 
     except KeyboardInterrupt:
         logger.info("\nReceived interrupt, shutting down...")

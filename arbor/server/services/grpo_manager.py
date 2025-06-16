@@ -3,7 +3,6 @@ import json
 import os
 import random
 import signal
-import socket
 import string
 import subprocess
 import sys
@@ -228,7 +227,7 @@ class GRPOManager:
                     buffer.append(line)
                     # Log only if stop_event is not set
                     if not stop_event.is_set():
-                        logger.debug(f"[GRPO LOG] {line.strip()}")
+                        logger.info(f"[GRPO LOG] {line.strip()}")
 
         # Start a background thread to read from the process continuously
         thread = threading.Thread(
@@ -283,9 +282,8 @@ class GRPOManager:
                     self.saving_checkpoint = False
                     logger.info("Checkpoint saved")
                 elif status["status"] == "error":
-                    logger.error(
-                        f"Training error: {status.get('error', 'Unknown error')}"
-                    )
+                    error_msg = status.get("error", "Unknown error")
+                    logger.error(f"Training error: {error_msg}")
                 elif status["status"] == "terminated":
                     self.terminating = False
                     logger.info("Training process terminated")
@@ -327,7 +325,9 @@ class GRPOManager:
                 f"GRPO flavor batch validation not implemented for {self.arbor_train_kwargs['grpo_flavor']}"
             )
 
-    def grpo_step(self, request: GRPORequest) -> str:
+    def grpo_step(
+        self, request: GRPORequest, inference_manager: InferenceManager
+    ) -> str:
         while self.saving_checkpoint:
             logger.info(
                 "Saving checkpoint, pausing GRPO steps until checkpoint is saved..."
@@ -420,17 +420,16 @@ class GRPOManager:
         self.cleanup_termination(inference_manager)
 
         if self.train_kwargs and "output_dir" in self.train_kwargs:
-            logger.info(
-                f"Training completed. Model saved to {self.train_kwargs['output_dir']}"
-            )
-            if not os.path.exists(self.train_kwargs["output_dir"]):
-                logger.warning(
-                    f"Output directory {self.train_kwargs['output_dir']} does not exist"
-                )
             output_dir = self.train_kwargs["output_dir"]
+            logger.info(f"Training completed. Model saved to {output_dir}")
+            logger.info(f"Training logs and checkpoints are stored in: {output_dir}")
+            logger.info(f"System logs are stored in: {self.settings.LOG_DIR}")
+            if not os.path.exists(output_dir):
+                logger.warning(f"Output directory {output_dir} does not exist")
             self.train_kwargs = None
         else:
             logger.info("Training terminated, no output directory specified")
+            logger.info(f"System logs are stored in: {self.settings.LOG_DIR}")
             self.train_kwargs = None
 
         return termination_data
