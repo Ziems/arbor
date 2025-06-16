@@ -532,24 +532,6 @@ def main():
         weight_update_callback.set_trainer(trainer)
         trainer.comms_handler = comms_handler
 
-        # Initialize the dataset with the actual accelerator
-        try:
-            logger.info("Initializing dataset...")
-            trainer.train_dataset = BlockingRotatingQueueDataset(
-                accelerator=trainer.accelerator,
-                comms_handler=trainer.comms_handler,
-                ingestion_monitor=ingestion_monitor,
-            )
-            logger.info("Dataset initialized successfully")
-        except Exception as e:
-            logger.error(f"Error initializing dataset: {e}")
-            logger.error(f"Error type: {type(e).__name__}")
-            if "unhashable" in str(e):
-                logger.error(
-                    "DEBUGGING: Unhashable type error during dataset initialization"
-                )
-            raise
-
         command_monitor = CommandMonitor(
             comms_handler=comms_handler,
             trainer=trainer,
@@ -576,11 +558,6 @@ def main():
         except Exception as e:
             logger.error(f"Error during training: {e}")
             logger.error(f"Error type: {type(e).__name__}")
-            if "unhashable" in str(e):
-                logger.error("DEBUGGING: Unhashable type error during training")
-                logger.error(
-                    "This could be in data loading, model forward pass, or metrics collection"
-                )
             raise
 
     except KeyboardInterrupt:
