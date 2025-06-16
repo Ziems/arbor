@@ -24,8 +24,29 @@ class ColoredFormatter(logging.Formatter):
     }
 
     def format(self, record):
-        # Make logger name uppercase and add brackets with left bracket hugging text
-        name = record.name.upper()
+        # Use the name mapping to get short names, fallback to original name
+        name_mappings = {
+            "arbor.server.services.inference_manager": "infer",
+            "arbor.server.services.grpo_manager": "grpo",
+            "arbor.server.services.file_manager": "files",
+            "arbor.server.services.health_manager": "health",
+            "arbor.server.services.job_manager": "jobs",
+            "arbor.server.services.training_manager": "train",
+            "arbor.server.services.comms.comms": "comms",
+            "arbor.server.services.scripts.sft_training": "sft",
+            "arbor.server.services.scripts.grpo_training": "grpo",
+            "arbor.config": "config",
+            "arbor.cli": "cli",
+            "__main__": "main",
+            # Add uvicorn loggers
+            "uvicorn": "api",
+            "uvicorn.access": "api",
+            "uvicorn.error": "api",
+        }
+
+        # Get short name if available, otherwise use the provided name
+        short_name = name_mappings.get(record.name, record.name)
+        name = short_name.upper()
         record.name = f"[{name}]".rjust(
             8
         )  # Right-align the whole bracketed name (8 chars max)
@@ -170,6 +191,7 @@ def configure_component_loggers(log_level: str):
     third_party_loggers = {
         "uvicorn": "WARNING",
         "uvicorn.access": "WARNING",
+        "uvicorn.error": "WARNING",
         "fastapi": "WARNING",
         "httpx": "WARNING",
         "urllib3": "WARNING",
@@ -207,6 +229,10 @@ def get_logger(name: str) -> logging.Logger:
         "arbor.config": "config",
         "arbor.cli": "cli",
         "__main__": "main",
+        # Add uvicorn loggers
+        "uvicorn": "api",
+        "uvicorn.access": "api",
+        "uvicorn.error": "api",
     }
 
     # Use short name if available, otherwise use the provided name
@@ -251,3 +277,22 @@ class LogLevel:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.logger.setLevel(self.original_level)
+
+
+def apply_uvicorn_formatting():
+    """
+    Apply our custom formatting to uvicorn loggers after they're set up.
+    This runs after the FastAPI app is created to avoid interfering with startup.
+    """
+    console_formatter = ColoredFormatter("%(name)s - %(levelname)s - %(message)s")
+
+    # List of uvicorn loggers to modify
+    uvicorn_loggers = ["uvicorn", "uvicorn.error", "uvicorn.access"]
+
+    for logger_name in uvicorn_loggers:
+        logger = logging.getLogger(logger_name)
+
+        # Update formatters for existing handlers
+        for handler in logger.handlers:
+            if hasattr(handler, "setFormatter"):
+                handler.setFormatter(console_formatter)

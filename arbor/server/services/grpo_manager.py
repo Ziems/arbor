@@ -447,7 +447,7 @@ class GRPOManager:
 
             # Clean up ZMQ connections
             if self.server_comms_handler:
-                logger.info("Closing ZMQ connections...")
+                logger.debug("Closing ZMQ connections...")
                 self.server_comms_handler.close()
 
             if inference_manager and inference_manager.process is not None:

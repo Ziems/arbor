@@ -115,6 +115,7 @@ def start_server(host="0.0.0.0", port=7453, storage_path="./storage", timeout=10
         raise RuntimeError(f"Port {port} is already in use")
 
     app = create_app(storage_path)
+    # configure_uvicorn_logging()
     config = uvicorn.Config(app, host=host, port=port, log_level="info")
     server = uvicorn.Server(config)
 
@@ -167,6 +168,8 @@ def serve(host, port, arbor_config):
 
     try:
         create_app(config_path)
+        # Temporarily disable custom uvicorn logging configuration
+        # configure_uvicorn_logging()
         uvicorn.run(app, host=host, port=port)
     except Exception as e:
         click.echo(f"Failed to start server: {e}", err=True)
