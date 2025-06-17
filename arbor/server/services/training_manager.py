@@ -6,14 +6,14 @@ from datetime import datetime
 from pathlib import Path
 
 from arbor.server.api.models.schemas import FineTuneRequest
-from arbor.server.core.config import Settings
+from arbor.server.core.config import Config
 from arbor.server.services.file_manager import FileManager
 from arbor.server.services.job_manager import Job, JobEvent, JobStatus
 
 
 class TrainingManager:
-    def __init__(self, settings: Settings):
-        self.settings = settings
+    def __init__(self, config: Config):
+        self.config = config
 
     def make_output_dir(self, request: FineTuneRequest):
         model_name = request.model.split("/")[-1].lower()
@@ -24,7 +24,7 @@ class TrainingManager:
         )
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         name = f"ft:{model_name}:{suffix}:{timestamp}"
-        return name, str(Path(self.settings.STORAGE_PATH).resolve() / "models" / name)
+        return name, str(Path(self.config.STORAGE_PATH).resolve() / "models" / name)
 
     def find_train_args_sft(self, request: FineTuneRequest, file_manager: FileManager):
         file = file_manager.get_file(request.training_file)

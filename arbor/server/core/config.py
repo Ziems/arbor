@@ -1,7 +1,9 @@
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, ClassVar
+import os
+import datetime
 
 import yaml
 from pydantic import BaseModel
@@ -27,19 +29,66 @@ class ArborConfig(BaseModel):
     training: TrainingConfig
 
 
-class Settings(BaseModel):
-
-    STORAGE_PATH: str = str(Path.home() / ".arbor" / "storage")
+class Config(BaseModel):
+    STORAGE_PATH: ClassVar[str] = str(Path.home() / ".arbor" / "storage")
     INACTIVITY_TIMEOUT: int = 30  # 5 seconds
     arbor_config: ArborConfig
+    
+    @staticmethod
+    def validate_storage_path(storage_path: str):
+        """Validates a storage path, return True for success, False if failed."""
+        try:
+            if not Path(storage_path).exists(): return False
+            return True
 
-    def __init__(self, **data):
-        super().__init__(**data)
+        except Exception as e:
+            return False
+    
+    @classmethod
+    def set_storage_path(cls, storage_path: str):
+        """Set a valid storage path to use, return True for success, False if failed."""
+        if not cls.validate_storage_path(storage_path): return False
 
-        # Create ~/.arbor directories if it DNE
-        self._init_arbor_directories()
+        cls.STORAGE_PATH = storage_path
+        
+        return True
+    
+    @staticmethod
+    def validate_storage_path(storage_path: str) -> None:
+        """Validates a storage path, raises exception if invalid."""
+        if not storage_path:
+            raise ValueError("Storage path cannot be empty")
+        
+        path = Path(storage_path)
+        
+        if not path.exists():
+            raise FileNotFoundError(f"Storage path does not exist: {storage_path}")
+        
+        if not path.is_dir():
+            raise NotADirectoryError(f"Storage path is not a directory: {storage_path}")
+        
+        # Check if we can write to the directory
+        if not os.access(path, os.W_OK):
+            raise PermissionError(f"No write permission for storage path: {storage_path}")
 
-    def get_arbor_version(self) -> str:
+    @classmethod
+    def set_storage_path(cls, storage_path: str) -> None:
+        """Set a valid storage path to use, raises exception if invalid."""
+        cls.validate_storage_path(storage_path)  # raises if invalid
+        cls.STORAGE_PATH = storage_path
+
+    @classmethod
+    def make_log_dir(cls, storage_path: str = None):
+        """Create a timestamped log directory under the storage path."""
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        log_dir = Path(storage_path if storage_path else cls.STORAGE_PATH / "logs" / timestamp)
+        log_dir.mkdir(exist_ok=True)
+         
+        return log_dir
+
+    @staticmethod
+    def get_arbor_version() -> str:
         """Get the installed version of arbor package."""
         try:
             return version("arbor-ai")
@@ -50,7 +99,8 @@ class Settings(BaseModel):
         except Exception:
             return "unknown"
 
-    def get_cuda_version(self) -> str:
+    @staticmethod
+    def get_cuda_version() -> str:
         """Get CUDA runtime version."""
         try:
             import torch
@@ -80,7 +130,8 @@ class Settings(BaseModel):
         except Exception:
             return "unknown"
 
-    def get_nvidia_driver_version(self) -> str:
+    @staticmethod
+    def get_nvidia_driver_version() -> str:
         """Get NVIDIA driver version."""
         try:
             result = subprocess.run(
@@ -99,7 +150,8 @@ class Settings(BaseModel):
         except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
             return "not_installed"
 
-    def get_python_package_version(self, package_name: str) -> str:
+    @staticmethod
+    def get_python_package_version(package_name: str) -> str:
         """Get version of a Python package."""
         try:
             return version(package_name)
@@ -108,7 +160,8 @@ class Settings(BaseModel):
         except Exception:
             return "unknown"
 
-    def get_ml_library_versions(self) -> Dict[str, str]:
+    @classmethod
+    def get_ml_library_versions(cls) -> Dict[str, str]:
         """Get versions of common ML libraries."""
         libraries = {
             "torch": "torch",
@@ -126,19 +179,20 @@ class Settings(BaseModel):
 
         versions = {}
         for lib_name, package_name in libraries.items():
-            versions[lib_name] = self.get_python_package_version(package_name)
+            versions[lib_name] = cls.get_python_package_version(package_name)
 
         return versions
 
-    def get_cuda_library_versions(self) -> Dict[str, str]:
+    @classmethod
+    def get_cuda_library_versions(cls) -> Dict[str, str]:
         """Get versions of CUDA-related libraries."""
         cuda_info = {}
 
         # CUDA runtime version
-        cuda_info["cuda_runtime"] = self.get_cuda_version()
+        cuda_info["cuda_runtime"] = cls.get_cuda_version()
 
         # NVIDIA driver version
-        cuda_info["nvidia_driver"] = self.get_nvidia_driver_version()
+        cuda_info["nvidia_driver"] = cls.get_nvidia_driver_version()
 
         # cuDNN version (if available through PyTorch)
         try:
@@ -184,18 +238,20 @@ class Settings(BaseModel):
 
         return cuda_info
 
-    def get_system_versions(self) -> Dict[str, Any]:
+    @classmethod
+    def get_system_versions(cls) -> Dict[str, Any]:
         """Get comprehensive version information for the system."""
         return {
-            "arbor": self.get_arbor_version(),
+            "arbor": cls.get_arbor_version(),
             "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
-            "ml_libraries": self.get_ml_library_versions(),
-            "cuda_stack": self.get_cuda_library_versions(),
+            "ml_libraries": cls.get_ml_library_versions(),
+            "cuda_stack": cls.get_cuda_library_versions(),
         }
 
-    def _init_arbor_directories(self):
+    @classmethod
+    def _init_arbor_directories(cls):
         arbor_root = Path.home() / ".arbor"
-        storage_dir = Path(self.STORAGE_PATH)
+        storage_dir = Path(cls.STORAGE_PATH)
 
         arbor_root.mkdir(exist_ok=True)
         storage_dir.mkdir(exist_ok=True)
@@ -215,8 +271,10 @@ class Settings(BaseModel):
         return None
 
     @classmethod
-    def load_from_yaml(cls, yaml_path: str) -> "Settings":
+    def load_config_from_yaml(cls, yaml_path: str) -> "Config":
         # If yaml file is not provided, try to use ~/.arbor/config.yaml
+        cls._init_arbor_directories()
+        
         if not yaml_path:
             yaml_path = cls.use_default_config()
 
@@ -239,15 +297,23 @@ class Settings(BaseModel):
                     training=TrainingConfig(**config["training"]),
                 )
             )
+            
+            cls.set_storage_path(config["storage_path"])
+                        
             return settings
         except Exception as e:
             raise ValueError(f"Error loading config file {yaml_path}: {e}")
 
     @classmethod
-    def from_gpus(cls, inference_gpus: str = "0", training_gpus: str = "1,2"):
+    def load_config_directly(cls, storage_path: str = None, inference_gpus: str = "0", training_gpus: str = "1,2"):
+        cls._init_arbor_directories()
+
         # create settings without yaml file
         config = ArborConfig(
             inference=InferenceConfig(gpu_ids=inference_gpus),
             training=TrainingConfig(gpu_ids=training_gpus),
         )
+        
+        if storage_path: cls.set_storage_path(storage_path)
+        
         return cls(arbor_config=config)

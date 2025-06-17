@@ -14,7 +14,7 @@ from arbor.server.services.file_manager import FileManager
 @pytest.fixture(scope="module")
 def server(tmp_path_factory):
     """Set up a test server with configured dependencies"""
-    from arbor.server.core.config import Settings
+    from arbor.server.core.config import Config
     from arbor.server.main import app
     from arbor.server.services.inference_manager import InferenceManager
     from arbor.server.services.job_manager import JobManager
@@ -22,15 +22,15 @@ def server(tmp_path_factory):
     # Use tmp_path_factory instead of tmp_path because we're using scope="module"
     test_storage = tmp_path_factory.mktemp("test_storage")
 
-    # Create test settings
-    settings = Settings(STORAGE_PATH=str(test_storage))
+    # Create test config
+    config = Config(STORAGE_PATH=str(test_storage))
 
-    # Initialize services with test settings
-    inference_manager = InferenceManager(settings=settings)
-    job_manager = JobManager(settings=settings)
+    # Initialize services with test config
+    inference_manager = InferenceManager(config=config)
+    job_manager = JobManager(config=config)
 
     # Inject dependencies into app state
-    app.state.settings = settings
+    app.state.config = config
     app.state.inference_manager = inference_manager
     app.state.job_manager = job_manager
 
