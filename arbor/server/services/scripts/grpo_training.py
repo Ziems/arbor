@@ -5,24 +5,19 @@
 
 import argparse
 import json
-import os
 import random
-import shutil
 import signal
 import sys
 import threading
 import time
-from functools import lru_cache
 from typing import Any, List, Optional, Union
 
 import torch
 import trl.extras.vllm_client
 import zmq
-from accelerate import Accelerator
 from accelerate.utils import broadcast_object_list, gather, gather_object
 from datasets import Dataset, IterableDataset, load_dataset
-from peft import AutoPeftModelForCausalLM, LoraConfig, PeftConfig  # type: ignore
-from torch.utils.data import Dataset
+from peft import LoraConfig, PeftConfig
 from transformers import (
     PreTrainedModel,
     PreTrainedTokenizerBase,
@@ -38,6 +33,10 @@ from arbor.server.services.comms.comms import (
     ArborServerCommsHandler,
 )
 from arbor.server.services.inference.vllm_client import VLLMClient
+from arbor.server.services.scripts.utils.callbacks import WeightUpdateCallback
+from arbor.server.services.scripts.utils.comms_monitors import CommandMonitor
+from arbor.server.services.scripts.utils.dataset import BlockingRotatingQueueDataset
+from arbor.server.services.scripts.utils.ingestion_monitor import IngestionMonitor
 
 trl.extras.vllm_client.VLLMClient = VLLMClient
 
@@ -47,23 +46,6 @@ logger = get_logger(__name__)
 
 if is_wandb_available():
     import wandb
-
-last_step_time = None
-last_queue_pop_time = None
-
-
-def time_since_last_step():
-    global last_step_time
-    if last_step_time is None:
-        return float("inf")
-    return time.time() - last_step_time
-
-
-def get_time_since_last_queue_pop():
-    global last_queue_pop_time
-    if last_queue_pop_time is None:
-        return float("inf")
-    return time.time() - last_queue_pop_time
 
 
 class ArborGRPOTrainer(GRPOTrainer):
@@ -357,237 +339,14 @@ class ArborGRPOTrainer(GRPOTrainer):
 class LastStepTimeCallback(TrainerCallback):
     "A callback that prints a message at the beginning of training"
 
-    def on_step_end(self, args, state, control, **kwargs):
-        global last_step_time
-        logger.info(f"Time since last step: {time_since_last_step()}")
-        last_step_time = time.time()
-
-
-class WeightUpdateCallback(TrainerCallback):
-    """A callback that sends weight update completion status after each step"""
-
-    def __init__(self):
-        self.comms_handler = None
-        self.trainer = None
-
-    def set_comms_handler(self, comms_handler: ArborScriptCommsHandler):
-        self.comms_handler = comms_handler
-
-    def set_trainer(self, trainer):
-        self.trainer = trainer
+    def __init__(self, ingestion_monitor: IngestionMonitor):
+        self.ingestion_monitor = ingestion_monitor
 
     def on_step_end(self, args, state, control, **kwargs):
-        if self.comms_handler and self.comms_handler.is_main_process and self.trainer:
-            if state.global_step != self.trainer._last_loaded_step:
-                logger.info("Updating inference model...")
-                self.comms_handler.send_status({"status": "weight_update_start"})
-                self.trainer._move_model_to_vllm()
-                self.trainer._last_loaded_step = state.global_step
-                self.comms_handler.send_status({"status": "weight_update_complete"})
-
-
-class BlockingQueueDataset(Dataset):
-    def __init__(
-        self,
-        accelerator: Accelerator,
-        comms_handler: ArborScriptCommsHandler,
-        size=10_000,  # Just a random number
-        maxsize=100,
-    ):
-        self.size = size
-        self.accelerator = accelerator
-        self.comms_handler = comms_handler
-        self.get_cached_data = lru_cache(maxsize=maxsize)(self._get_data)
-        self.completion_counters = {}
-
-    def __len__(self):
-        return self.size
-
-    def _get_data(self, idx):
-        rank = self.accelerator.process_index
-        world_size = self.accelerator.num_processes
-
-        if self.accelerator.is_main_process:
-            global last_queue_pop_time
-            last_queue_pop_time = time.time()
-
-        if idx not in self.completion_counters:
-            self.completion_counters[idx] = 0
-
-        try:
-            new_data = self.comms_handler.receive_data()
-
-        except Exception as e:
-            logger.error(f"[rank {rank}] Error receiving data: {e}")
-            new_data = None
-
-        return new_data
-
-    def __getitem__(self, idx):
-        data = self.get_cached_data(idx)
-        # Create hash of data to detect if processes are using the same idx for the same data
-        data_hash = format(abs(hash(str(data))) % (16**8), "08x")
-
-        if data is None:
-            return None
-
-        counter = self.completion_counters.get(idx, 0)
-        item = data[counter]
-        self.completion_counters[idx] = (counter + 1) % len(data)
-        return item
-
-
-class CommandMonitor:
-    def __init__(
-        self,
-        comms_handler: ArborScriptCommsHandler,
-        trainer: ArborGRPOTrainer,
-        base_model_name: str,
-    ):
-        self.comms_handler = comms_handler
-        self.trainer = trainer
-        self.base_model_name = base_model_name
-        self.command_thread = threading.Thread(
-            target=self._monitor_commands, daemon=True
+        logger.info(
+            f"Time since last step: {self.ingestion_monitor.time_since_last_step()}"
         )
-        self.command_thread.start()
-
-    def _monitor_commands(self):
-        """Background thread that monitors for commands from the server."""
-        if not self.comms_handler:
-            return
-        try:
-            for command in self.comms_handler.receive_command():
-                logger.info(f"Main process received command: {command}")
-                if (
-                    command.get("command") == "save_model"
-                    and self.trainer.accelerator.is_main_process
-                ):
-                    logger.info(
-                        f"Instructed to save model at {self.trainer.args.output_dir}"
-                    )
-                    while (
-                        time_since_last_step() <= 10
-                        or get_time_since_last_queue_pop() <= 10
-                    ):
-                        logger.info(f"Waiting for steps to finish")
-                        logger.info(
-                            f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
-                        )
-                        logger.info(
-                            f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
-                        )
-                        time.sleep(5)
-                    logger.info("Saving model...")
-                    if self.trainer.peft_config:
-                        self.trainer.save_model(
-                            output_dir=self.trainer.args.output_dir + "/adapter/"
-                        )
-                        _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
-                            self.trainer.args.output_dir + "/adapter/",
-                            config=self.trainer.peft_config,
-                        )
-                        merged_model = _model_to_merge.merge_and_unload()
-                        merged_model.save_pretrained(
-                            self.trainer.args.output_dir,
-                            safe_serialization=True,
-                        )
-                        self.trainer.processing_class.save_pretrained(
-                            self.trainer.args.output_dir
-                        )
-                    else:
-                        self.trainer.save_model()
-
-                    logger.info("Model saved")
-                    self.comms_handler.send_status(
-                        {
-                            "status": "model_saved",
-                            "output_dir": self.trainer.args.output_dir,
-                        }
-                    )
-                elif command.get("command") == "save_checkpoint":
-                    logger.info(
-                        f"Instructed to save checkpoint {command.get('checkpoint_name')}"
-                    )
-                    while (
-                        time_since_last_step() <= 10
-                        or get_time_since_last_queue_pop() <= 10
-                    ):
-                        logger.info(f"Waiting for steps to finish")
-                        logger.info(
-                            f"Time since last step: {time_since_last_step():.1f} (needs to be >= 10)"
-                        )
-                        logger.info(
-                            f"Time since last queue pop: {get_time_since_last_queue_pop():.1f} (needs to be >= 10)"
-                        )
-                        time.sleep(5)
-                    if self.trainer.peft_config:
-                        self.trainer.save_model(
-                            output_dir=self.trainer.args.output_dir
-                            + f"/checkpoints/{command.get('checkpoint_name')}/adapter/"
-                        )
-                        _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
-                            self.trainer.args.output_dir
-                            + f"/checkpoints/{command.get('checkpoint_name')}/adapter/",
-                            config=self.trainer.peft_config,
-                        )
-                        merged_model = _model_to_merge.merge_and_unload()
-                        merged_model.save_pretrained(
-                            self.trainer.args.output_dir
-                            + f"/checkpoints/{command.get('checkpoint_name')}/",
-                            safe_serialization=True,
-                        )
-                        self.trainer.processing_class.save_pretrained(
-                            self.trainer.args.output_dir
-                            + f"/checkpoints/{command.get('checkpoint_name')}/"
-                        )
-                    else:
-                        self.trainer.save_model(
-                            output_dir=self.trainer.args.output_dir
-                            + f"/checkpoints/{command.get('checkpoint_name')}/"
-                        )
-
-                    # Copy checkpoint files to root output directory
-                    checkpoint_dir = (
-                        self.trainer.args.output_dir
-                        + f"/checkpoints/{command.get('checkpoint_name')}/"
-                    )
-                    root_dir = self.trainer.args.output_dir
-
-                    # Copy all files from checkpoint dir to root dir, overwriting if they exist
-                    # (effectively saves the checkpoint to the output directory)
-                    for item in os.listdir(checkpoint_dir):
-                        src = os.path.join(checkpoint_dir, item)
-                        dst = os.path.join(root_dir, item)
-                        if os.path.isdir(src):
-                            if os.path.exists(dst):
-                                shutil.rmtree(dst)
-                            shutil.copytree(src, dst)
-                        else:
-                            shutil.copy2(src, dst)
-
-                    self.comms_handler.send_status(
-                        {
-                            "status": "checkpoint_saved",
-                            "checkpoint_name": command.get("checkpoint_name"),
-                            "output_dir": self.trainer.args.output_dir
-                            + f"/checkpoints/{command.get('checkpoint_name')}/",
-                        }
-                    )
-                    self.comms_handler.send_status(
-                        {
-                            "status": "model_saved",
-                            "output_dir": self.trainer.args.output_dir,
-                        }
-                    )
-                elif command.get("command") == "terminate":
-                    logger.info("TERMINATED")
-                    self.trainer.accelerator.end_training()
-                    self.comms_handler.send_status({"status": "terminated"})
-
-        except Exception as e:
-            logger.error(e)
-            self.comms_handler.send_status({"status": "error", "error": str(e)})
+        self.ingestion_monitor.set_last_step_time()
 
 
 def main():
@@ -736,12 +495,22 @@ def main():
             **trl_train_args,
         )
 
-        weight_update_callback = WeightUpdateCallback()
+        # Create ingestion monitor
+        ingestion_monitor = IngestionMonitor()
+
+        train_dataset = BlockingRotatingQueueDataset(
+            ingestion_monitor=ingestion_monitor,
+        )
+
+        weight_update_callback = WeightUpdateCallback(
+            ingestion_monitor=ingestion_monitor,
+        )
+
         trainer = ArborGRPOTrainer(
             model=args.model,
             args=training_args,
-            train_dataset=BlockingQueueDataset(None, None),
-            callbacks=[LastStepTimeCallback(), weight_update_callback],
+            train_dataset=train_dataset,
+            callbacks=[LastStepTimeCallback(ingestion_monitor), weight_update_callback],
             peft_config=lora_config,
             vllm_group_port=args.vllm_group_port,
         )
@@ -755,21 +524,21 @@ def main():
             handshake_port=args.handshake_port,
             is_main_process=trainer.accelerator.is_main_process,
         )
+
+        train_dataset.set_comms_handler(comms_handler)
+        train_dataset.set_accelerator(trainer.accelerator)
+
         weight_update_callback.set_comms_handler(comms_handler)
         weight_update_callback.set_trainer(trainer)
         trainer.comms_handler = comms_handler
-
-        # Initialize the dataset with the actual accelerator
-        trainer.train_dataset = BlockingQueueDataset(
-            accelerator=trainer.accelerator,
-            comms_handler=trainer.comms_handler,
-        )
 
         command_monitor = CommandMonitor(
             comms_handler=comms_handler,
             trainer=trainer,
             base_model_name=args.model,
+            ingestion_monitor=ingestion_monitor,
         )
+        command_monitor.start()
 
         # Add signal handlers for graceful shutdown
         def signal_handler(signum, frame):
@@ -783,8 +552,13 @@ def main():
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
-        logger.info("Training...")
-        trainer.train()
+        logger.info("Starting training...")
+        try:
+            trainer.train()
+        except Exception as e:
+            logger.error(f"Error during training: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            raise
 
     except KeyboardInterrupt:
         logger.info("\nReceived interrupt, shutting down...")

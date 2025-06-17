@@ -10,7 +10,6 @@ from arbor.server.api.models.schemas import (
     GRPOConfigResponse,
     GRPORequest,
     GRPOStepResponse,
-    GRPOTerminateRequest,
     GRPOTerminateResponse,
 )
 
@@ -27,12 +26,9 @@ def initialize_grpo(request: Request, grpo_config_request: GRPOConfigRequest):
 
 # Create a grpo job
 @router.post("/step", response_model=GRPOStepResponse)
-def run_grpo_step(
-    request: Request, grpo_request: GRPORequest, background_tasks: BackgroundTasks
-):
-    inference_manager = request.app.state.inference_manager
+def run_grpo_step(request: Request, grpo_request: GRPORequest):
     grpo_manager = request.app.state.grpo_manager
-
+    inference_manager = request.app.state.inference_manager
     step_data = grpo_manager.grpo_step(grpo_request, inference_manager)
 
     return GRPOStepResponse(status="success", **step_data)

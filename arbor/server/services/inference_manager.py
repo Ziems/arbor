@@ -2,6 +2,7 @@ import asyncio
 import os
 import signal
 import subprocess
+import sys
 import threading
 import time
 from datetime import datetime
@@ -68,7 +69,7 @@ class InferenceManager:
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
         n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
-        command = f"python -m arbor.server.services.inference.vllm_serve --model {model} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching True"
+        command = f"{sys.executable} -m arbor.server.services.inference.vllm_serve --model {model} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching True"
 
         if launch_kwargs.get("max_context_length"):
             command += f" --max_model_len {launch_kwargs['max_context_length']}"

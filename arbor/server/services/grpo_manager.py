@@ -3,7 +3,6 @@ import json
 import os
 import random
 import signal
-import socket
 import string
 import subprocess
 import sys
@@ -75,9 +74,7 @@ class GRPOManager:
         name, output_dir = self.make_output_dir(request.model, request.suffix)
 
         # Here are defaults for training. We can adjust them if we disagree w the huggingface defaults
-        default_train_kwargs = {
-            "output_dir": output_dir,
-        }
+        default_train_kwargs = {"output_dir": output_dir, "grpo_flavor": "grpo"}
 
         train_kwargs = request.model_dump(exclude_unset=True)
         return {**default_train_kwargs, **(train_kwargs or {})}
@@ -111,7 +108,7 @@ class GRPOManager:
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
         }
 
-        arbor_keys = ["max_context_length", "lora", "wandb_kwargs"]
+        arbor_keys = ["max_context_length", "lora", "wandb_kwargs", "grpo_flavor"]
         arbor_train_kwargs = {
             key: train_kwargs[key] for key in arbor_keys if key in train_kwargs
         }
@@ -124,7 +121,7 @@ class GRPOManager:
         """Initialize the training process with ZMQ-based communication."""
         self.train_kwargs = self.find_training_args(request)
 
-        trl_train_kwargs, arbor_train_kwargs = self.process_training_args(
+        self.trl_train_kwargs, self.arbor_train_kwargs = self.process_training_args(
             self.train_kwargs
         )
 
@@ -135,8 +132,8 @@ class GRPOManager:
         # launch_kwargs = {
         #     k: v for k, v in arbor_train_kwargs.items() if k in ["max_context_length"]
         # }
-        inference_manager.launch_kwargs["max_context_length"] = arbor_train_kwargs.get(
-            "max_context_length", None
+        inference_manager.launch_kwargs["max_context_length"] = (
+            self.arbor_train_kwargs.get("max_context_length", None)
         )
         logger.info("Launching inference server...")
         inference_manager.launch(self.current_model)
@@ -145,7 +142,10 @@ class GRPOManager:
         self.server_comms_handler = ArborServerCommsHandler()
 
         script_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
-        script_path = os.path.join(script_dir, "grpo_training.py")
+        script_name = {"mmgrpo": "mmgrpo_training.py", "grpo": "grpo_training.py"}[
+            self.arbor_train_kwargs["grpo_flavor"]
+        ]
+        script_path = os.path.join(script_dir, script_name)
 
         # Start the training process with ZMQ ports
         my_env = os.environ.copy()
@@ -159,7 +159,7 @@ class GRPOManager:
         main_process_port = get_free_port()
 
         params = [
-            "python",
+            sys.executable,
             "-m",
             "accelerate.commands.launch",
             "--num_processes",
@@ -198,9 +198,9 @@ class GRPOManager:
                 "--model",
                 self.current_model,
                 "--trl_train_kwargs",
-                json.dumps(trl_train_kwargs),
+                json.dumps(self.trl_train_kwargs),
                 "--arbor_train_kwargs",
-                json.dumps(arbor_train_kwargs),
+                json.dumps(self.arbor_train_kwargs),
             ]
         )
         logger.info(f"Running GRPO training command: {' '.join(params)}")
@@ -227,7 +227,7 @@ class GRPOManager:
                     buffer.append(line)
                     # Log only if stop_event is not set
                     if not stop_event.is_set():
-                        logger.debug(f"[GRPO LOG] {line.strip()}")
+                        logger.info(f"[GRPO LOG] {line.strip()}")
 
         # Start a background thread to read from the process continuously
         thread = threading.Thread(
@@ -282,9 +282,8 @@ class GRPOManager:
                     self.saving_checkpoint = False
                     logger.info("Checkpoint saved")
                 elif status["status"] == "error":
-                    logger.error(
-                        f"Training error: {status.get('error', 'Unknown error')}"
-                    )
+                    error_msg = status.get("error", "Unknown error")
+                    logger.error(f"Training error: {error_msg}")
                 elif status["status"] == "terminated":
                     self.terminating = False
                     logger.info("Training process terminated")
@@ -296,6 +295,36 @@ class GRPOManager:
             except:
                 pass
 
+    def validate_batch(self, batch):
+        if not isinstance(batch, list):
+            raise ValueError("Batch must be a list")
+
+        if self.arbor_train_kwargs["grpo_flavor"] == "mmgrpo":
+            for group in batch:
+                if not isinstance(group, list):
+                    raise ValueError("Each group in batch must be a list")
+                for item in group:
+                    if not isinstance(item, dict):
+                        raise ValueError("Each item in group must be a dictionary")
+                    required_keys = {"messages", "completion", "advantage"}
+                    if not all(key in item for key in required_keys):
+                        raise ValueError(
+                            f"Each item must contain keys: {required_keys}"
+                        )
+            return True
+        elif self.arbor_train_kwargs["grpo_flavor"] == "grpo":
+            for item in batch:
+                if not isinstance(item, dict):
+                    raise ValueError("Each item in batch must be a dictionary")
+                required_keys = {"messages", "completion", "reward"}
+                if not all(key in item for key in required_keys):
+                    raise ValueError(f"Each item must contain keys: {required_keys}")
+            return True
+        else:
+            raise NotImplementedError(
+                f"GRPO flavor batch validation not implemented for {self.arbor_train_kwargs['grpo_flavor']}"
+            )
+
     def grpo_step(
         self, request: GRPORequest, inference_manager: InferenceManager
     ) -> str:
@@ -305,7 +334,10 @@ class GRPOManager:
             )
             time.sleep(5)
 
+        self.validate_batch(request.batch)
+
         try:
+
             # Send the batch to the training process
             self.server_comms_handler.send_data(request.batch)
             self.data_count += 1
@@ -388,14 +420,11 @@ class GRPOManager:
         self.cleanup_termination(inference_manager)
 
         if self.train_kwargs and "output_dir" in self.train_kwargs:
-            logger.info(
-                f"Training completed. Model saved to {self.train_kwargs['output_dir']}"
-            )
-            if not os.path.exists(self.train_kwargs["output_dir"]):
-                logger.warning(
-                    f"Output directory {self.train_kwargs['output_dir']} does not exist"
-                )
             output_dir = self.train_kwargs["output_dir"]
+            logger.info(f"Training completed. Model saved to {output_dir}")
+            logger.info(f"Training logs and checkpoints are stored in: {output_dir}")
+            if not os.path.exists(output_dir):
+                logger.warning(f"Output directory {output_dir} does not exist")
             self.train_kwargs = None
         else:
             logger.info("Training terminated, no output directory specified")
