@@ -11,7 +11,7 @@ from arbor.server.services.file_manager import FileManager
 from arbor.server.services.job_manager import Job, JobEvent, JobStatus
 
 
-class TrainingManager:
+class FileTrainManager:
     def __init__(self, settings: Settings):
         self.settings = settings
 
@@ -32,7 +32,7 @@ class TrainingManager:
             raise ValueError(f"Training file {request.training_file} not found")
 
         data_path = file["path"]
-        file_manager.validate_file_format_sft(data_path)
+        file_manager.validate_file_format(data_path, "sft")
 
         name, output_dir = self.make_output_dir(request)
 
@@ -60,24 +60,22 @@ class TrainingManager:
             raise ValueError(f"Training file {request.training_file} not found")
 
         data_path = file["path"]
-        file_manager.validate_file_format_dpo(data_path)
+        file_manager.validate_file_format(data_path, "dpo")
 
         name, output_dir = self.make_output_dir(request)
 
         default_train_kwargs = {
-            "device": "cuda:2",
+            "device": None,
             "use_peft": False,
             "num_train_epochs": 5,
             "per_device_train_batch_size": 1,
             "gradient_accumulation_steps": 8,
             "learning_rate": 1e-5,
+            "max_seq_length": None,
             "packing": True,
             "bf16": True,
             "output_dir": output_dir,
             "train_data_path": data_path,
-            "prompt_length": 1024,
-            "max_seq_length": 1512,
-            "use_peft": False,
         }
 
         # https://www.philschmid.de/dpo-align-llms-in-2024-with-trl#3-align-llm-with-trl-and-the-dpotrainer

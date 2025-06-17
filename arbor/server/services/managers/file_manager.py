@@ -106,10 +106,29 @@ class FileManager:
 
         del self.files[file_id]
 
-    def validate_file_format_sft(self, file_path: str) -> None:
+    def validate_file_format(
+        self, file_path: str, format_type: Literal["sft", "dpo"]
+    ) -> None:
         """
         Validates that the file at file_path is properly formatted JSONL with expected structure.
-        Raises FileValidationError if validation fails.
+
+        Args:
+            file_path: Path to the file to validate
+            format_type: Type of format to validate ('sft' or 'dpo')
+
+        Raises:
+            FileValidationError: If validation fails
+        """
+        if format_type == "sft":
+            self._validate_sft_format(file_path)
+        elif format_type == "dpo":
+            self._validate_dpo_format(file_path)
+        else:
+            raise FileValidationError(f"Unknown format type: {format_type}")
+
+    def _validate_sft_format(self, file_path: str) -> None:
+        """
+        Validates SFT format: JSONL with messages array structure.
         """
         try:
             with open(file_path, "r", encoding="utf-8") as f:
@@ -157,11 +176,9 @@ class FileManager:
         except Exception as e:
             raise FileValidationError(f"Failed to read or validate file: {e}")
 
-    def validate_file_format_dpo(self, file_path: str) -> None:
+    def _validate_dpo_format(self, file_path: str) -> None:
         """
-        Validates that the file at file_path is properly formatted JSONL with expected structure
-        for tool-use data (input/messages/tools/parallel_tool_calls and outputs).
-        Raises FileValidationError if validation fails.
+        Validates DPO format: JSONL with input, preferred_output, and non_preferred_output structure.
         """
         try:
             with open(file_path, "r", encoding="utf-8") as f:
@@ -266,27 +283,3 @@ class FileManager:
 
         except Exception as e:
             raise FileValidationError(f"Failed to validate file: {e}")
-
-        output_path = file_path.replace(".jsonl", "_formatted.jsonl")
-
-        with (
-            open(file_path, "r", encoding="utf-8") as fin,
-            open(output_path, "w", encoding="utf-8") as fout,
-        ):
-            for line_num, line in enumerate(fin, 1):
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    data = json.loads(line)
-                    prompt = data["input"]["messages"]
-                    new_line = {
-                        "chosen": data["preferred_output"],
-                        "rejected": data["non_preferred_output"],
-                        "prompt": prompt,
-                    }
-                    fout.write(json.dumps(new_line) + "\n")
-                except Exception as e:
-                    logger.error(f"Error parsing line {line_num}: {e}")
-
-        os.replace(output_path, file_path)
