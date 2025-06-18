@@ -1,15 +1,12 @@
-import argparse
-import json
-import random
-import threading
-import time
-
 import torch
-import zmq
+from datasets import Dataset
 from peft import LoraConfig
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from trl import SFTConfig, SFTTrainer, setup_chat_format
+from transformers import AutoTokenizer
+from trl import SFTConfig, SFTTrainer
 
+from arbor.server.services.comms.comms import (
+    ArborScriptCommsHandler,
+)
 from arbor.server.services.scripts.utils.arg_parser import get_training_arg_parser
 from arbor.server.utils.logging import get_logger
 
@@ -36,6 +33,30 @@ def main():
                 **(trl_train_args.get("gradient_checkpointing_kwargs") or {}),
                 "use_reentrant": False,
             }
+
+        if "max_seq_length" not in trl_train_args:
+            trl_train_args["max_seq_length"] = 4096
+            logger.info(
+                f"The 'train_kwargs' parameter didn't include a 'max_seq_length', defaulting to {trl_train_args['max_seq_length']}"
+            )
+
+        tokenizer = AutoTokenizer.from_pretrained(
+            pretrained_model_name_or_path=args.model
+        )
+
+        train_data = load_train_data(arbor_train_args["train_data_path"])
+        hf_dataset = Dataset.from_list(train_data)
+
+        def tokenize_function(example):
+            return encode_sft_example(
+                example, tokenizer, trl_train_args["max_seq_length"]
+            )
+
+        tokenized_dataset = hf_dataset.map(tokenize_function, batched=False)
+        tokenized_dataset.set_format(type="torch")
+        tokenized_dataset = tokenized_dataset.filter(
+            lambda example: (example["labels"] != -100).any()
+        )
 
         lora_config = None
         if args.lora:
@@ -90,6 +111,17 @@ def main():
             peft_config=lora_config,
         )
 
+        # Create client handler
+        comms_handler = ArborScriptCommsHandler(
+            host=args.host,
+            command_port=args.command_port,
+            status_port=args.status_port,
+            data_port=args.data_port,
+            broadcast_port=args.broadcast_port,
+            handshake_port=args.handshake_port,
+            is_main_process=trainer.accelerator.is_main_process,
+        )
+
         logger.info("Starting training...")
         trainer.train()
 
@@ -97,19 +129,19 @@ def main():
         logger.info("Model saved")
 
         MERGE = True
-        if USE_PEFT and MERGE:
+        if args.lora and MERGE:
             from peft import AutoPeftModelForCausalLM
 
             # Load PEFT model on CPU
             model_ = AutoPeftModelForCausalLM.from_pretrained(
-                pretrained_model_name_or_path=sft_config.output_dir,
+                pretrained_model_name_or_path=training_args.output_dir,
                 torch_dtype=torch.float16,
                 low_cpu_mem_usage=True,
             )
 
             merged_model = model_.merge_and_unload()
             merged_model.save_pretrained(
-                sft_config.output_dir, safe_serialization=True, max_shard_size="5GB"
+                training_args.output_dir, safe_serialization=True, max_shard_size="5GB"
             )
 
     except KeyboardInterrupt:
@@ -121,6 +153,110 @@ def main():
     finally:
         trainer.accelerator.end_training()
         comms_handler.close()
+
+
+def encode_sft_example(example, tokenizer, max_seq_length):
+    """
+    This function encodes a single example into a format that can be used for sft training.
+    Here, we assume each example has a 'messages' field. Each message in it is a dict with 'role' and 'content' fields.
+    We use the `apply_chat_template` function from the tokenizer to tokenize the messages and prepare the input and label tensors.
+
+    Code obtained from the allenai/open-instruct repository: https://github.com/allenai/open-instruct/blob/4365dea3d1a6111e8b2712af06b22a4512a0df88/open_instruct/finetune.py
+    """
+    import torch
+
+    messages = example["messages"]
+    if len(messages) == 0:
+        raise ValueError("messages field is empty.")
+    input_ids = tokenizer.apply_chat_template(
+        conversation=messages,
+        tokenize=True,
+        return_tensors="pt",
+        padding=False,
+        truncation=True,
+        max_length=max_seq_length,
+        add_generation_prompt=False,
+    )
+    labels = input_ids.clone()
+    # mask the non-assistant part for avoiding loss
+    for message_idx, message in enumerate(messages):
+        if message["role"] != "assistant":
+            # we calculate the start index of this non-assistant message
+            if message_idx == 0:
+                message_start_idx = 0
+            else:
+                message_start_idx = tokenizer.apply_chat_template(
+                    conversation=messages[
+                        :message_idx
+                    ],  # here marks the end of the previous messages
+                    tokenize=True,
+                    return_tensors="pt",
+                    padding=False,
+                    truncation=True,
+                    max_length=max_seq_length,
+                    add_generation_prompt=False,
+                ).shape[1]
+            # next, we calculate the end index of this non-assistant message
+            if (
+                message_idx < len(messages) - 1
+                and messages[message_idx + 1]["role"] == "assistant"
+            ):
+                # for intermediate messages that follow with an assistant message, we need to
+                # set `add_generation_prompt=True` to avoid the assistant generation prefix being included in the loss
+                # (e.g., `<|assistant|>`)
+                message_end_idx = tokenizer.apply_chat_template(
+                    conversation=messages[: message_idx + 1],
+                    tokenize=True,
+                    return_tensors="pt",
+                    padding=False,
+                    truncation=True,
+                    max_length=max_seq_length,
+                    add_generation_prompt=True,
+                ).shape[1]
+            else:
+                # for the last message or the message that doesn't follow with an assistant message,
+                # we don't need to add the assistant generation prefix
+                message_end_idx = tokenizer.apply_chat_template(
+                    conversation=messages[: message_idx + 1],
+                    tokenize=True,
+                    return_tensors="pt",
+                    padding=False,
+                    truncation=True,
+                    max_length=max_seq_length,
+                    add_generation_prompt=False,
+                ).shape[1]
+            # set the label to -100 for the non-assistant part
+            labels[:, message_start_idx:message_end_idx] = -100
+            if max_seq_length and message_end_idx >= max_seq_length:
+                break
+    attention_mask = torch.ones_like(input_ids)
+    return {
+        "input_ids": input_ids.flatten(),
+        "labels": labels.flatten(),
+        "attention_mask": attention_mask.flatten(),
+    }
+
+
+def load_train_data(data_path):
+    """
+    Load training data from a file path.
+
+    Args:
+        data_path (str): Path to the training data file (JSONL format)
+
+    Returns:
+        list: List of training examples with 'messages' field
+    """
+    import json
+
+    train_data = []
+    with open(data_path, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():  # Skip empty lines
+                example = json.loads(line)
+                train_data.append(example)
+
+    return train_data
 
 
 if __name__ == "__main__":
