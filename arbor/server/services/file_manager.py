@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import UploadFile
 
-from arbor.server.core.config import Settings
+from arbor.server.core.config import Config
 from arbor.server.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -20,8 +20,8 @@ class FileValidationError(Exception):
 
 
 class FileManager:
-    def __init__(self, settings: Settings):
-        self.uploads_dir = Path(settings.STORAGE_PATH) / "uploads"
+    def __init__(self, config: Config):
+        self.uploads_dir = Path(config.STORAGE_PATH) / "uploads"
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
         self.files = self.load_files_from_uploads()
 

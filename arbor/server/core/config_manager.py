@@ -4,7 +4,7 @@ from typing import Dict, Optional, Tuple
 
 import yaml
 
-from arbor.server.core.config import Settings
+from arbor.server.core.config import Config
 
 
 class ConfigManager:
@@ -39,7 +39,7 @@ class ConfigManager:
         """Update existing config or create new one."""
 
         if config_path is None:
-            config_path = Settings.use_default_config()
+            config_path = Config.use_default_config()
             if config_path is None:
                 config_path = str(cls.get_default_config_path())
 
@@ -84,7 +84,7 @@ class ConfigManager:
                 return False, f"Config file does not exist: {config_path}"
 
             # If we do have a config file, try to see if it will load
-            Settings.load_from_yaml(config_path)
+            Config.load_config_from_yaml(config_path)
             return True, "Config is valid"
 
         except Exception as e:

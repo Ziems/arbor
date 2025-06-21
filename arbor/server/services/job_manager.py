@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Literal
 
 from arbor.server.api.models.schemas import JobStatus
-from arbor.server.core.config import Settings
+from arbor.server.core.config import Config
 
 
 class JobEvent:
@@ -58,7 +58,7 @@ class Job:
 
 
 class JobManager:
-    def __init__(self, settings: Settings):
+    def __init__(self, config: Config):
         self.jobs = {}
 
     def get_job(self, job_id: str):

@@ -1,6 +1,6 @@
 import pytest
 
-from arbor.server.core.config import Settings
+from arbor.server.core.config import Config
 from arbor.server.services.job_manager import (
     Job,
     JobCheckpoint,
@@ -14,7 +14,7 @@ from arbor.server.services.job_manager import (
 def test_settings(tmp_path):
     # tmp_path is a Path object that points to a temporary directory
     # It will be automatically cleaned up after tests
-    return Settings(STORAGE_PATH=str(tmp_path / "test_storage"))
+    return Config(STORAGE_PATH=str(tmp_path / "test_storage"))
 
 
 @pytest.fixture

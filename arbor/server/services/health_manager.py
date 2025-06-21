@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 import psutil
 
-from arbor.server.core.config import Settings
+from arbor.server.core.config import Config
 
 try:
     import GPUtil
@@ -24,8 +24,8 @@ except ImportError:
 class HealthManager:
     """Manages system health checks including GPU monitoring."""
 
-    def __init__(self, settings: Settings = None):
-        self.settings = settings
+    def __init__(self, config: Config = None):
+        self.config = config
 
     def get_gpu_info(self) -> Dict[str, Any]:
         """Get GPU information including available and used GPUs."""
@@ -132,9 +132,9 @@ class HealthManager:
 
     def get_health_status(self) -> Dict[str, Any]:
         """Get comprehensive health status including system and GPU information."""
-        version = self.settings.get_arbor_version() if self.settings else "unknown"
+        version = self.config.get_arbor_version() if self.config else "unknown"
         versions = (
-            self.settings.get_system_versions() if self.settings else {"arbor": version}
+            self.config.get_system_versions() if self.config else {"arbor": version}
         )
 
         return {

@@ -21,7 +21,7 @@ def run_server():
 @pytest.fixture(scope="module")
 def server(tmp_path_factory):
     """Set up a test server with configured dependencies"""
-    from arbor.server.core.config import Settings
+    from arbor.server.core.config import Config
     from arbor.server.main import app
     from arbor.server.services.file_manager import FileManager
     from arbor.server.services.job_manager import JobManager
@@ -35,15 +35,15 @@ def server(tmp_path_factory):
     root_dir = os.path.abspath(
         os.path.join(os.path.dirname(__file__), "..", "..", "..")
     )
-    settings = Settings.load_from_yaml(f"{root_dir}/arbor.yaml")
+    config = Config.load_config_from_yaml(f"{root_dir}/arbor.yaml")
 
     # Initialize services with test settings
-    file_manager = FileManager(settings=settings)
-    job_manager = JobManager(settings=settings)
-    training_manager = TrainingManager(settings=settings)
+    file_manager = FileManager(config=config)
+    job_manager = JobManager(settings=config)
+    training_manager = TrainingManager(settings=config)
 
     # Inject dependencies into app state
-    app.state.settings = settings
+    app.state.settings = config
     app.state.file_manager = file_manager
     app.state.job_manager = job_manager
     app.state.training_manager = training_manager
