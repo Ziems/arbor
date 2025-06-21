@@ -58,7 +58,7 @@ def create_app(
     return app
 
 
-def client_arbor_serve(
+def serve(
     config_path: str = None,
     storage_path: str = None,
     inference_gpus: str = None,
@@ -66,9 +66,24 @@ def client_arbor_serve(
     host: str = "0.0.0.0",
     port: int = 7453,
 ):
+    """Start the Arbor API server.
+
+    Args:
+        config_path: Path to YAML config file (optional)
+        storage_path: Valid storage directory path (optional)
+        inference_gpus: GPU IDs for inference, e.g. "0,1" (optional, default 0)
+        training_gpus: GPU IDs for training, e.g. "1,2,3" (optional, default 1,2)
+        host: Host to bind to (default: "0.0.0.0")
+        port: Port to bind to (default: 7453)
+
+    Example:
+        import arbor
+        arbor.serve(inference_gpus="0", training_gpus="1,2")
+    """
+    
     create_app(config_path, storage_path, inference_gpus, training_gpus)
     uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":
-    client_arbor_serve(inference_gpus="0, 1", training_gpus="2, 3")
+    serve(inference_gpus="0, 1", training_gpus="2, 3")
