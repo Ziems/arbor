@@ -8,6 +8,9 @@ from pathlib import Path
 from fastapi import UploadFile
 
 from arbor.server.core.config import Config
+from arbor.server.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class FileValidationError(Exception):
