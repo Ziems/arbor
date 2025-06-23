@@ -151,16 +151,19 @@ class HealthManager:
             # Check memory usage (unhealthy if > 90%)
             memory = psutil.virtual_memory()
             if memory.percent > 90:
+                print(f"Memory usage is {memory.percent}%")
                 return False
 
             # Check disk usage (unhealthy if > 95%)
             disk = psutil.disk_usage("/")
             if (disk.used / disk.total) * 100 > 95:
+                print(f"Disk usage is {disk.used / disk.total * 100}%")
                 return False
 
             # Check CPU usage (unhealthy if > 95% sustained)
             cpu_percent = psutil.cpu_percent(interval=2)
             if cpu_percent > 95:
+                print(f"CPU usage is {cpu_percent}%")
                 return False
 
             return True
