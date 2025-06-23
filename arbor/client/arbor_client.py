@@ -33,8 +33,10 @@ def create_app(
     # Create new config instance with overrides
     if config_path:
         config = Config.load_config_from_yaml(config_path)
-    else:
+    elif inference_gpus and training_gpus:
         config = Config.load_config_directly(storage_path, inference_gpus, training_gpus)
+    else:
+        raise ValueError("Either 'config_path' must be provided, or 'inference_gpus', and 'training_gpus' must be provided")
 
     app.state.log_dir = Config.make_log_dir(config.STORAGE_PATH)
 

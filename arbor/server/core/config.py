@@ -298,7 +298,9 @@ class Config(BaseModel):
                 )
             )
             
-            cls.set_storage_path(config["storage_path"])
+            storage_path = config.get("storage_path")
+            if storage_path:
+                cls.set_storage_path(storage_path)
                         
             return settings
         except Exception as e:
