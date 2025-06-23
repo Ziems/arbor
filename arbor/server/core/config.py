@@ -1,9 +1,9 @@
+import datetime
+import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional, ClassVar
-import os
-import datetime
+from typing import Any, ClassVar, Dict, Optional
 
 import yaml
 from pydantic import BaseModel
@@ -33,43 +33,47 @@ class Config(BaseModel):
     STORAGE_PATH: ClassVar[str] = str(Path.home() / ".arbor" / "storage")
     INACTIVITY_TIMEOUT: int = 30  # 5 seconds
     arbor_config: ArborConfig
-    
+
     @staticmethod
     def validate_storage_path(storage_path: str):
         """Validates a storage path, return True for success, False if failed."""
         try:
-            if not Path(storage_path).exists(): return False
+            if not Path(storage_path).exists():
+                return False
             return True
 
         except Exception as e:
             return False
-    
+
     @classmethod
     def set_storage_path(cls, storage_path: str):
         """Set a valid storage path to use, return True for success, False if failed."""
-        if not cls.validate_storage_path(storage_path): return False
+        if not cls.validate_storage_path(storage_path):
+            return False
 
         cls.STORAGE_PATH = storage_path
-        
+
         return True
-    
+
     @staticmethod
     def validate_storage_path(storage_path: str) -> None:
         """Validates a storage path, raises exception if invalid."""
         if not storage_path:
             raise ValueError("Storage path cannot be empty")
-        
+
         path = Path(storage_path)
-        
+
         if not path.exists():
             raise FileNotFoundError(f"Storage path does not exist: {storage_path}")
-        
+
         if not path.is_dir():
             raise NotADirectoryError(f"Storage path is not a directory: {storage_path}")
-        
+
         # Check if we can write to the directory
         if not os.access(path, os.W_OK):
-            raise PermissionError(f"No write permission for storage path: {storage_path}")
+            raise PermissionError(
+                f"No write permission for storage path: {storage_path}"
+            )
 
     @classmethod
     def set_storage_path(cls, storage_path: str) -> None:
@@ -82,9 +86,11 @@ class Config(BaseModel):
         """Create a timestamped log directory under the storage path."""
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        log_dir = Path(storage_path if storage_path else cls.STORAGE_PATH / "logs" / timestamp)
+        log_dir = Path(
+            storage_path if storage_path else cls.STORAGE_PATH / "logs" / timestamp
+        )
         log_dir.mkdir(exist_ok=True)
-         
+
         return log_dir
 
     @staticmethod
@@ -274,7 +280,7 @@ class Config(BaseModel):
     def load_config_from_yaml(cls, yaml_path: str) -> "Config":
         # If yaml file is not provided, try to use ~/.arbor/config.yaml
         cls._init_arbor_directories()
-        
+
         if not yaml_path:
             yaml_path = cls.use_default_config()
 
@@ -297,15 +303,22 @@ class Config(BaseModel):
                     training=TrainingConfig(**config["training"]),
                 )
             )
-            
-            cls.set_storage_path(config["storage_path"])
-                        
+
+            storage_path = config.get("storage_path")
+            if storage_path:
+                cls.set_storage_path(storage_path)
+
             return settings
         except Exception as e:
             raise ValueError(f"Error loading config file {yaml_path}: {e}")
 
     @classmethod
-    def load_config_directly(cls, storage_path: str = None, inference_gpus: str = "0", training_gpus: str = "1,2"):
+    def load_config_directly(
+        cls,
+        storage_path: str = None,
+        inference_gpus: str = "0",
+        training_gpus: str = "1,2",
+    ):
         cls._init_arbor_directories()
 
         # create settings without yaml file
@@ -313,7 +326,8 @@ class Config(BaseModel):
             inference=InferenceConfig(gpu_ids=inference_gpus),
             training=TrainingConfig(gpu_ids=training_gpus),
         )
-        
-        if storage_path: cls.set_storage_path(storage_path)
-        
+
+        if storage_path:
+            cls.set_storage_path(storage_path)
+
         return cls(arbor_config=config)
