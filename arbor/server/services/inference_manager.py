@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 import psutil
 import requests
 
-from arbor.server.core.config import Settings
+from arbor.server.core.config import Config
 from arbor.server.services.inference.vllm_client import VLLMClient
 from arbor.server.utils.logging import get_logger
 
@@ -19,9 +19,9 @@ logger = get_logger(__name__)
 
 
 class InferenceManager:
-    def __init__(self, settings: Settings):
-        self.settings = settings
-        self.process: Optional[subprocess.Popen] = None
+    def __init__(self, config: Config):
+        self.config = config
+        self.process = None
         self.launch_kwargs = {}
         self.last_activity = None
         self._shutting_down = False
@@ -67,8 +67,8 @@ class InferenceManager:
         logger.info(f"Grabbing a free port to launch a vLLM server for model {model}")
         self.port = get_free_port()
         my_env = os.environ.copy()
-        my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
-        n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
+        my_env["CUDA_VISIBLE_DEVICES"] = self.config.arbor_config.inference.gpu_ids
+        n_gpus = self.config.arbor_config.inference.gpu_ids.count(",") + 1
         command = f"{sys.executable} -m arbor.server.services.inference.vllm_serve --model {model} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching True"
 
         if launch_kwargs.get("max_context_length"):

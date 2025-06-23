@@ -19,7 +19,7 @@ from arbor.server.api.models.schemas import (
     GRPOConfigRequest,
     GRPORequest,
 )
-from arbor.server.core.config import Settings
+from arbor.server.core.config import Config
 from arbor.server.services.comms.comms import ArborServerCommsHandler
 from arbor.server.services.inference_manager import InferenceManager
 from arbor.server.utils.logging import get_logger
@@ -28,8 +28,8 @@ logger = get_logger(__name__)
 
 
 class GRPOManager:
-    def __init__(self, settings: Settings):
-        self.settings = settings
+    def __init__(self, config: Config):
+        self.config = config
         self.training_process = None
         self.current_model = None
         self.train_kwargs = None
@@ -67,7 +67,7 @@ class GRPOManager:
         )
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         name = f"grpo:{model_name}:{suffix}:{timestamp}"
-        return name, str(Path(self.settings.STORAGE_PATH).resolve() / "models" / name)
+        return name, str(Path(self.config.STORAGE_PATH).resolve() / "models" / name)
 
     def find_training_args(self, request: GRPOConfigRequest) -> dict:
         """Process the config request and return training arguments."""
@@ -149,11 +149,11 @@ class GRPOManager:
 
         # Start the training process with ZMQ ports
         my_env = os.environ.copy()
-        my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.training.gpu_ids
+        my_env["CUDA_VISIBLE_DEVICES"] = self.config.arbor_config.training.gpu_ids
         # WandB can block the training process for login, so we silence it
         my_env["WANDB_SILENT"] = "true"
 
-        num_processes = self.settings.arbor_config.training.gpu_ids.count(",") + 1
+        num_processes = self.config.arbor_config.training.gpu_ids.count(",") + 1
 
         # This is the port for the accelerate main process
         main_process_port = get_free_port()
@@ -167,11 +167,11 @@ class GRPOManager:
             "--main_process_port",
             str(main_process_port),
         ]
-        if self.settings.arbor_config.training.accelerate_config:
+        if self.config.arbor_config.training.accelerate_config:
             params.extend(
                 [
                     "--config_file",
-                    self.settings.arbor_config.training.accelerate_config,
+                    self.config.arbor_config.training.accelerate_config,
                 ]
             )
         params.extend(
