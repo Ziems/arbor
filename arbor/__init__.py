@@ -15,7 +15,7 @@ except PackageNotFoundError:
     __version__ = "dev"
 except Exception:
     __version__ = "unknown"
-    
-from arbor.client.arbor_client import serve
-    
-__all__ = ["__version__", "serve"]
+
+from arbor.client.arbor_client import is_running, serve, stop
+
+__all__ = ["__version__", "serve", "stop", "is_running"]
