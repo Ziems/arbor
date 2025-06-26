@@ -22,6 +22,7 @@ async def run_inference(
     # if a server isnt running, launch one
     if not inference_manager.is_server_running():
         print("No model is running, launching model...")
+        print(f"Raw request JSON: {raw_json}")
         inference_manager.launch(raw_json["model"])
 
     # forward the request to the inference server

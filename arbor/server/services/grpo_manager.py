@@ -132,11 +132,11 @@ class GRPOManager:
         # launch_kwargs = {
         #     k: v for k, v in arbor_train_kwargs.items() if k in ["max_context_length"]
         # }
-        inference_manager.launch_kwargs["max_context_length"] = arbor_train_kwargs.get(
-            "max_context_length", None
-        )
+        launch_kwargs = {
+            "max_context_length": arbor_train_kwargs.get("max_context_length", None),
+        }
         print("Launching inference server...")
-        inference_manager.launch(self.current_model)
+        inference_manager.launch(self.current_model, launch_kwargs)
 
         # Initialize ZMQ socket manager - no need for connection acceptance thread anymore
         self.server_comms_handler = ArborServerCommsHandler()

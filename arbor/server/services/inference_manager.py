@@ -1,3 +1,4 @@
+import asyncio
 import os
 import random
 import signal
@@ -6,14 +7,12 @@ import subprocess
 import sys
 import threading
 import time
-import asyncio
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, Optional
 
-import requests
 import psutil
-import signal
+import requests
 
 from arbor.server.core.config import Settings
 from arbor.server.services.inference.vllm_client import VLLMClient
@@ -62,6 +61,8 @@ class InferenceManager:
             if model.startswith(prefix):
                 model = model[len(prefix) :]
 
+        print(f"Launching vLLM server for model {model} with kwargs {launch_kwargs}")
+
         print(f"Grabbing a free port to launch a vLLM server for model {model}")
         self.port = get_free_port()
         timeout = launch_kwargs.get("timeout", 1800)
@@ -70,12 +71,9 @@ class InferenceManager:
         n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
         command = f"python -m arbor.server.services.inference.vllm_serve --model {model} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching True"
         if launch_kwargs.get("max_context_length"):
-            command += (
-                f" --max_model_len {launch_kwargs['max_context_length']}"
-            )
+            command += f" --max_model_len {launch_kwargs['max_context_length']}"
 
         print(f"Running command: {command}")
-
 
         # We will manually stream & capture logs.
         process = subprocess.Popen(
@@ -103,7 +101,7 @@ class InferenceManager:
                     # Print only if stop_event is not set
                     if not stop_event.is_set():
                         print(f"[vLLM LOG] {line}", end="")
-        
+
         # Start a background thread to read from the process continuously
         thread = threading.Thread(
             target=_tail_process,
@@ -169,7 +167,7 @@ class InferenceManager:
             # weights are being updated...waiting
             # print("Weights are being updated, waiting...")
             await asyncio.sleep(1)  # Small sleep to prevent busy waiting
-            
+
         model = request_json["model"]
         prefixes = ["openai/", "huggingface/", "local:", "arbor:"]
         for prefix in prefixes:
@@ -191,9 +189,7 @@ class InferenceManager:
         if self.process is None:
             raise RuntimeError("Server is not running. Please launch it first.")
 
-        return await self.vllm_client.chat(
-            json_body=request_json
-        )
+        return await self.vllm_client.chat(json_body=request_json)
 
     def start_weight_update(self):
         """Block inference during weight updates"""
@@ -253,28 +249,29 @@ def wait_for_server(base_url: str, timeout: int = None) -> None:
             # Server not up yet, wait and retry
             time.sleep(1)
 
+
 def kill_vllm_server(main_process_pid):
     try:
         # Get the parent process
         parent = psutil.Process(main_process_pid)
-        
+
         # Get all child processes recursively
         children = parent.children(recursive=True)
-        
+
         # Send SIGTERM to all child processes first
         for child in children:
             child.send_signal(signal.SIGTERM)
-            
+
         # Send SIGTERM to parent process
         parent.send_signal(signal.SIGTERM)
-        
+
         # Wait for processes to terminate gracefully
         gone, alive = psutil.wait_procs(children + [parent], timeout=10)
-        
+
         # If any processes are still alive, force kill them
         for p in alive:
             p.kill()  # SIGKILL
-            
+
     except psutil.NoSuchProcess:
         print(f"Process {main_process_pid} not found")
     except Exception as e:
