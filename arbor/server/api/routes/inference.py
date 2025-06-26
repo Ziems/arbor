@@ -23,7 +23,9 @@ async def run_inference(
     if not inference_manager.is_server_running():
         print("No model is running, launching model...")
         print(f"Raw request JSON: {raw_json}")
-        inference_manager.launch(raw_json["model"])
+        inference_manager.launch(
+            raw_json["model"], {"max_context_length": 32768}
+        )  # Placeholder for now
 
     # forward the request to the inference server
     completion = await inference_manager.run_inference(raw_json)
