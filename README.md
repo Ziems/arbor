@@ -54,7 +54,7 @@ export NCCL_IB_DISABLE=1
 
 **NVCC**
 If you run into issues, double check that you have [nvcc](https://docs.nvidia.com/cuda/cuda-compiler-driver-nvcc/) installed:
-``bash
+```bash
 nvcc --version
 ```
 If you don't have admin permissions, you can often install nvcc using conda.
