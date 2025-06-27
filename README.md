@@ -52,6 +52,14 @@ export NCCL_P2P_DISABLE=1
 export NCCL_IB_DISABLE=1
 ```
 
+**NVCC**
+If you run into issues, double check that you have [nvcc](https://docs.nvidia.com/cuda/cuda-compiler-driver-nvcc/) installed:
+``bash
+nvcc --version
+```
+If you don't have admin permissions, you can often install nvcc using conda.
+
+
 ## 🙏 Acknowledgements
 
 Arbor builds on the shoulders of great work. We extend our thanks to:
