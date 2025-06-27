@@ -21,7 +21,7 @@ from arbor.server.api.models.schemas import (
 )
 from arbor.server.core.config import Settings
 from arbor.server.services.comms.comms import ArborServerCommsHandler
-from arbor.server.services.inference_manager import InferenceManager
+from arbor.server.services.managers.inference_manager import InferenceManager
 from arbor.server.utils.logging import get_logger
 
 logger = get_logger(__name__)

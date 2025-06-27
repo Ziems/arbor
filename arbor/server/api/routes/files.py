@@ -3,7 +3,7 @@ from typing import Literal
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 
 from arbor.server.api.models.schemas import FileModel, PaginatedResponse
-from arbor.server.services.file_manager import FileValidationError
+from arbor.server.services.managers.file_manager import FileValidationError
 
 # https://platform.openai.com/docs/api-reference/files/list
 router = APIRouter()

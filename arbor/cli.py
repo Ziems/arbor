@@ -7,16 +7,15 @@ import uvicorn
 from arbor.server.core.config import Settings
 from arbor.server.core.config_manager import ConfigManager
 from arbor.server.main import app
-from arbor.server.services.file_manager import FileManager
-from arbor.server.services.grpo_manager import GRPOManager
-from arbor.server.services.health_manager import HealthManager
-from arbor.server.services.inference_manager import InferenceManager
-from arbor.server.services.job_manager import JobManager
-from arbor.server.services.training_manager import TrainingManager
+from arbor.server.services.managers.file_manager import FileManager
+from arbor.server.services.managers.file_train_manager import FileTrainManager
+from arbor.server.services.managers.grpo_manager import GRPOManager
+from arbor.server.services.managers.health_manager import HealthManager
+from arbor.server.services.managers.inference_manager import InferenceManager
+from arbor.server.services.managers.job_manager import JobManager
 from arbor.server.utils.logging import (
     get_logger,
     log_configuration,
-    log_system_info,
     setup_logging,
 )
 
@@ -82,7 +81,7 @@ def create_app(arbor_config_path: str):
     logger.info("Initializing services...")
     file_manager = FileManager(settings=settings)
     job_manager = JobManager(settings=settings)
-    training_manager = TrainingManager(settings=settings)
+    file_train_manager = FileTrainManager(settings=settings)
     inference_manager = InferenceManager(settings=settings)
     grpo_manager = GRPOManager(settings=settings)
 
@@ -90,7 +89,7 @@ def create_app(arbor_config_path: str):
     app.state.settings = settings
     app.state.file_manager = file_manager
     app.state.job_manager = job_manager
-    app.state.training_manager = training_manager
+    app.state.file_train_manager = file_train_manager
     app.state.inference_manager = inference_manager
     app.state.grpo_manager = grpo_manager
     app.state.health_manager = health_manager

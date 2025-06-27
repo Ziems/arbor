@@ -1,25 +1,41 @@
 import json
 import os
 import random
-import socket
+import string
 import subprocess
 import sys
 import threading
+from datetime import datetime
+from pathlib import Path
+from typing import Literal
 
 from arbor.server.api.models.schemas import (
     FineTuneRequest,
 )
 from arbor.server.core.config import Settings
 from arbor.server.services.comms.comms import ArborServerCommsHandler
+from arbor.server.services.jobs.job import Job
 from arbor.server.services.managers.file_manager import FileManager
 from arbor.server.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-class FileTrainJob:
+class FileTrainJob(Job):
     def __init__(self, settings: Settings):
+        super().__init__()
         self.settings = settings
+
+    def _make_output_dir(self, request: FineTuneRequest):
+        model_name = request.model.split("/")[-1].lower()
+        suffix = (
+            request.suffix
+            if request.suffix is not None
+            else "".join(random.choices(string.ascii_letters + string.digits, k=6))
+        )
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        name = f"ft:{model_name}:{suffix}:{timestamp}"
+        return name, str(Path(self.settings.STORAGE_PATH).resolve() / "models" / name)
 
     def _prepare_training_file(
         self, request: FineTuneRequest, file_manager: FileManager, format_type: str
@@ -44,17 +60,13 @@ class FileTrainJob:
         # Validate file format using the unified method
         file_manager.validate_file_format(data_path, format_type)
 
-        name, output_dir = self.make_output_dir(request)
-
-        return data_path, output_dir
+        return data_path
 
     def find_train_args_sft(self, request: FineTuneRequest, file_manager: FileManager):
-        data_path, output_dir = self._prepare_training_file(
-            request, file_manager, "sft"
-        )
+        name, output_dir = self._make_output_dir(request)
+        data_path = self._prepare_training_file(request, file_manager, "sft")
 
         default_train_kwargs = {
-            "use_peft": False,
             "num_train_epochs": 5,
             "per_device_train_batch_size": 1,
             "gradient_accumulation_steps": 8,
@@ -63,21 +75,23 @@ class FileTrainJob:
             "packing": True,
             "bf16": True,
             "output_dir": output_dir,
-            "train_data_path": data_path,
         }
 
         train_kwargs = {"packing": False}
         train_kwargs = {**default_train_kwargs, **(train_kwargs or {})}
 
-        return train_kwargs
+        arbor_train_kwargs = {
+            "train_data_path": data_path,
+            "lora": False,
+        }
+
+        return train_kwargs, arbor_train_kwargs
 
     def find_train_args_dpo(self, request: FineTuneRequest, file_manager: FileManager):
-        data_path, output_dir = self._prepare_training_file(
-            request, file_manager, "dpo"
-        )
+        name, output_dir = self._make_output_dir(request)
+        data_path = self._prepare_training_file(request, file_manager, "dpo")
 
         default_train_kwargs = {
-            "use_peft": False,
             "num_train_epochs": 5,
             "per_device_train_batch_size": 1,
             "gradient_accumulation_steps": 8,
@@ -86,30 +100,39 @@ class FileTrainJob:
             "packing": True,
             "bf16": True,
             "output_dir": output_dir,
-            "train_data_path": data_path,
         }
 
         train_kwargs = {"packing": False}
         train_kwargs = {**default_train_kwargs, **(train_kwargs or {})}
 
-        return train_kwargs
+        arbor_train_kwargs = {
+            "train_data_path": data_path,
+            "lora": False,
+        }
 
-    def fine_tune(self, request: FineTuneRequest, file_manager: FileManager):
+        return train_kwargs, arbor_train_kwargs
 
-        train_type = request.method["type"]
+    def fine_tune(
+        self,
+        request: FineTuneRequest,
+        file_manager: FileManager,
+        train_type: Literal["dpo", "sft"],
+    ):
 
-        args_fn = {
+        find_train_args_fn = {
             "dpo": self.find_train_args_dpo,
             "sft": self.find_train_args_sft,
         }[train_type]
 
-        trl_train_kwargs, arbor_train_kwargs = args_fn(request, file_manager)
+        trl_train_kwargs, arbor_train_kwargs = find_train_args_fn(request, file_manager)
 
         self.model = request.model
 
         self.server_comms_handler = ArborServerCommsHandler()
 
-        script_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
+        script_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"
+        )
         script_name = {"dpo": "dpo_training.py", "sft": "sft_training.py"}[train_type]
         script_path = os.path.join(script_dir, script_name)
 
@@ -193,6 +216,7 @@ class FileTrainJob:
             daemon=True,
         )
         thread.start()
+        self.server_comms_handler.wait_for_clients(num_processes)
 
     def _handle_status_updates(self):
         for status in self.server_comms_handler.receive_status():

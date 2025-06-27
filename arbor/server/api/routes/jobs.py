@@ -8,7 +8,7 @@ from arbor.server.api.models.schemas import (
     JobStatusModel,
     PaginatedResponse,
 )
-from arbor.server.services.job_manager import JobStatus
+from arbor.server.services.managers.job_manager import JobStatus
 
 router = APIRouter()
 
@@ -18,16 +18,13 @@ router = APIRouter()
 def create_fine_tune_job(
     request: Request,
     fine_tune_request: FineTuneRequest,
-    background_tasks: BackgroundTasks,
 ):
     job_manager = request.app.state.job_manager
     file_manager = request.app.state.file_manager
-    training_manager = request.app.state.training_manager
+    file_train_manager = request.app.state.file_train_manager
 
     job = job_manager.create_job()
-    background_tasks.add_task(
-        training_manager.fine_tune, fine_tune_request, job, file_manager
-    )
+    file_train_manager.fine_tune(fine_tune_request, job, file_manager)
     job.status = JobStatus.QUEUED
     return JobStatusModel(id=job.id, status=job.status.value)
 
@@ -49,7 +46,10 @@ def get_jobs(request: Request):
 @router.get("/{job_id}/events", response_model=PaginatedResponse[JobEventModel])
 def get_job_events(request: Request, job_id: str):
     job_manager = request.app.state.job_manager
-    job = job_manager.get_job(job_id)
+    try:
+        job = job_manager.get_job(job_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
     return PaginatedResponse(
         data=[
             JobEventModel(
@@ -72,7 +72,10 @@ def get_job_events(request: Request, job_id: str):
 )
 def get_job_checkpoints(request: Request, job_id: str):
     job_manager = request.app.state.job_manager
-    job = job_manager.get_job(job_id)
+    try:
+        job = job_manager.get_job(job_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
     return PaginatedResponse(
         data=[
             JobCheckpointModel(
@@ -94,8 +97,12 @@ def get_job_status(
     request: Request,
     job_id: str,
 ):
+    print("getting job status")
     job_manager = request.app.state.job_manager
-    job = job_manager.get_job(job_id)
+    try:
+        job = job_manager.get_job(job_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
     return JobStatusModel(
         id=job_id, status=job.status.value, fine_tuned_model=job.fine_tuned_model
     )
@@ -105,7 +112,10 @@ def get_job_status(
 @router.post("/{job_id}/cancel", response_model=JobStatusModel)
 def cancel_job(request: Request, job_id: str):
     job_manager = request.app.state.job_manager
-    job = job_manager.get_job(job_id)
+    try:
+        job = job_manager.get_job(job_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
     # Only allow cancellation of jobs that aren't finished
     if job.status in [JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED]:

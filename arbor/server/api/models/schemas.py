@@ -20,6 +20,7 @@ class FileModel(BaseModel):
     created_at: int
     filename: str
     purpose: str
+    format: str = "unknown"  # Detected format: "sft", "dpo", or "unknown"
 
 
 class WandbConfig(BaseModel):
@@ -37,7 +38,7 @@ class IntegrationModel(BaseModel):
 class FineTuneRequest(BaseModel):
     model: str
     training_file: str  # id of uploaded jsonl file
-    method: dict
+    method: Optional[dict] = None
     suffix: Optional[str] = None
     # UNUSED
     validation_file: Optional[str] = None
@@ -91,6 +92,7 @@ class JobStatus(Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     PENDING_CANCEL = "pending_cancel"
+    CREATED = "created"
 
 
 # https://platform.openai.com/docs/api-reference/fine-tuning/object

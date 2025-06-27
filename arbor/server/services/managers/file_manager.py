@@ -1,13 +1,14 @@
 import json
-import os
 import shutil
 import time
 import uuid
 from pathlib import Path
+from typing import Literal, Union
 
 from fastapi import UploadFile
 
 from arbor.server.core.config import Settings
+from arbor.server.utils.format_detection import detect_file_format
 from arbor.server.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -56,9 +57,54 @@ class FileManager:
                     "created_at", int(file_path.stat().st_mtime)
                 ),
                 "filename": metadata.get("filename", file_path.name),
+                "format": metadata.get("format", "unknown"),
             }
 
         return files
+
+    def check_file_format(self, file_id: str) -> Literal["sft", "dpo", "unknown"]:
+        """
+        Gets the detected format of an uploaded file.
+
+        Args:
+            file_id: ID of the uploaded file
+
+        Returns:
+            The detected format from metadata, or attempts detection if not stored
+        """
+        file = self.get_file(file_id)
+        if file is None:
+            raise FileValidationError(f"File {file_id} not found")
+
+        # Try to get format from metadata first
+        if "format" in file:
+            return file["format"]
+
+        # If not in metadata, try to detect it
+        detected_format = detect_file_format(file["path"])
+
+        # Update the file metadata with detected format
+        file["format"] = detected_format
+        self._update_file_metadata(file_id, {"format": detected_format})
+
+        return detected_format
+
+    def _update_file_metadata(self, file_id: str, updates: dict):
+        """Helper method to update file metadata on disk"""
+        try:
+            dir_path = self.uploads_dir / file_id
+            metadata_path = dir_path / "metadata.json"
+
+            if metadata_path.exists():
+                with open(metadata_path, "r") as f:
+                    metadata = json.load(f)
+
+                metadata.update(updates)
+
+                with open(metadata_path, "w") as f:
+                    json.dump(metadata, f)
+        except Exception as e:
+            logger.warning(f"Failed to update metadata for {file_id}: {e}")
 
     def save_uploaded_file(self, file: UploadFile):
         file_id = f"file-{str(uuid.uuid4())}"
@@ -70,11 +116,15 @@ class FileManager:
         with open(file_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
 
-        # Create metadata
+        # Detect file format
+        detected_format = detect_file_format(str(file_path))
+
+        # Create metadata with format information
         metadata = {
             "purpose": "training",
             "created_at": int(time.time()),
             "filename": file.filename,
+            "format": detected_format,
         }
 
         # Save metadata
@@ -88,13 +138,14 @@ class FileManager:
             "bytes": file.size,
             "created_at": metadata["created_at"],
             "filename": metadata["filename"],
+            "format": metadata["format"],
         }
 
         self.files[file_id] = file_data
         return file_data
 
     def get_file(self, file_id: str):
-        return self.files[file_id]
+        return self.files.get(file_id)
 
     def delete_file(self, file_id: str):
         if file_id not in self.files:

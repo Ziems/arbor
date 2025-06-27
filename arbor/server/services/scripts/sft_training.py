@@ -18,7 +18,7 @@ def main():
     args = parser.parse_args()
 
     try:
-        trl_train_args = {**(args.trl_config_kwargs or {})}
+        trl_train_args = {**(args.trl_train_kwargs or {})}
         arbor_train_args = {**(args.arbor_train_kwargs or {})}
 
         # TODO: These assertions should be done in some better way
@@ -59,7 +59,7 @@ def main():
         )
 
         lora_config = None
-        if args.lora:
+        if arbor_train_args.get("lora", False):
             logger.info("Using LORA for PEFT")
             lora_config = LoraConfig(
                 r=16,
@@ -129,7 +129,7 @@ def main():
         logger.info("Model saved")
 
         MERGE = True
-        if args.lora and MERGE:
+        if arbor_train_args.get("lora", False) and MERGE:
             from peft import AutoPeftModelForCausalLM
 
             # Load PEFT model on CPU
@@ -151,8 +151,10 @@ def main():
         comms_handler.send_status({"status": "error", "error": str(e)})
         raise e
     finally:
-        trainer.accelerator.end_training()
-        comms_handler.close()
+        if trainer:
+            trainer.accelerator.end_training()
+        if comms_handler:
+            comms_handler.close()
 
 
 def encode_sft_example(example, tokenizer, max_seq_length):

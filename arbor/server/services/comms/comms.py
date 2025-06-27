@@ -142,7 +142,8 @@ class ArborScriptCommsHandler:
                     data = self.data_socket.recv_json()
                     self.data_queue.put(data)
                 except Exception as e:
-                    logger.error(f"Error receiving data: {e}")
+                    if not self.closed:
+                        logger.error(f"Error receiving data: {e}")
                     break
 
         self.receiver_thread = threading.Thread(target=_receiver, daemon=True)
@@ -160,6 +161,7 @@ class ArborScriptCommsHandler:
             yield broadcast
 
     def close(self):
+        self.closed = True
         if self.command_socket is not None:
             self.command_socket.close()
         if self.status_socket is not None:
