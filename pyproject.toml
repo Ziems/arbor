@@ -14,7 +14,7 @@ dependencies = [
     "click",
     "python-multipart",
     "pydantic-settings",
-    "vllm>=0.8.5.post1",
+    "vllm==0.8.5.post1",
     "transformers",
     "trl>=0.17.0",
     "peft",
