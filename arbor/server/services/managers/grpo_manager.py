@@ -22,6 +22,7 @@ from arbor.server.api.models.schemas import (
 from arbor.server.core.config import Settings
 from arbor.server.services.comms.comms import ArborServerCommsHandler
 from arbor.server.services.managers.inference_manager import InferenceManager
+from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -498,21 +499,3 @@ class GRPOManager:
             self.server_comms_handler = None
             self.status_thread = None
             self.data_count = 0
-
-
-def get_free_port() -> int:
-    """
-    Return a randomly selected free TCP port on localhost from a selection of 3-4 ports.
-    """
-    import random
-    import socket
-
-    ports = []
-    for _ in range(random.randint(5, 10)):
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(("localhost", 0))
-                ports.append(s.getsockname()[1])
-        except Exception as e:
-            logger.error(f"Error binding to port: {e}")
-    return random.choice(ports)
