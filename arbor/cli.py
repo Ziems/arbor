@@ -4,6 +4,7 @@ from datetime import datetime
 import click
 import uvicorn
 
+from arbor.client.arbor_client import create_app
 from arbor.server.core.config import Config
 from arbor.server.core.config_manager import ConfigManager
 from arbor.server.main import app
@@ -13,12 +14,91 @@ from arbor.server.services.health_manager import HealthManager
 from arbor.server.services.inference_manager import InferenceManager
 from arbor.server.services.job_manager import JobManager
 from arbor.server.services.training_manager import TrainingManager
-from arbor.client.arbor_client import create_app
+from arbor.server.utils.logging import (
+    get_logger,
+    log_configuration,
+    log_system_info,
+    setup_logging,
+)
+
+
+def make_log_dir(storage_path: str):
+    # Create a timestamped log directory under the storage path
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_dir = os.path.join(storage_path, "logs", timestamp)
+    os.makedirs(log_dir, exist_ok=True)
+    return log_dir
 
 
 @click.group()
 def cli():
     pass
+
+
+def create_app(arbor_config_path: str):
+    """Create and configure the Arbor API application
+
+    Args:
+        arbor_config_path (str): Path to config file
+
+    Returns:
+        FastAPI: Configured FastAPI application
+    """
+    # Create new settings instance with overrides
+    config = Config.load_config_from_yaml(arbor_config_path)
+    log_dir = make_log_dir(config.STORAGE_PATH)
+    app.state.log_dir = log_dir
+
+    # Setup logging
+    logging_config = setup_logging(
+        log_level="INFO",
+        log_dir=log_dir,
+        enable_file_logging=True,
+        enable_console_logging=True,
+    )
+
+    # Log configuration and system info
+    log_configuration(logging_config)
+
+    # Get logger for this module
+    logger = get_logger(__name__)
+    logger.info("Initializing Arbor application...")
+
+    # Log system information via health manager
+    health_manager = HealthManager(config=config)
+    try:
+        versions = config.get_system_versions()
+        logger.info("System versions:")
+        for category, version_info in versions.items():
+            if isinstance(version_info, dict):
+                logger.info(f"  {category}:")
+                for lib, version in version_info.items():
+                    logger.info(f"    {lib}: {version}")
+            else:
+                logger.info(f"  {category}: {version_info}")
+    except Exception as e:
+        logger.warning(f"Could not log system versions: {e}")
+
+    # Initialize services with settings
+    logger.info("Initializing services...")
+    file_manager = FileManager(config=config)
+    job_manager = JobManager(config=config)
+    training_manager = TrainingManager(config=config)
+    inference_manager = InferenceManager(config=config)
+    grpo_manager = GRPOManager(config=config)
+
+    # Inject settings into app state
+    app.state.config = config
+    app.state.file_manager = file_manager
+    app.state.job_manager = job_manager
+    app.state.training_manager = training_manager
+    app.state.inference_manager = inference_manager
+    app.state.grpo_manager = grpo_manager
+    app.state.health_manager = health_manager
+
+    logger.info("Arbor application initialized successfully")
+    return app
+
 
 def start_server(host="0.0.0.0", port=7453, storage_path="./storage", timeout=10):
     """Start the Arbor API server with a single function call"""
@@ -93,6 +173,7 @@ def serve(host, port, arbor_config):
         # configure_uvicorn_logging()
         uvicorn.run(app, host=host, port=port)
     except Exception as e:
+
         click.echo(f"Failed to start server: {e}", err=True)
         raise click.Abort()
 
