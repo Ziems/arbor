@@ -157,6 +157,51 @@ class FileManager:
 
         del self.files[file_id]
 
+    def validate_content_format(self, content: bytes) -> None:
+        """
+        Validates the format of the content.
+        """
+        detected_format = self._detect_content_format(content)
+        if detected_format == "sft":
+            self._validate_sft_content(content)
+        elif detected_format == "dpo":
+            self._validate_dpo_content(content)
+        else:
+            raise FileValidationError("File format could not be determined. Please ensure the file is valid SFT or DPO format.")
+
+    def _detect_content_format(self, content: bytes) -> Literal["sft", "dpo", "unknown"]:
+        """
+        Detect the format of content by examining its structure.
+        """
+        try:
+            lines = content.decode('utf-8').split('\n')
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+
+                try:
+                    data = json.loads(line)
+                    if not isinstance(data, dict):
+                        continue
+
+                    # Check for SFT format indicators
+                    if "messages" in data and isinstance(data["messages"], list):
+                        return "sft"
+
+                    # Check for DPO format indicators
+                    if all(key in data for key in ["input", "preferred_output", "non_preferred_output"]):
+                        return "dpo"
+
+                except json.JSONDecodeError:
+                    continue
+
+            return "unknown"
+
+        except Exception as e:
+            logger.warning(f"Error detecting content format: {e}")
+            return "unknown"
+
     def validate_file_format(
         self, file_path: str, format_type: Literal["sft", "dpo"]
     ) -> None:
@@ -170,60 +215,185 @@ class FileManager:
         Raises:
             FileValidationError: If validation fails
         """
-        if format_type == "sft":
-            self._validate_sft_format(file_path)
-        elif format_type == "dpo":
-            self._validate_dpo_format(file_path)
-        else:
-            raise FileValidationError(f"Unknown format type: {format_type}")
+        try:
+            with open(file_path, "rb") as f:
+                content = f.read()
+            
+            if format_type == "sft":
+                self._validate_sft_content(content)
+            elif format_type == "dpo":
+                self._validate_dpo_content(content)
+            else:
+                raise FileValidationError(f"Unknown format type: {format_type}")
+        except Exception as e:
+            raise FileValidationError(f"Failed to read or validate file: {e}")
+
+    def _validate_sft_content(self, content: bytes) -> None:
+        """
+        Validates SFT format content: JSONL with messages array structure.
+        """
+        try:
+            lines = content.decode('utf-8').split('\n')
+            for line_num, line in enumerate(lines, 1):
+                line = line.strip()
+                if not line:
+                    continue  # skip empty lines
+                try:
+                    data = json.loads(line)
+
+                    if not isinstance(data, dict):
+                        raise FileValidationError(
+                            f"Line {line_num}: Each line must be a JSON object"
+                        )
+
+                    if "messages" not in data:
+                        raise FileValidationError(
+                            f"Line {line_num}: Missing 'messages' field"
+                        )
+
+                    if not isinstance(data["messages"], list):
+                        raise FileValidationError(
+                            f"Line {line_num}: 'messages' must be an array"
+                        )
+
+                    for msg in data["messages"]:
+                        if not isinstance(msg, dict):
+                            raise FileValidationError(
+                                f"Line {line_num}: Each message must be an object"
+                            )
+                        if "role" not in msg or "content" not in msg:
+                            raise FileValidationError(
+                                f"Line {line_num}: Messages must have 'role' and 'content' fields"
+                            )
+                        if not isinstance(msg["role"], str) or not isinstance(
+                            msg["content"], str
+                        ):
+                            raise FileValidationError(
+                                f"Line {line_num}: Message 'role' and 'content' must be strings"
+                            )
+
+                except json.JSONDecodeError:
+                    raise FileValidationError(f"Invalid JSON on line {line_num}")
+
+        except Exception as e:
+            raise FileValidationError(f"Failed to validate content: {e}")
+
+    def _validate_dpo_content(self, content: bytes) -> None:
+        """
+        Validates DPO format content: JSONL with input, preferred_output, and non_preferred_output structure.
+        """
+        try:
+            lines = content.decode('utf-8').split('\n')
+            for line_num, line in enumerate(lines, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+
+                    if not isinstance(data, dict):
+                        raise FileValidationError(
+                            f"Line {line_num}: Each line must be a JSON object"
+                        )
+
+                    input_data = data.get("input")
+                    if not isinstance(input_data, dict):
+                        raise FileValidationError(
+                            f"Line {line_num}: Missing or invalid 'input' field"
+                        )
+
+                    if "messages" not in input_data or not isinstance(
+                        input_data["messages"], list
+                    ):
+                        raise FileValidationError(
+                            f"Line {line_num}: 'input.messages' must be a list"
+                        )
+                    for msg in input_data["messages"]:
+                        if not isinstance(msg, dict):
+                            raise FileValidationError(
+                                f"Line {line_num}: Each 'message' must be an object"
+                            )
+                        if "role" not in msg or "content" not in msg:
+                            raise FileValidationError(
+                                f"Line {line_num}: Each message must have 'role' and 'content'"
+                            )
+                        if not isinstance(msg["role"], str) or not isinstance(
+                            msg["content"], str
+                        ):
+                            raise FileValidationError(
+                                f"Line {line_num}: 'role' and 'content' must be strings"
+                            )
+
+                    if "tools" not in input_data or not isinstance(
+                        input_data["tools"], list
+                    ):
+                        raise FileValidationError(
+                            f"Line {line_num}: 'input.tools' must be a list"
+                        )
+
+                    if "parallel_tool_calls" not in input_data or not isinstance(
+                        input_data["parallel_tool_calls"], bool
+                    ):
+                        raise FileValidationError(
+                            f"Line {line_num}: 'input.parallel_tool_calls' must be a boolean"
+                        )
+
+                    preferred = data.get("preferred_output")
+                    if not isinstance(preferred, list):
+                        raise FileValidationError(
+                            f"Line {line_num}: 'preferred_output' must be a list"
+                        )
+                    for msg in preferred:
+                        if not isinstance(msg, dict):
+                            raise FileValidationError(
+                                f"Line {line_num}: Each 'preferred_output' message must be an object"
+                            )
+                        if "role" not in msg or "content" not in msg:
+                            raise FileValidationError(
+                                f"Line {line_num}: Each preferred_output message must have 'role' and 'content'"
+                            )
+                        if not isinstance(msg["role"], str) or not isinstance(
+                            msg["content"], str
+                        ):
+                            raise FileValidationError(
+                                f"Line {line_num}: 'role' and 'content' in preferred_output must be strings"
+                            )
+
+                    non_preferred = data.get("non_preferred_output")
+                    if not isinstance(non_preferred, list):
+                        raise FileValidationError(
+                            f"Line {line_num}: 'non_preferred_output' must be a list"
+                        )
+                    for msg in non_preferred:
+                        if not isinstance(msg, dict):
+                            raise FileValidationError(
+                                f"Line {line_num}: Each 'non_preferred_output' message must be an object"
+                            )
+                        if "role" not in msg or "content" not in msg:
+                            raise FileValidationError(
+                                f"Line {line_num}: Each non_preferred_output message must have 'role' and 'content'"
+                            )
+                        if not isinstance(msg["role"], str) or not isinstance(
+                            msg["content"], str
+                        ):
+                            raise FileValidationError(
+                                f"Line {line_num}: 'role' and 'content' in non_preferred_output must be strings"
+                            )
+
+                except json.JSONDecodeError:
+                    raise FileValidationError(f"Invalid JSON on line {line_num}")
+
+        except Exception as e:
+            raise FileValidationError(f"Failed to validate content: {e}")
 
     def _validate_sft_format(self, file_path: str) -> None:
         """
         Validates SFT format: JSONL with messages array structure.
         """
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                for line_num, line in enumerate(f, 1):
-                    line = line.strip()
-                    if not line:
-                        continue  # skip empty lines
-                    try:
-                        data = json.loads(line)
-
-                        if not isinstance(data, dict):
-                            raise FileValidationError(
-                                f"Line {line_num}: Each line must be a JSON object"
-                            )
-
-                        if "messages" not in data:
-                            raise FileValidationError(
-                                f"Line {line_num}: Missing 'messages' field"
-                            )
-
-                        if not isinstance(data["messages"], list):
-                            raise FileValidationError(
-                                f"Line {line_num}: 'messages' must be an array"
-                            )
-
-                        for msg in data["messages"]:
-                            if not isinstance(msg, dict):
-                                raise FileValidationError(
-                                    f"Line {line_num}: Each message must be an object"
-                                )
-                            if "role" not in msg or "content" not in msg:
-                                raise FileValidationError(
-                                    f"Line {line_num}: Messages must have 'role' and 'content' fields"
-                                )
-                            if not isinstance(msg["role"], str) or not isinstance(
-                                msg["content"], str
-                            ):
-                                raise FileValidationError(
-                                    f"Line {line_num}: Message 'role' and 'content' must be strings"
-                                )
-
-                    except json.JSONDecodeError:
-                        raise FileValidationError(f"Invalid JSON on line {line_num}")
-
+            with open(file_path, "rb") as f:
+                content = f.read()
+            self._validate_sft_content(content)
         except Exception as e:
             raise FileValidationError(f"Failed to read or validate file: {e}")
 
@@ -232,105 +402,8 @@ class FileManager:
         Validates DPO format: JSONL with input, preferred_output, and non_preferred_output structure.
         """
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                for line_num, line in enumerate(f, 1):
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        data = json.loads(line)
-
-                        if not isinstance(data, dict):
-                            raise FileValidationError(
-                                f"Line {line_num}: Each line must be a JSON object"
-                            )
-
-                        input_data = data.get("input")
-                        if not isinstance(input_data, dict):
-                            raise FileValidationError(
-                                f"Line {line_num}: Missing or invalid 'input' field"
-                            )
-
-                        if "messages" not in input_data or not isinstance(
-                            input_data["messages"], list
-                        ):
-                            raise FileValidationError(
-                                f"Line {line_num}: 'input.messages' must be a list"
-                            )
-                        for msg in input_data["messages"]:
-                            if not isinstance(msg, dict):
-                                raise FileValidationError(
-                                    f"Line {line_num}: Each 'message' must be an object"
-                                )
-                            if "role" not in msg or "content" not in msg:
-                                raise FileValidationError(
-                                    f"Line {line_num}: Each message must have 'role' and 'content'"
-                                )
-                            if not isinstance(msg["role"], str) or not isinstance(
-                                msg["content"], str
-                            ):
-                                raise FileValidationError(
-                                    f"Line {line_num}: 'role' and 'content' must be strings"
-                                )
-
-                        if "tools" not in input_data or not isinstance(
-                            input_data["tools"], list
-                        ):
-                            raise FileValidationError(
-                                f"Line {line_num}: 'input.tools' must be a list"
-                            )
-
-                        if "parallel_tool_calls" not in input_data or not isinstance(
-                            input_data["parallel_tool_calls"], bool
-                        ):
-                            raise FileValidationError(
-                                f"Line {line_num}: 'input.parallel_tool_calls' must be a boolean"
-                            )
-
-                        preferred = data.get("preferred_output")
-                        if not isinstance(preferred, list):
-                            raise FileValidationError(
-                                f"Line {line_num}: 'preferred_output' must be a list"
-                            )
-                        for msg in preferred:
-                            if not isinstance(msg, dict):
-                                raise FileValidationError(
-                                    f"Line {line_num}: Each 'preferred_output' message must be an object"
-                                )
-                            if "role" not in msg or "content" not in msg:
-                                raise FileValidationError(
-                                    f"Line {line_num}: Each preferred_output message must have 'role' and 'content'"
-                                )
-                            if not isinstance(msg["role"], str) or not isinstance(
-                                msg["content"], str
-                            ):
-                                raise FileValidationError(
-                                    f"Line {line_num}: 'role' and 'content' in preferred_output must be strings"
-                                )
-
-                        non_preferred = data.get("non_preferred_output")
-                        if not isinstance(non_preferred, list):
-                            raise FileValidationError(
-                                f"Line {line_num}: 'non_preferred_output' must be a list"
-                            )
-                        for msg in non_preferred:
-                            if not isinstance(msg, dict):
-                                raise FileValidationError(
-                                    f"Line {line_num}: Each 'non_preferred_output' message must be an object"
-                                )
-                            if "role" not in msg or "content" not in msg:
-                                raise FileValidationError(
-                                    f"Line {line_num}: Each non_preferred_output message must have 'role' and 'content'"
-                                )
-                            if not isinstance(msg["role"], str) or not isinstance(
-                                msg["content"], str
-                            ):
-                                raise FileValidationError(
-                                    f"Line {line_num}: 'role' and 'content' in non_preferred_output must be strings"
-                                )
-
-                    except json.JSONDecodeError:
-                        raise FileValidationError(f"Invalid JSON on line {line_num}")
-
+            with open(file_path, "rb") as f:
+                content = f.read()
+            self._validate_dpo_content(content)
         except Exception as e:
             raise FileValidationError(f"Failed to validate file: {e}")

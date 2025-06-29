@@ -4,14 +4,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from arbor.server.api.routes.files import router
-from arbor.server.services.file_manager import FileManager
-
 
 @pytest.fixture(scope="module")
 def server(tmp_path_factory):
     """Set up a test server with configured dependencies"""
-    from arbor.server.core.config import Settings
+    from arbor.server.core.config import Settings, ArborConfig, InferenceConfig, TrainingConfig
     from arbor.server.main import app
     from arbor.server.services.managers.file_manager import FileManager
     from arbor.server.services.managers.file_train_manager import FileTrainManager
@@ -20,8 +17,14 @@ def server(tmp_path_factory):
     # Use tmp_path_factory instead of tmp_path because we're using scope="module"
     test_storage = tmp_path_factory.mktemp("test_storage")
 
-    # Create test settings
-    settings = Settings(STORAGE_PATH=str(test_storage))
+    # Create test settings with required arbor_config
+    settings = Settings(
+        STORAGE_PATH=str(test_storage),
+        arbor_config=ArborConfig(
+            inference=InferenceConfig(),
+            training=TrainingConfig()
+        )
+    )
 
     # Initialize services with test settings
     file_manager = FileManager(settings=settings)

@@ -7,7 +7,8 @@ from arbor.server.api.models.schemas import FineTuneRequest
 from arbor.server.core.config import Settings
 from arbor.server.services.jobs.file_train_job import FileTrainJob
 from arbor.server.services.managers.file_manager import FileManager
-from arbor.server.services.managers.job_manager import Job, JobEvent, JobStatus
+from arbor.server.services.managers.job_manager import Job, JobStatus
+from arbor.server.services.jobs.job import JobEvent
 
 
 class FileTrainManager:
