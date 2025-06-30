@@ -1,5 +1,5 @@
 inference:
-  gpu_ids: '1,2,3'
+  gpu_ids: '1,2'
 
 training:
   gpu_ids: '0'

@@ -552,12 +552,14 @@ def llm_worker(
     os.environ["VLLM_DP_SIZE"] = str(script_args.data_parallel_size)
     os.environ["VLLM_DP_MASTER_PORT"] = str(master_port)
 
+    logger.info(f"[WORKER {data_parallel_rank}] Starting worker with args: {script_args}")
+
     llm = LLM(
         model=script_args.model,
         revision=script_args.revision,
         tensor_parallel_size=script_args.tensor_parallel_size,
         gpu_memory_utilization=script_args.gpu_memory_utilization,
-        enforce_eager=script_args.enforce_eager,
+        enforce_eager=bool(script_args.enforce_eager),
         dtype=script_args.dtype,
         enable_prefix_caching=script_args.enable_prefix_caching,
         max_model_len=script_args.max_model_len,
