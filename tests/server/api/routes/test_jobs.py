@@ -5,7 +5,7 @@ from arbor.server.api.models.schemas import JobStatus
 from arbor.server.core.config import Settings, ArborConfig, InferenceConfig, TrainingConfig
 
 # Configurable test model - can be changed for different test scenarios
-TEST_MODEL = ""
+TEST_MODEL = "HuggingFaceTB/SmolLM2-135M-Instruct"
 
 
 @pytest.fixture(scope="module")
