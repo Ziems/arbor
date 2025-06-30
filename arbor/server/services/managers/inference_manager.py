@@ -1,7 +1,6 @@
-import asyncio
 import subprocess
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from arbor.server.core.config import Settings
 from arbor.server.services.jobs.inference_job import InferenceJob
@@ -25,6 +24,7 @@ class InferenceManager:
 
     # TODO: request_json should be checked for launch_model_config
     async def route_inference(self, request_json: dict):
+        model = request_json["model"]
         logger.info(f"Running inference for model {model}")
 
         # If model isnt launched, launch it
@@ -38,21 +38,9 @@ class InferenceManager:
             except Exception as e:
                 logger.error(f"Error launching model {model}: {e}")
                 raise e
+            
+        return await inference_job.run_inference(request_json)
 
-        # If model is launched and different, swap the server
-        # If more inference GPUs are available, launch a new server
 
-        if model != self.launched_model:
-            model = self.launched_model
-            request_json["model"] = model
-
-        # Update last_activity timestamp
-        self.last_activity = datetime.now()
-
-        if self.process is None:
-            raise RuntimeError("Server is not running. Please launch it first.")
-
-        return await self.vllm_client.chat(json_body=request_json)
-
-    def launch_model(self, model: str, launch_kwargs: LaunchModelConfig):
+    def launch_model(self, model: str, launch_kwargs: InferenceLaunchConfig):
         pass

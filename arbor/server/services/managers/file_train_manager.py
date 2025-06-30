@@ -35,6 +35,10 @@ class FileTrainManager:
 
         # Determine fine-tuning type from method or auto-detect from file format
         if request.method is not None:
+            # cast it to sft if it's supervised
+            if request.method["type"] == "supervised":
+                request.method["type"] = "sft"
+
             fine_tune_type = request.method["type"]
             job.add_event(
                 JobEvent(

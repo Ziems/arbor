@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from arbor.server.api.models.schemas import (
     FineTuneRequest,
@@ -8,7 +8,6 @@ from arbor.server.api.models.schemas import (
     JobStatusModel,
     PaginatedResponse,
 )
-from arbor.server.services.managers.job_manager import JobStatus
 
 router = APIRouter()
 

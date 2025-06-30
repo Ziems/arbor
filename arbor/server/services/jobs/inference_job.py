@@ -14,7 +14,9 @@ import requests
 from arbor.server.core.config import Settings
 from arbor.server.services.inference.vllm_client import VLLMClient
 from arbor.server.services.jobs.job import Job
-from arbor.server.utils.helpers import get_free_port
+from arbor.server.services.managers.inference_manager import InferenceLaunchConfig
+from arbor.server.utils.helpers import get_free_port, strip_prefix
+
 from arbor.server.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -25,7 +27,7 @@ class InferenceJob(Job):
         super().__init__()
         self.settings = settings
         self.process: Optional[subprocess.Popen] = None
-        self.launch_kwargs = {}
+        self.launch_config: InferenceLaunchConfig = None
         self.last_activity = None
         self._shutting_down = False
         self.launched_model: Optional[str] = None
@@ -35,6 +37,7 @@ class InferenceJob(Job):
         self.group_port = None
         self.vllm_client = None
         self._is_updating = 0  # Counter for weight updates in progress
+        self.is_grpo = False
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
@@ -54,24 +57,24 @@ class InferenceJob(Job):
         """Check if vLLM server is running."""
         return self.process is not None and self.process.poll() is None
 
-    def launch(self, model: str, launch_kwargs: Optional[Dict[str, Any]] = None):
+    def launch(self, model: str, launch_config: InferenceLaunchConfig):
         if self.is_server_running():
             logger.info("Server is already launched.")
             return
 
-        launch_kwargs = launch_kwargs or self.launch_kwargs
+        launch_config = launch_config or self.launch_config
 
         model = strip_prefix(model)
 
         logger.info(f"Grabbing a free port to launch a vLLM server for model {model}")
         self.port = get_free_port()
         my_env = os.environ.copy()
-        my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.inference.gpu_ids
-        n_gpus = self.settings.arbor_config.inference.gpu_ids.count(",") + 1
+        my_env["CUDA_VISIBLE_DEVICES"] = launch_config.gpu_ids
+        n_gpus = launch_config.gpu_ids.count(",") + 1
         command = f"{sys.executable} -m arbor.server.services.inference.vllm_serve --model {model} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching True"
 
-        if launch_kwargs.get("max_context_length"):
-            command += f" --max_model_len {launch_kwargs['max_context_length']}"
+        if launch_config.max_context_length:
+            command += f" --max_model_len {launch_config.max_context_length}"
 
         logger.info(f"Running command: {command}")
 
@@ -120,8 +123,6 @@ class InferenceJob(Job):
         # Let the user know server is up
         logger.info(f"Server ready on random port {self.port}!")
 
-        # self.launch_kwargs["api_base"] = f"http://localhost:{port}/v1"
-        # self.launch_kwargs["api_key"] = "local"
         self.get_logs = get_logs
         self.process = process
         self.thread = thread
@@ -172,12 +173,12 @@ class InferenceJob(Job):
         model = strip_prefix(request_json["model"])
         logger.info(f"Running inference for model {model}")
 
-        # Monkeypatch for GRPO runs:
-        # vllm complains if we don't give it the exact model name that was launched
-        # TODO: This should really throw an error unless in a GRPO run.
-        if model != self.launched_model:
+        # GRPO runs may not have the same model name as the launched model
+        if model != self.launched_model and self.is_grpo:
             model = self.launched_model
             request_json["model"] = model
+        else:
+            raise ValueError("Model mismatch. Please launch the correct model.")
 
         # Update last_activity timestamp
         self.last_activity = datetime.now()
