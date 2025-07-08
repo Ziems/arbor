@@ -27,7 +27,7 @@ class ConfigManager:
 
     @staticmethod
     def get_config_template() -> Dict:
-        return {"inference": {"gpu_ids": "0"}, "training": {"gpu_ids": "1, 2"}}
+        return {"inference": {"gpu_ids": [0]}, "training": {"gpu_ids": [1, 2]}}
 
     @classmethod
     def update_config(
@@ -53,16 +53,22 @@ class ConfigManager:
         else:
             config = cls.get_config_template()
 
-        # Update values given
+        # Update values given - convert string inputs to lists
         if inference_gpus is not None:
             if "inference" not in config:
                 config["inference"] = {}
-            config["inference"]["gpu_ids"] = str(inference_gpus)
+            # Convert string like "0" or "1,2" to list of integers
+            config["inference"]["gpu_ids"] = [
+                int(x.strip()) for x in str(inference_gpus).split(",")
+            ]
 
         if training_gpus is not None:
             if "training" not in config:
                 config["training"] = {}
-            config["training"]["gpu_ids"] = str(training_gpus)
+            # Convert string like "0" or "1,2" to list of integers
+            config["training"]["gpu_ids"] = [
+                int(x.strip()) for x in str(training_gpus).split(",")
+            ]
 
         temp_path = config_file.with_suffix(".tmp")
         try:

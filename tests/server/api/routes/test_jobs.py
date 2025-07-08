@@ -35,7 +35,7 @@ def server(tmp_path_factory):
     settings = Settings(
         STORAGE_PATH=str(test_storage),
         arbor_config=ArborConfig(
-            inference=InferenceConfig(gpu_ids="2"), training=TrainingConfig(gpu_ids="3")
+            inference=InferenceConfig(gpu_ids=[2]), training=TrainingConfig(gpu_ids=[3])
         ),
     )
 

@@ -1,10 +1,10 @@
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 try:
     from importlib.metadata import PackageNotFoundError, version
@@ -14,11 +14,11 @@ except ImportError:
 
 
 class InferenceConfig(BaseModel):
-    gpu_ids: str = "0"
+    gpu_ids: list[int] = [0]
 
 
 class TrainingConfig(BaseModel):
-    gpu_ids: str = "0"
+    gpu_ids: list[int] = [0]
     accelerate_config: Optional[str] = None
 
 
