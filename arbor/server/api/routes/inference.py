@@ -3,6 +3,7 @@ import uuid
 
 from fastapi import APIRouter, Request
 
+from arbor.server.utils.helpers import strip_prefix
 from arbor.server.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -16,29 +17,13 @@ async def run_inference(
 ):
     inference_manager = request.app.state.inference_manager
     raw_json = await request.json()
+    raw_json["model"] = strip_prefix(raw_json["model"])
 
     # Generate a random hex ID
     request_id = str(uuid.uuid4())
-    # Create requests directory if it doesn't exist
-    with open(f"{request.app.state.log_dir}/inference_requests.jsonl", "a") as f:
-        f.write(json.dumps({"id": request_id, "request": raw_json}) + "\n")
-
-    request_model = strip_prefix(raw_json["model"])
-
-    # if the requested model is different from the launched model, swap the server
-    if request_model != inference_manager.launched_model:
-        logger.info(
-            f"Model changed from {inference_manager.launched_model} to {request_model}, swapping server..."
-        )
-        inference_manager.kill()
-        inference_manager.launch(request_model)
-        logger.info(f"Model swapped to {request_model}")
 
     # forward the request to the inference server
-    completion = await inference_manager.run_inference(raw_json)
-
-    with open(f"{request.app.state.log_dir}/inference_responses.jsonl", "a") as f:
-        f.write(json.dumps({"id": request_id, "response": completion}) + "\n")
+    completion = await inference_manager.route_inference(raw_json)
 
     return completion
 

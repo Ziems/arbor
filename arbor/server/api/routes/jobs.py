@@ -23,9 +23,13 @@ def create_fine_tune_job(
     file_train_manager = request.app.state.file_train_manager
 
     job = job_manager.create_job()
-    file_train_manager.fine_tune(fine_tune_request, job, file_manager)
-    job.status = JobStatus.QUEUED
-    return JobStatusModel(id=job.id, status=job.status.value)
+    try:
+        file_train_manager.fine_tune(fine_tune_request, job, file_manager)
+        job.status = JobStatus.QUEUED
+        return JobStatusModel(id=job.id, status=job.status.value)
+    except ValueError as e:
+        # Handle cases where training file is not found or other validation errors
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # List fine-tune jobs (paginated)
@@ -108,6 +112,7 @@ def get_job_status(
 
 
 # Cancel a fine-tune job
+# TODO: Implement this
 @router.post("/{job_id}/cancel", response_model=JobStatusModel)
 def cancel_job(request: Request, job_id: str):
     job_manager = request.app.state.job_manager
@@ -115,6 +120,8 @@ def cancel_job(request: Request, job_id: str):
         job = job_manager.get_job(job_id)
     except ValueError:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+    raise HTTPException(status_code=400, detail="Not implemented")
 
     # Only allow cancellation of jobs that aren't finished
     if job.status in [JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED]:

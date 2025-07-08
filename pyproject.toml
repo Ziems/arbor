@@ -46,3 +46,9 @@ exclude = ["tests", "tests.*"]
 [project.urls]
 Homepage = "https://github.com/Ziems/arbor"
 Issues = "https://github.com/Ziems/arbor/issues"
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::DeprecationWarning:websockets.*",
+    "ignore::DeprecationWarning:uvicorn.*"
+]

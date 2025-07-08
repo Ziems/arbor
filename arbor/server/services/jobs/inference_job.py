@@ -13,10 +13,9 @@ import requests
 
 from arbor.server.core.config import Settings
 from arbor.server.services.inference.vllm_client import VLLMClient
+from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
 from arbor.server.services.jobs.job import Job
-from arbor.server.services.managers.inference_manager import InferenceLaunchConfig
 from arbor.server.utils.helpers import get_free_port, strip_prefix
-
 from arbor.server.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -64,13 +63,14 @@ class InferenceJob(Job):
 
         launch_config = launch_config or self.launch_config
 
-        model = strip_prefix(model)
-
         logger.info(f"Grabbing a free port to launch a vLLM server for model {model}")
         self.port = get_free_port()
         my_env = os.environ.copy()
-        my_env["CUDA_VISIBLE_DEVICES"] = launch_config.gpu_ids
-        n_gpus = launch_config.gpu_ids.count(",") + 1
+
+        # Convert gpu_ids list to comma-separated string for environment variable
+        gpu_ids_str = ",".join(map(str, launch_config.gpu_ids))
+        my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
+        n_gpus = len(launch_config.gpu_ids)
         command = f"{sys.executable} -m arbor.server.services.inference.vllm_serve --model {model} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching True"
 
         if launch_config.max_context_length:
@@ -174,11 +174,15 @@ class InferenceJob(Job):
         logger.info(f"Running inference for model {model}")
 
         # GRPO runs may not have the same model name as the launched model
-        if model != self.launched_model and self.is_grpo:
+        if model != self.launched_model:
+            if not self.is_grpo:
+                raise ValueError(
+                    f"Model mismatch. Requested model '{model}' does not match launched model '{self.launched_model}'. "
+                    f"Please launch the correct model or use the launched model name in your request."
+                )
+            # For GRPO, use the launched model instead
             model = self.launched_model
             request_json["model"] = model
-        else:
-            raise ValueError("Model mismatch. Please launch the correct model.")
 
         # Update last_activity timestamp
         self.last_activity = datetime.now()

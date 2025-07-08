@@ -4,16 +4,10 @@ from typing import Optional
 
 from arbor.server.core.config import Settings
 from arbor.server.services.jobs.inference_job import InferenceJob
-from arbor.server.utils.helpers import strip_prefix
+from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
 from arbor.server.utils.logging import get_logger
 
 logger = get_logger(__name__)
-
-
-@dataclass
-class InferenceLaunchConfig:
-    max_context_length: Optional[int] = None
-    gpu_ids: Optional[list[int]] = None
 
 
 class InferenceManager:
@@ -32,15 +26,15 @@ class InferenceManager:
         if inference_job is None:
             try:
                 inference_job = InferenceJob(self.settings)
-                inference_launch_config = InferenceLaunchConfig()
+                inference_launch_config = InferenceLaunchConfig(gpu_ids=[2])
                 inference_job.launch(model, inference_launch_config)
                 self.inference_jobs[model] = inference_job
             except Exception as e:
                 logger.error(f"Error launching model {model}: {e}")
                 raise e
-            
+
         return await inference_job.run_inference(request_json)
 
-
     def launch_model(self, model: str, launch_kwargs: InferenceLaunchConfig):
+        """Launch model directly with launch_kwargs"""
         pass

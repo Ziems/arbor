@@ -124,7 +124,6 @@ class FileTrainJob(Job):
             "dpo": self.find_train_args_dpo,
             "sft": self.find_train_args_sft,
         }[train_type]
-
         trl_train_kwargs, arbor_train_kwargs = find_train_args_fn(request, file_manager)
 
         self.model = request.model

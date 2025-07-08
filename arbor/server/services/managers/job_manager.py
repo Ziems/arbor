@@ -1,6 +1,6 @@
 from arbor.server.api.models.schemas import JobStatus
-from arbor.server.services.jobs.job import Job
 from arbor.server.core.config import Settings
+from arbor.server.services.jobs.job import Job
 
 
 class JobManager:
@@ -13,7 +13,7 @@ class JobManager:
         return self.jobs[job_id]
 
     def create_job(self) -> Job:
-        job = Job(status=JobStatus.PENDING)
+        job = Job()
         self.jobs[job.id] = job
         return job
 
