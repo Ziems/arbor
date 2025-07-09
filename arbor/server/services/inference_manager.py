@@ -139,7 +139,7 @@ class InferenceManager:
         )
 
         # Once server is ready, we tell the thread to stop printing further lines.
-        # stop_printing_event.set()
+        stop_printing_event.set()
 
     def kill(self):
         if self.process is None:
