@@ -1,4 +1,7 @@
 # Assumes that the server is running
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import requests
 from datasets import load_dataset
 from openai import OpenAI
@@ -54,21 +57,44 @@ def main():
             for completion in completions
         ]
 
+    def _single_chat_completion(model, messages, temperature=0.7):
+        """Function to handle a single chat completion request"""
+        response = client.chat.completions.create(
+            model=model, messages=messages, temperature=temperature
+        )
+        choice = response.choices[0]
+        return {"content": choice.message.content, "role": choice.message.role}
+
     dataset = load_dataset("trl-lib/tldr", split="train")
     current_model = "Qwen/Qwen3-0.6B"
     initialize_response = initialize_grpo(model=current_model)
     last_checkpoint = None
 
+    tik = time.time()
     for i in range(len(dataset)):
         inputs = dataset[i]
         input_messages = [{"role": "user", "content": inputs["prompt"]}]
-        response = client.chat.completions.create(
-            model=current_model, messages=input_messages, temperature=0.7, n=8
-        )
-        completions = [
-            {"content": choice.message.content, "role": choice.message.role}
-            for choice in response.choices
-        ]
+
+        # Use ThreadPoolExecutor for concurrent requests
+        completions = []
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            # Submit all 8 requests concurrently
+            future_to_index = {
+                executor.submit(
+                    _single_chat_completion, current_model, input_messages, 0.7
+                ): idx
+                for idx in range(8)
+            }
+
+            # Collect results as they complete
+            for future in as_completed(future_to_index):
+                try:
+                    completion = future.result()
+                    completions.append(completion)
+                except Exception as exc:
+                    print(f"Request generated an exception: {exc}")
+                    # Add a placeholder for failed requests
+                    completions.append({"content": "", "role": "assistant"})
         rewards = _reward_func(inputs["prompt"], [c["content"] for c in completions])
         print(rewards)
 
@@ -86,7 +112,8 @@ def main():
 
         if i == 20:
             break
-
+    tok = time.time()
+    print(f"Time taken: {tok - tik} seconds")
     terminate_response = terminate_grpo()
     import pdb
 
