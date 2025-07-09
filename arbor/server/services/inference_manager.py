@@ -26,6 +26,7 @@ class InferenceManager:
         self.last_activity = None
         self._shutting_down = False
         self.launched_model: Optional[str] = None
+        self.current_model: Optional[str] = None
         self.inference_count = 0
         self._session = None
         self.port: Optional[int] = None
@@ -127,6 +128,7 @@ class InferenceManager:
         self.process = process
         self.thread = thread
         self.launched_model = model
+        self.current_model = model
 
         # Get another free port for weight sync group communication
         self.group_port = get_free_port()
@@ -137,7 +139,7 @@ class InferenceManager:
         )
 
         # Once server is ready, we tell the thread to stop printing further lines.
-        stop_printing_event.set()
+        # stop_printing_event.set()
 
     def kill(self):
         if self.process is None:
@@ -170,30 +172,28 @@ class InferenceManager:
             # weights are being updated...waiting
             await asyncio.sleep(1)  # Small sleep to prevent busy waiting
 
-        model = request_json["model"]
+        requested_model = request_json["model"]
         prefixes = ["openai/", "huggingface/", "local:", "arbor:"]
         for prefix in prefixes:
-            if model.startswith(prefix):
-                model = model[len(prefix) :]
+            if requested_model.startswith(prefix):
+                requested_model = requested_model[len(prefix) :]
 
         # Monkeypatch for GRPO runs:
         # vllm complains if we don't give it the exact model name that was launched
         # TODO: This should really throw an error unless in a GRPO run.
-        if model != self.launched_model:
-            model = self.launched_model
+        request_json["model"] = self.launched_model
 
-        request_json["model"] = model
-        print(f"Model: {model} Launched: {self.launched_model}")
-
-        logger.info(f"Running inference for model {model}")
+        logger.info(f"Running inference for model {requested_model}")
 
         # Update last_activity timestamp
         self.last_activity = datetime.now()
 
         if self.process is None:
             raise RuntimeError("Server is not running. Please launch it first.")
+        response = await self.vllm_client.chat(json_body=request_json)
+        response["model"] = self.current_model
 
-        return await self.vllm_client.chat(json_body=request_json)
+        return response
 
     def start_weight_update(self):
         """Block inference during weight updates"""

@@ -1,4 +1,6 @@
 # Assumes that the server is running
+import time
+
 import requests
 from datasets import load_dataset
 from openai import OpenAI
@@ -59,6 +61,7 @@ def main():
     initialize_response = initialize_grpo(model=current_model)
     last_checkpoint = None
 
+    tik = time.time()
     for i in range(len(dataset)):
         inputs = dataset[i]
         input_messages = [{"role": "user", "content": inputs["prompt"]}]
@@ -86,7 +89,8 @@ def main():
 
         if i == 20:
             break
-
+    tok = time.time()
+    print(f"Time taken: {tok - tik} seconds")
     terminate_response = terminate_grpo()
     import pdb
 

@@ -197,20 +197,6 @@ class VLLMClient:
         url = f"{self.server_url}/v1/chat/completions"
 
         response = self.session.post(url, json=json_body, timeout=300)
-        print(response.json())
-
-        # if response.status_code == INFERENCE_BLOCKED_STATUS:
-        #     retries += 1
-        #     if retries < MAX_INFERENCE_RETRIES:
-        #         logger.warning(
-        #             f"Inference blocked (weight update in progress). Retry {retries}/{MAX_INFERENCE_RETRIES} in {INFERENCE_RETRY_DELAY}s"
-        #         )
-        #         await asyncio.sleep(INFERENCE_RETRY_DELAY)
-        #         continue
-        #     else:
-        #         raise InferenceBlockedError(
-        #             "Inference blocked by weight updates after max retries"
-        #         )
 
         response.raise_for_status()
         return response.json()

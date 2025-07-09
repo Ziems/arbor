@@ -14,9 +14,9 @@ response = client.chat.completions.create(
 )
 print(response)
 
-# response = client.chat.completions.create(
-#     model="Qwen/Qwen3-1.7B",
-#     messages=[{"role": "user", "content": "Hello, how are you?"}],
-#     temperature=0.7,
-# )
-# print(response)
+response = client.chat.completions.create(
+    model="Qwen/Qwen3-1.7B",
+    messages=[{"role": "user", "content": "Hello, how are you?"}],
+    temperature=0.7,
+)
+print(response)

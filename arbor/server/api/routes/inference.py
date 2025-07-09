@@ -35,9 +35,9 @@ async def run_inference(
         inference_manager.launch(request_model)
 
     # if the requested model is different from the launched model, swap the server
-    if request_model != inference_manager.launched_model:
+    if request_model != inference_manager.current_model:
         logger.info(
-            f"Model changed from {inference_manager.launched_model} to {request_model}, swapping server..."
+            f"Model changed from {inference_manager.current_model} to {request_model}, swapping server..."
         )
         inference_manager.kill()
         inference_manager.launch(request_model)

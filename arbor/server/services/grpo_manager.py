@@ -347,7 +347,7 @@ class GRPOManager:
             raise
 
         self.current_model = self.train_kwargs["output_dir"]
-        inference_manager.launched_model = self.current_model
+        inference_manager.current_model = self.current_model
 
         return {
             "current_model": self.current_model,

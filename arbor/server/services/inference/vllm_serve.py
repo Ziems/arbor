@@ -77,7 +77,7 @@ class WeightSyncWorkerExtension:
         self.client_rank = world_size - 1
 
     def update_named_param(
-        self, name: str, dtype: torch.dtype, shape: Sequence[int]
+        self, name: str, dtype_str: str, shape: Sequence[int]
     ) -> None:
         """
         Receives updated weights from the client process and updates the named parameter in the model.
@@ -85,8 +85,8 @@ class WeightSyncWorkerExtension:
         Args:
             name (`str`):
                 Name of the weight tensor being updated.
-            dtype (`torch.dtype`):
-                Data type of the weight tensor (e.g., `torch.float32`).
+            dtype_str (`str`):
+                String representation of the data type (e.g., `"torch.float32"`).
             shape (`Sequence[int]`):
                 Shape of the weight tensor.
         """
@@ -95,6 +95,8 @@ class WeightSyncWorkerExtension:
                 "Communicator not initialized. Call `init_communicator` first."
             )
 
+        # Reconstruct the dtype from the string representation
+        dtype = getattr(torch, dtype_str.split(".")[-1])
         weight = torch.empty(shape, dtype=dtype, device=self.device)  # type: ignore
         self.pynccl_comm.broadcast(weight, src=self.client_rank)  # type: ignore
         self.pynccl_comm.group.barrier()
@@ -185,13 +187,12 @@ async def run_server(args: Namespace):
         dtype_str = data.get("dtype")
         shape = data.get("shape")
 
-        dtype = getattr(torch, dtype_str.split(".")[-1])
         shape_tuple = tuple(shape)
 
         async def throttled_update():
             async with weight_update_semaphore:
                 await engine.collective_rpc(
-                    "update_named_param", args=(name, dtype, shape_tuple)
+                    "update_named_param", args=(name, dtype_str, shape_tuple)
                 )
 
         # fire and forget with throttling
