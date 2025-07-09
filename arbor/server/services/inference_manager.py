@@ -69,7 +69,7 @@ class InferenceManager:
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = self.config.arbor_config.inference.gpu_ids
         n_gpus = self.config.arbor_config.inference.gpu_ids.count(",") + 1
-        command = f"{sys.executable} -m arbor.server.services.inference.vllm_serve --model {model} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching True"
+        command = f"{sys.executable} -m arbor.server.services.inference.vllm_serve --model {model} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching"
 
         if launch_kwargs.get("max_context_length"):
             command += f" --max_model_len {launch_kwargs['max_context_length']}"
@@ -175,14 +175,17 @@ class InferenceManager:
         for prefix in prefixes:
             if model.startswith(prefix):
                 model = model[len(prefix) :]
-        logger.info(f"Running inference for model {model}")
 
         # Monkeypatch for GRPO runs:
         # vllm complains if we don't give it the exact model name that was launched
         # TODO: This should really throw an error unless in a GRPO run.
         if model != self.launched_model:
             model = self.launched_model
-            request_json["model"] = model
+
+        request_json["model"] = model
+        print(f"Model: {model} Launched: {self.launched_model}")
+
+        logger.info(f"Running inference for model {model}")
 
         # Update last_activity timestamp
         self.last_activity = datetime.now()

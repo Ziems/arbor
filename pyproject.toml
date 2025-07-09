@@ -22,7 +22,8 @@ dependencies = [
     "setuptools (>=76.0.0,<77.0.0)",
     "pyzmq>=26.4.0",
     "pyyaml>=6.0.2",
-    "wandb"
+    "wandb",
+    "verifiers[none]" # Lots of our code is adopted from Will Brown's Verifiers library, so we give credit here
 ]
 
 [project.scripts]
