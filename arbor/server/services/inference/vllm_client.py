@@ -1,9 +1,12 @@
 # adapted from Will Brown's verifiers library (https://github.com/willccbb/verifiers)
 
+import asyncio
 import atexit
 import logging
 import time
+import traceback
 
+import httpx
 import requests
 import torch
 from openai import OpenAI
@@ -16,6 +19,18 @@ from vllm.distributed.device_communicators.pynccl import (
 from vllm.distributed.utils import StatelessProcessGroup  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+# Add these new constants near the top of the file
+MAX_INFERENCE_RETRIES = 3
+INFERENCE_RETRY_DELAY = 1.0  # seconds
+INFERENCE_BLOCKED_STATUS = 503  # HTTP status code to use when inference is blocked
+
+
+# Add this new custom exception
+class InferenceBlockedError(Exception):
+    """Raised when inference is blocked due to weight updates in progress."""
+
+    pass
 
 
 class VLLMClient:
@@ -194,12 +209,48 @@ class VLLMClient:
         """
         Send a chat completion request with retry logic for when inference is blocked.
         """
-        url = f"{self.server_url}/v1/chat/completions"
+        url = f"http://{self.host}:{self.server_port}/v1/chat/completions"
 
-        response = self.session.post(url, json=json_body, timeout=300)
+        retries = 0
+        while retries < MAX_INFERENCE_RETRIES:
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(url, json=json_body, timeout=300)
 
-        response.raise_for_status()
-        return response.json()
+                    if response.status_code == INFERENCE_BLOCKED_STATUS:
+                        retries += 1
+                        if retries < MAX_INFERENCE_RETRIES:
+                            logger.warning(
+                                f"Inference blocked (weight update in progress). Retry {retries}/{MAX_INFERENCE_RETRIES} in {INFERENCE_RETRY_DELAY}s"
+                            )
+                            await asyncio.sleep(INFERENCE_RETRY_DELAY)
+                            continue
+                        else:
+                            raise InferenceBlockedError(
+                                "Inference blocked by weight updates after max retries"
+                            )
+
+                    response.raise_for_status()
+                    return response.json()
+
+            except httpx.TimeoutException:
+                logger.error("Request timed out")
+                raise
+            except InferenceBlockedError:
+                raise
+            except Exception as e:
+                retries += 1
+                if retries < MAX_INFERENCE_RETRIES:
+                    logger.warning(
+                        f"Request failed. Retry {retries}/{MAX_INFERENCE_RETRIES} in {INFERENCE_RETRY_DELAY}s. Error: {e}"
+                    )
+                    await asyncio.sleep(INFERENCE_RETRY_DELAY)
+                else:
+                    logger.error(
+                        f"Request failed after {MAX_INFERENCE_RETRIES} retries. Error: {e}\n"
+                        f"Stack trace:\n{traceback.format_exc()}"
+                    )
+                    raise
 
     def update_named_param(self, name: str, weights: torch.Tensor):
         """
