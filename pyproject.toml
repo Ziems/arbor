@@ -22,7 +22,8 @@ dependencies = [
     "setuptools (>=76.0.0,<77.0.0)",
     "pyzmq>=26.4.0",
     "pyyaml>=6.0.2",
-    "wandb"
+    "wandb",
+    "jq>=1.8.0" 
 ]
 
 [project.scripts]

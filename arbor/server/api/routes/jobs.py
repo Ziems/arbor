@@ -7,6 +7,8 @@ from arbor.server.api.models.schemas import (
     JobStatus,
     JobStatusModel,
     PaginatedResponse,
+    LogQueryRequest,
+    LogQueryResponse
 )
 from arbor.server.services.job_manager import JobStatus
 
@@ -115,3 +117,49 @@ def cancel_job(request: Request, job_id: str):
 
     job.status = JobStatus.PENDING_CANCEL
     return JobStatusModel(id=job.id, status=job.status.value)
+
+
+@router.post("/{job_id}/logs/query", response_model=LogQueryResponse)
+async def query_job_logs(request: LogQueryRequest, job_id: str) -> LogQueryResponse:
+    """Execute a JQ query for a specific job's logs. """
+
+    job_manager = request.app.state.job_manager
+    jq_query = request.jq_query,
+    limit = request.limit if request.limit else 1000
+    
+    try:
+        import jq
+        import json
+        
+        ## PLACEHOLDER 
+        # job_manager.get_job_log(job_id)
+        # json_log_path = get_job_log(job_id)
+        json_log_path = "log path"
+        
+        if not json_log_path.exists():
+            raise FileNotFoundError(f"Log file not found for job {job_id}")
+        
+        # read JSON file
+        with open(json_log_path, 'r') as f:
+            log_data = json.load(f)
+        
+        # execute JQ query
+        program = jq.compile(jq_query)
+        results = program.input_value(log_data).all()
+        
+        if len(results) > limit:
+            results = results[:limit]
+        
+        return LogQueryResponse(
+            status="success",
+            results=results,
+        )
+
+        
+    except Exception as e:
+        return LogQueryResponse(
+            status="error",
+            results=[],
+            num_results=0,
+            error_message=str(e)
+        )
