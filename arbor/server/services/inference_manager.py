@@ -26,6 +26,7 @@ class InferenceManager:
         self.last_activity = None
         self._shutting_down = False
         self.launched_model: Optional[str] = None
+        self.current_model: Optional[str] = None
         self.inference_count = 0
         self._session = None
         self.port: Optional[int] = None
@@ -69,7 +70,7 @@ class InferenceManager:
         my_env = os.environ.copy()
         my_env["CUDA_VISIBLE_DEVICES"] = self.config.arbor_config.inference.gpu_ids
         n_gpus = self.config.arbor_config.inference.gpu_ids.count(",") + 1
-        command = f"{sys.executable} -m arbor.server.services.inference.vllm_serve --model {model} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching True"
+        command = f"{sys.executable} -m arbor.server.services.inference.vllm_serve --model {model} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching"
 
         if launch_kwargs.get("max_context_length"):
             command += f" --max_model_len {launch_kwargs['max_context_length']}"
@@ -127,6 +128,7 @@ class InferenceManager:
         self.process = process
         self.thread = thread
         self.launched_model = model
+        self.current_model = model
 
         # Get another free port for weight sync group communication
         self.group_port = get_free_port()
@@ -170,27 +172,28 @@ class InferenceManager:
             # weights are being updated...waiting
             await asyncio.sleep(1)  # Small sleep to prevent busy waiting
 
-        model = request_json["model"]
+        requested_model = request_json["model"]
         prefixes = ["openai/", "huggingface/", "local:", "arbor:"]
         for prefix in prefixes:
-            if model.startswith(prefix):
-                model = model[len(prefix) :]
-        logger.info(f"Running inference for model {model}")
+            if requested_model.startswith(prefix):
+                requested_model = requested_model[len(prefix) :]
 
         # Monkeypatch for GRPO runs:
         # vllm complains if we don't give it the exact model name that was launched
         # TODO: This should really throw an error unless in a GRPO run.
-        if model != self.launched_model:
-            model = self.launched_model
-            request_json["model"] = model
+        request_json["model"] = self.launched_model
+
+        logger.info(f"Running inference for model {requested_model}")
 
         # Update last_activity timestamp
         self.last_activity = datetime.now()
 
         if self.process is None:
             raise RuntimeError("Server is not running. Please launch it first.")
+        response = await self.vllm_client.chat(json_body=request_json)
+        response["model"] = self.current_model
 
-        return await self.vllm_client.chat(json_body=request_json)
+        return response
 
     def start_weight_update(self):
         """Block inference during weight updates"""

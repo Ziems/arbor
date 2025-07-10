@@ -8,13 +8,13 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "torch>=2.6.0",
+    "torch>=2.7.0",
     "fastapi",
     "uvicorn",
     "click",
     "python-multipart",
     "pydantic-settings",
-    "vllm==0.8.5.post1",
+    "vllm>=0.9.1",
     "transformers",
     "trl>=0.17.0",
     "peft",
@@ -23,7 +23,8 @@ dependencies = [
     "pyzmq>=26.4.0",
     "pyyaml>=6.0.2",
     "wandb",
-    "jq>=1.8.0" 
+    "jq>=1.8.0",
+    "verifiers" # Lots of our code is adopted from Will Brown's Verifiers library, so we give credit here
 ]
 
 [project.scripts]
