@@ -123,8 +123,8 @@ def cancel_job(request: Request, job_id: str):
 async def query_job_logs(request: LogQueryRequest, job_id: str) -> LogQueryResponse:
     """Execute a JQ query for a specific job's logs."""
 
-    job_manager = request.app.state.job_manager
-    jq_query = (request.jq_query,)
+    # job_manager = request.app.state.job_manager
+    jq_query = request.jq_query
     limit = request.limit if request.limit else 1000
 
     try:
@@ -134,17 +134,14 @@ async def query_job_logs(request: LogQueryRequest, job_id: str) -> LogQueryRespo
         ## PLACEHOLDER
         # job_manager.get_job_log(job_id)
         # json_log_path = get_job_log(job_id)
-        json_log_path = "log path"
-
-        if not json_log_path.exists():
-            raise FileNotFoundError(f"Log file not found for job {job_id}")
+        json_log_path = "valid/json/path"
 
         # read JSON file
         with open(json_log_path, "r") as f:
             log_data = json.load(f)
 
-        # execute JQ query
         program = jq.compile(jq_query)
+
         results = program.input_value(log_data).all()
 
         if len(results) > limit:
