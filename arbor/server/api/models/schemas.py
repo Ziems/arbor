@@ -244,9 +244,11 @@ class GRPOCheckpointResponse(BaseModel):
     checkpoints: dict[str, str]
     last_checkpoint: str
 
+
 class LogQueryRequest(BaseModel):
-    jq_query: str 
+    jq_query: str
     limit: Optional[int]
+
 
 class LogQueryResponse(BaseModel):
     status: str
