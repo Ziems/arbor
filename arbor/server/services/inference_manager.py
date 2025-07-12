@@ -16,6 +16,7 @@ import requests
 
 from arbor.server.core.config import Settings
 from arbor.server.services.inference.vllm_client import VLLMClient
+from transformers import AutoTokenizer
 
 
 class InferenceManager:
@@ -36,6 +37,9 @@ class InferenceManager:
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
+        self.tokenizer = None
+        self.max_token_seq_len = 8192 # TODO: This needs to be fetched from actual config
+
     def _signal_handler(self, signum, frame):
         if self._shutting_down:
             print("\nForced exit during cleanup...")
@@ -48,6 +52,9 @@ class InferenceManager:
 
     def is_server_running(self):
         return self.process is not None
+    
+    def token_seq_len(self, messages) -> int:
+        return self.tokenizer.apply_chat_template(messages, return_tensors="pt", add_special_tokens=True).shape[1]
 
     def launch(self, model: str, launch_kwargs: Optional[Dict[str, Any]] = None):
         if self.is_server_running():
@@ -60,6 +67,9 @@ class InferenceManager:
         for prefix in prefixes:
             if model.startswith(prefix):
                 model = model[len(prefix) :]
+        
+        print("Loading tokenizer for model:", model)
+        self.tokenizer = AutoTokenizer.from_pretrained(model)
 
         print(f"Launching vLLM server for model {model} with kwargs {launch_kwargs}")
 
@@ -189,7 +199,27 @@ class InferenceManager:
         if self.process is None:
             raise RuntimeError("Server is not running. Please launch it first.")
 
-        return await self.vllm_client.chat(json_body=request_json)
+        num_tokens_in_request = self.token_seq_len(request_json.get("messages", []))
+        print(f"Number of tokens in request: {num_tokens_in_request}")
+        if num_tokens_in_request >= self.max_token_seq_len:
+            raise Exception(
+                f"Request exceeds max token sequence length of {self.max_token_seq_len}. "
+                f"Request has {num_tokens_in_request} tokens."
+            )
+        
+        if 'max_tokens' in request_json and isinstance(request_json['max_tokens'], int):
+            request_json['max_tokens'] = min(request_json['max_tokens'], self.max_token_seq_len - (num_tokens_in_request + 10))
+        else:
+            request_json['max_tokens'] = self.max_token_seq_len - (num_tokens_in_request + 10)
+
+        try:
+            return await self.vllm_client.chat(json_body=request_json)
+        except Exception as e:
+            import traceback
+            traceback_str = traceback.format_exc()
+            # Log the error with request details
+            print(f"Error during inference for request {request_json}: {e}. Traceback: {traceback_str}")
+            raise e
 
     def start_weight_update(self):
         """Block inference during weight updates"""
