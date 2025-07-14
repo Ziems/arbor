@@ -6,25 +6,14 @@ from pathlib import Path
 from arbor.server.api.models.schemas import FineTuneRequest
 from arbor.server.core.config import Settings
 from arbor.server.services.jobs.file_train_job import FileTrainJob
+from arbor.server.services.jobs.job import JobEvent
 from arbor.server.services.managers.file_manager import FileManager
 from arbor.server.services.managers.job_manager import Job, JobStatus
-from arbor.server.services.jobs.job import JobEvent
 
 
 class FileTrainManager:
     def __init__(self, settings: Settings):
         self.settings = settings
-
-    def make_output_dir(self, request: FineTuneRequest):
-        model_name = request.model.split("/")[-1].lower()
-        suffix = (
-            request.suffix
-            if request.suffix is not None
-            else "".join(random.choices(string.ascii_letters + string.digits, k=6))
-        )
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        name = f"ft:{model_name}:{suffix}:{timestamp}"
-        return name, str(Path(self.settings.STORAGE_PATH).resolve() / "models" / name)
 
     def fine_tune(self, request: FineTuneRequest, job: Job, file_manager: FileManager):
 

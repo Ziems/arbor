@@ -62,13 +62,16 @@ def main():
     for i in range(len(dataset)):
         inputs = dataset[i]
         input_messages = [{"role": "user", "content": inputs["prompt"]}]
-        response = client.chat.completions.create(
-            model=current_model, messages=input_messages, temperature=0.7, n=8
-        )
-        completions = [
-            {"content": choice.message.content, "role": choice.message.role}
-            for choice in response.choices
-        ]
+        completions = []
+        for _ in range(8):
+            response = client.chat.completions.create(
+                model=current_model, messages=input_messages, temperature=0.7
+            )
+            # Assuming response.choices[0] is the single completion
+            choice = response.choices[0]
+            completions.append(
+                {"content": choice.message.content, "role": choice.message.role}
+            )
         rewards = _reward_func(inputs["prompt"], [c["content"] for c in completions])
         print(rewards)
 

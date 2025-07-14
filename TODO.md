@@ -7,4 +7,5 @@
 ## Much Later
 - [ ] Have Job Queuing Based on Required Resources
 - [ ] Arbor HTOP
+- [ ] Make logs in json for jqfzf
 

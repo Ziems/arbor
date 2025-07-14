@@ -178,12 +178,13 @@ class ChatCompletionModel(BaseModel):
     choices: List[ChatCompletionChoice]
 
 
-class GRPORequest(BaseModel):
+class GRPOStepRequest(BaseModel):
+    job_id: str
     model: str
     batch: List[dict] | List[List[dict]]
 
 
-class GRPOConfigRequest(BaseModel):
+class GRPOInitializeRequest(BaseModel):
     model: str
     temperature: Optional[float] = None
     beta: Optional[float] = None
@@ -214,33 +215,15 @@ class GRPOConfigRequest(BaseModel):
     generation_batch_size: Optional[int] = None
 
 
-class GRPOConfigResponse(BaseModel):
-    status: str
-
-
 class GRPOTerminateRequest(BaseModel):
     status: Optional[str] = "success"
-
-
-class GRPOTerminateResponse(BaseModel):
-    status: str
-    current_model: str
-    checkpoints: Optional[dict[str, str]] = None
-    last_checkpoint: Optional[str] = None
-
-
-class GRPOStepResponse(BaseModel):
-    status: str
-    current_model: str
-    checkpoints: dict[str, str]
-    last_checkpoint: Optional[str] = None
 
 
 class GRPOCheckpointRequest(BaseModel):
     checkpoint_name: str
 
 
-class GRPOCheckpointResponse(BaseModel):
+class GRPOStatusResponse(BaseModel):
     status: str
     current_model: str
     checkpoints: dict[str, str]
