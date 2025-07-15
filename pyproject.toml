@@ -24,6 +24,7 @@ dependencies = [
     "pyyaml>=6.0.2",
     "wandb",
     "jq>=1.8.0",
+    "textual",
     "verifiers" # Lots of our code is adopted from Will Brown's Verifiers library, so we give credit here
 ]
 
