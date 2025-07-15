@@ -19,7 +19,7 @@ dependencies = [
     "trl>=0.17.0",
     "peft",
     "ray>=2.9",
-    "setuptools (>=76.0.0,<77.0.0)",
+    "setuptools (>=76.0.0,<79.0.1)",
     "pyzmq>=26.4.0",
     "pyyaml>=6.0.2",
     "wandb",
