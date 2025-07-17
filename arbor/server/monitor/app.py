@@ -11,7 +11,7 @@ from typing import List
 
 class ArborMonitorApp(App):
     """Main application for monitoring Arbor jobs"""
-    
+
     CSS = """
     Screen {
         layout: vertical;
@@ -51,47 +51,41 @@ class ArborMonitorApp(App):
         text-align: center;
     }
     """
-    
+
     BINDINGS = [
         ("q", "quit", "Quit"),
     ]
-    
+
     def __init__(self):
         super().__init__()
         self.jobs: List[MockJob] = generate_mock_jobs()
         self.selected_job_id = 1
-        
+
     def compose(self) -> ComposeResult:
         # TOP: header
         yield Header()
-        yield Static(
-            f"Jobs ({len(self.jobs)} running)", 
-            classes="header-info"
-        )
-        
+        yield Static(f"Jobs ({len(self.jobs)} running)", classes="header-info")
+
         # MIDDLE: shows list of jobs w/ info
         job_table = JobTable()
         job_table.id = "job_table"
         yield job_table
-        
+
         # BOTTOM: shows selected job summary info
         with Container(classes="status-container"):
             yield Static(
-                f"Selected: {self._get_selected_job_name()}", 
+                f"Selected: {self._get_selected_job_name()}",
                 classes="status-line",
-                id="status_line"
+                id="status_line",
             )
-            yield Static(
-                "[↑↓] Navigate [q] Quit", 
-                classes="help-line"
-            )
-        
+            yield Static("[↑↓] Navigate [q] Quit", classes="help-line")
+
     def on_mount(self):
         """Initialize the table with mock data"""
         table = self.query_one(JobTable)  # Can query by class instead of id
         table.populate_jobs(self.jobs)
         table.focus()  # Focus the table for keyboard navigation
-        
+
     @on(DataTable.RowHighlighted)
     def row_highlighted(self, event: DataTable.RowHighlighted):
         """Handle row highlighting (cursor movement)"""
@@ -99,7 +93,7 @@ class ArborMonitorApp(App):
             # DataTable rows are 0-indexed, our job IDs are 1-indexed
             self.selected_job_id = event.cursor_row + 1
             self._update_status_line()
-        
+
     def _update_status_line(self):
         """Update the selected job display"""
         status_line = self.query_one("#status_line", Static)
@@ -109,12 +103,12 @@ class ArborMonitorApp(App):
         else:
             status_text = "Selected: None"
         status_line.update(status_text)
-        
+
     def _get_selected_job_name(self) -> str:
         """Get the name of the currently selected job"""
         job = self._get_selected_job()
         return job.name if job else "None"
-        
+
     def _get_selected_job(self) -> MockJob | None:
         """Get the currently selected job object"""
         if 1 <= self.selected_job_id <= len(self.jobs):
