@@ -29,28 +29,12 @@ class InferenceJob(Job):
         self.launch_config: InferenceLaunchConfig = None
         self.last_activity = None
         self._shutting_down = False
-        self.launched_model: Optional[str] = None
         self.inference_count = 0
         self._session = None
         self.port: Optional[int] = None
         self.group_port = None
         self.vllm_client = None
         self._is_updating = 0  # Counter for weight updates in progress
-        self.is_grpo = False
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
-
-    def _signal_handler(self, signum, frame):
-        """Handle shutdown signals gracefully."""
-        logger.info(f"Received signal {signum}. Initiating graceful shutdown...")
-        try:
-            self.kill_server()
-        except Exception as e:
-            logger.error(f"Error during signal handler cleanup: {e}")
-            logger.info("Forced exit during cleanup...")
-            os._exit(1)
-        logger.info("Received signal to terminate. Cleaning up...")
-        os._exit(0)
 
     def is_server_running(self) -> bool:
         """Check if vLLM server is running."""
@@ -126,7 +110,6 @@ class InferenceJob(Job):
         self.get_logs = get_logs
         self.process = process
         self.thread = thread
-        self.launched_model = model
 
         # Get another free port for weight sync group communication
         self.group_port = get_free_port()
@@ -169,20 +152,6 @@ class InferenceJob(Job):
         while self._is_updating:
             # weights are being updated...waiting
             await asyncio.sleep(1)  # Small sleep to prevent busy waiting
-
-        model = strip_prefix(request_json["model"])
-        logger.info(f"Running inference for model {model}")
-
-        # GRPO runs may not have the same model name as the launched model
-        if model != self.launched_model:
-            if not self.is_grpo:
-                raise ValueError(
-                    f"Model mismatch. Requested model '{model}' does not match launched model '{self.launched_model}'. "
-                    f"Please launch the correct model or use the launched model name in your request."
-                )
-            # For GRPO, use the launched model instead
-            model = self.launched_model
-            request_json["model"] = model
 
         # Update last_activity timestamp
         self.last_activity = datetime.now()

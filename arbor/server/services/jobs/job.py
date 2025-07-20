@@ -34,8 +34,8 @@ class JobCheckpoint:
 
 
 class Job:
-    def __init__(self):
-        self.id = str(f"ftjob-{uuid.uuid4()}")
+    def __init__(self, prefix: str = "ftjob"):
+        self.id = str(f"{prefix}-{uuid.uuid4()}")
         self.status = JobStatus.CREATED
         self.fine_tuned_model = None
         self.events: list[JobEvent] = []

@@ -239,6 +239,25 @@ class ArborGRPOTrainer(GRPOTrainer):
             else:
                 old_per_token_logps = None
 
+            if self.beta != 0.0:
+                if self.ref_model is not None:
+                    ref_per_token_logps = self._get_per_token_logps(
+                        self.ref_model,
+                        prompt_completion_ids,
+                        attention_mask,
+                        logits_to_keep,
+                    )
+                else:
+                    with self.accelerator.unwrap_model(self.model).disable_adapter():
+                        ref_per_token_logps = self._get_per_token_logps(
+                            self.model,
+                            prompt_completion_ids,
+                            attention_mask,
+                            logits_to_keep,
+                        )
+            else:
+                ref_per_token_logps = None
+
         rewards = torch.tensor(
             [example["reward"] for example in batch], dtype=torch.float32
         ).to(device)
@@ -333,6 +352,7 @@ class ArborGRPOTrainer(GRPOTrainer):
             "completion_mask": completion_mask,
             "advantages": advantages,
             "old_per_token_logps": old_per_token_logps,
+            "ref_per_token_logps": ref_per_token_logps,
         }
 
 

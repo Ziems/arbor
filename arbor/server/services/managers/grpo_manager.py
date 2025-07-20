@@ -1,7 +1,7 @@
 from arbor.server.api.models.schemas import (
     GRPOCheckpointRequest,
     GRPOInitializeRequest,
-    GRPOStatusResponse,
+    GRPOStatus,
     GRPOStepRequest,
     GRPOTerminateRequest,
 )
@@ -20,35 +20,26 @@ class GRPOManager:
     ):
         grpo_job = GRPOJob(self.settings)
         grpo_job.initialize(request, inference_manager)
-        grpo_job_id = grpo_job.grpo_job_id
-        self.grpo_jobs[grpo_job_id] = grpo_job
+        self.grpo_jobs[grpo_job.id] = grpo_job
 
-        grpo_status_dict = grpo_job.get_status_dict()
-        return GRPOStatusResponse(**grpo_status_dict)
+        return grpo_job.get_status()
 
-    def route_grpo_step(
-        self, request: GRPOStepRequest, inference_manager: InferenceManager
-    ):
-        grpo_job = self.grpo_jobs[request.grpo_job_id]
-        grpo_job.step(request, inference_manager)
+    def route_grpo_step(self, request: GRPOStepRequest):
+        grpo_job = self.grpo_jobs[request.job_id]
+        grpo_job.grpo_step(request)
 
-        grpo_status_dict = grpo_job.get_status_dict()
-        return GRPOStatusResponse(**grpo_status_dict)
+        return grpo_job.get_status()
 
-    def route_grpo_checkpoint(
-        self, request: GRPOCheckpointRequest, inference_manager: InferenceManager
-    ):
-        grpo_job = self.grpo_jobs[request.grpo_job_id]
-        grpo_job.checkpoint(request, inference_manager)
+    def route_grpo_checkpoint(self, request: GRPOCheckpointRequest):
+        grpo_job = self.grpo_jobs[request.job_id]
+        grpo_job.checkpoint(request)
 
-        grpo_status_dict = grpo_job.get_status_dict()
-        return GRPOStatusResponse(**grpo_status_dict)
+        return grpo_job.get_status()
 
-    def route_grpo_terminate(
-        self, request: GRPOTerminateRequest, inference_manager: InferenceManager
-    ):
-        grpo_job = self.grpo_jobs[request.grpo_job_id]
-        grpo_job.terminate(request, inference_manager)
+    def terminate(self, request: GRPOTerminateRequest):
+        grpo_job = self.grpo_jobs[request.job_id]
+        grpo_job.terminate()
+        # TODO: inference_manager.terminate_job(grpo_job.inference_job)
+        # TODO: Maybe also update job_manager or resource manager
 
-        grpo_status_dict = grpo_job.get_status_dict()
-        return GRPOStatusResponse(**grpo_status_dict)
+        return grpo_job.get_status()

@@ -14,15 +14,17 @@ import psutil
 
 from arbor.server.api.models.schemas import (
     GRPOCheckpointRequest,
-    GRPOConfigRequest,
     GRPOInitializeRequest,
+    GRPOStatus,
     GRPOStepRequest,
     GRPOTerminateRequest,
 )
 from arbor.server.core.config import Settings
+from arbor.server.services.comms.comms import ArborServerCommsHandler
 from arbor.server.services.jobs.inference_job import InferenceJob
+from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
 from arbor.server.services.jobs.job import Job
-from arbor.server.services.scripts.utils.comms_monitors import ArborServerCommsHandler
+from arbor.server.services.managers.inference_manager import InferenceManager
 from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
 
@@ -31,23 +33,24 @@ logger = get_logger(__name__)
 
 class GRPOJob(Job):
     def __init__(self, settings: Settings):
-        super().__init__()
+        super().__init__("grpojob")
         self.settings = settings
         self.trainin_process = None
-        self.current_model = None
+        self.base_model = None
         self.train_kwargs = None
         self.server_comms_handler = None
         self.status_thread = None
         self.saving_checkpoint = False
         self.saving_model = False
         self.terminating = False
+        self.inference_job: InferenceJob = None
 
         self.checkpoints = {}
         self.last_checkpoint = None
         self.data_count = 0
         self.last_inference_update = 0
 
-    def _make_output_dir(self, request: GRPOConfigRequest):
+    def _make_output_dir(self, request: GRPOInitializeRequest):
         model_name = request.model.split("/")[-1].lower()
         suffix = (
             request.suffix
@@ -58,15 +61,19 @@ class GRPOJob(Job):
         name = f"ft:{model_name}:{suffix}:{timestamp}"
         return name, str(Path(self.settings.STORAGE_PATH).resolve() / "models" / name)
 
-    def find_train_args(self, request: GRPOConfigRequest):
+    def find_training_args(self, request: GRPOInitializeRequest) -> dict:
+        """Process the config request and return training arguments."""
         name, output_dir = self._make_output_dir(request)
-        default_train_kwargs = {
-            "output_dir": output_dir,
-            "grpo_flavor": "grpo",
-        }
-        train_kwargs = request.model_dump(exclude_unset=True)
 
-    def process_training_args(self, train_kwargs: dict) -> tuple[dict, dict]:
+        # Here are defaults for training. We can adjust them if we disagree w the huggingface defaults
+        default_train_kwargs = {"output_dir": output_dir, "grpo_flavor": "grpo"}
+
+        train_kwargs = request.model_dump(exclude_unset=True)
+        return {**default_train_kwargs, **(train_kwargs or {})}
+
+    def process_training_args(
+        self, train_kwargs: GRPOInitializeRequest
+    ) -> tuple[dict, dict]:
         # NOTE: These also need to be in the GRPOConfigRequest
         trl_keys = [
             "output_dir",
@@ -103,42 +110,45 @@ class GRPOJob(Job):
         return trl_train_kwargs, arbor_train_kwargs
 
     def initialize(
-        self, request: GRPOConfigRequest, inference_manager: InferenceManager
+        self, request: GRPOInitializeRequest, inference_manager: InferenceManager
     ):
         """Initialize the training process with ZMQ-based communication."""
         self.train_kwargs = self.find_training_args(request)
-
-        self.trl_train_kwargs, self.arbor_train_kwargs = self.process_training_args(
+        trl_train_kwargs, arbor_train_kwargs = self.process_training_args(
             self.train_kwargs
         )
 
-        self.current_model = request.model
-
-        # The inference server has to be launched before the training process
-        # Launch the inference server
-        # launch_kwargs = {
-        #     k: v for k, v in arbor_train_kwargs.items() if k in ["max_context_length"]
-        # }
-        inference_job.launch_kwargs["max_context_length"] = self.arbor_train_kwargs.get(
-            "max_context_length", None
+        inference_launch_config = InferenceLaunchConfig(
+            max_context_length=arbor_train_kwargs.get("max_context_length", None),
+            # TODO: `gpu_ids` is hardcoded and may be better to be passed in the request
+            # Likely needs to be the number of GPUs and not the ids themselves
+            # So this would be best to do once we have a Resource manager
+            gpu_ids=self.settings.arbor_config.inference.gpu_ids,
+            is_grpo=True,
+            grpo_job_id=self.id,
         )
         logger.info("Launching inference server...")
-        inference_job = inference_manager.launch_job(
-            self.current_model, inference_job.launch_kwargs
+        self.inference_job = inference_manager.launch_job(
+            request.model,
+            inference_launch_config,
         )
 
         # Initialize ZMQ socket manager - no need for connection acceptance thread anymore
         self.server_comms_handler = ArborServerCommsHandler()
 
-        script_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
+        script_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"
+        )
         script_name = {"mmgrpo": "mmgrpo_training.py", "grpo": "grpo_training.py"}[
-            self.arbor_train_kwargs["grpo_flavor"]
+            arbor_train_kwargs["grpo_flavor"]
         ]
         script_path = os.path.join(script_dir, script_name)
 
         # Start the training process with ZMQ ports
         my_env = os.environ.copy()
-        my_env["CUDA_VISIBLE_DEVICES"] = self.settings.arbor_config.training.gpu_ids
+        # Convert gpu_ids list to comma-separated string for environment variable
+        gpu_ids_str = ",".join(map(str, self.settings.arbor_config.training.gpu_ids))
+        my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
         # WandB can block the training process for login, so we silence it
         my_env["WANDB_SILENT"] = "true"
 
@@ -180,16 +190,16 @@ class GRPOJob(Job):
                 "--handshake_port",
                 str(self.server_comms_handler.handshake_port),
                 "--vllm_port",
-                str(inference_job.port),
+                str(self.inference_job.port),
                 "--vllm_group_port",
-                str(inference_job.group_port),
+                str(self.inference_job.group_port),
                 # Training args
                 "--model",
-                self.current_model,
+                request.model,
                 "--trl_train_kwargs",
-                json.dumps(self.trl_train_kwargs),
+                json.dumps(trl_train_kwargs),
                 "--arbor_train_kwargs",
-                json.dumps(self.arbor_train_kwargs),
+                json.dumps(arbor_train_kwargs),
             ]
         )
         logger.info(f"Running GRPO training command: {' '.join(params)}")
@@ -228,20 +238,20 @@ class GRPOJob(Job):
 
         # Start status handling thread
         self.status_thread = threading.Thread(
-            target=self._handle_status_updates, args=(inference_job,), daemon=True
+            target=self._handle_status_updates, args=(), daemon=True
         )
         self.status_thread.start()
         self.server_comms_handler.wait_for_clients(num_processes)
 
-    async def _handle_weight_update_start(self, inference_job: InferenceJob):
+    async def _handle_weight_update_start(self):
         """Handle weight update start in the event loop"""
-        await inference_job.start_weight_update()
+        await self.inference_job.start_weight_update()
 
-    async def _handle_weight_update_complete(self, inference_job: InferenceJob):
+    async def _handle_weight_update_complete(self):
         """Handle weight update complete in the event loop"""
-        await inference_job.complete_weight_update()
+        await self.inference_job.complete_weight_update()
 
-    def _handle_status_updates(self, inference_job: InferenceJob):
+    def _handle_status_updates(self):
         """Handle status updates from training process using ZMQ SUB socket"""
         logger.info("Starting status update handler...")
         try:
@@ -249,10 +259,10 @@ class GRPOJob(Job):
                 logger.debug(f"Received status update: {status}")
                 if status["status"] == "weight_update_start":
                     # Block inference calls by incrementing counter
-                    inference_job.start_weight_update()
+                    self.inference_job.start_weight_update()
                 elif status["status"] == "weight_update_complete":
                     # Decrement counter to potentially allow inference calls again
-                    inference_job.complete_weight_update()
+                    self.inference_job.complete_weight_update()
                 elif status["status"] == "model_saved":
                     logger.info("Updating inference model...")
                     # There is a case where this status is sent multiple times
@@ -275,7 +285,7 @@ class GRPOJob(Job):
             logger.error(f"Error in status update handler: {e}")
             # Make sure to allow inference if there's an error
             try:
-                inference_job.complete_weight_update()
+                self.inference_job.complete_weight_update()
             except:
                 pass
 
@@ -283,7 +293,7 @@ class GRPOJob(Job):
         if not isinstance(batch, list):
             raise ValueError("Batch must be a list")
 
-        if self.arbor_train_kwargs["grpo_flavor"] == "mmgrpo":
+        if self.train_kwargs["grpo_flavor"] == "mmgrpo":
             for group in batch:
                 if not isinstance(group, list):
                     raise ValueError("Each group in batch must be a list")
@@ -296,7 +306,7 @@ class GRPOJob(Job):
                             f"Each item must contain keys: {required_keys}"
                         )
             return True
-        elif self.arbor_train_kwargs["grpo_flavor"] == "grpo":
+        elif self.train_kwargs["grpo_flavor"] == "grpo":
             for item in batch:
                 if not isinstance(item, dict):
                     raise ValueError("Each item in batch must be a dictionary")
@@ -306,10 +316,10 @@ class GRPOJob(Job):
             return True
         else:
             raise NotImplementedError(
-                f"GRPO flavor batch validation not implemented for {self.arbor_train_kwargs['grpo_flavor']}"
+                f"GRPO flavor batch validation not implemented for {self.train_kwargs['grpo_flavor']}"
             )
 
-    def grpo_step(self, request: GRPOStepRequest, inference_job: InferenceJob) -> str:
+    def grpo_step(self, request: GRPOStepRequest) -> str:
         while self.saving_checkpoint:
             logger.info(
                 "Saving checkpoint, pausing GRPO steps until checkpoint is saved..."
@@ -328,17 +338,10 @@ class GRPOJob(Job):
             logger.error(f"Failed to send batch to training process: {e}")
             raise
 
-        self.current_model = self.train_kwargs["output_dir"]
-        inference_job.launched_model = self.current_model
-
-        return {
-            "current_model": self.current_model,
-            "checkpoints": self.checkpoints,
-            "last_checkpoint": self.last_checkpoint,
-        }
-
-    def checkpoint(self, request: GRPOCheckpointRequest, inference_job: InferenceJob):
-        while inference_job.is_updating:  # Use the property instead of direct access
+    def checkpoint(self, request: GRPOCheckpointRequest):
+        while (
+            self.inference_job.is_updating
+        ):  # Use the property instead of direct access
             logger.info("Waiting for weight updates to finish before checkpointing...")
             time.sleep(5)
 
@@ -349,18 +352,13 @@ class GRPOJob(Job):
         while self.saving_checkpoint:
             logger.info("Waiting for checkpoint to be saved...")
             time.sleep(5)
-        return {
-            "current_model": self.current_model,
-            "checkpoints": self.checkpoints,
-            "last_checkpoint": self.last_checkpoint,
-        }
 
-    def terminate(self, inference_job: InferenceJob):
+    def terminate(self):
         """Clean up resources and save the final model."""
         time.sleep(5)
 
         while (
-            inference_job and inference_job.is_updating
+            self.inference_job and self.inference_job.is_updating
         ):  # Use the property instead of direct access
             logger.info("Waiting for final weight updates to finish before saving...")
             time.sleep(5)
@@ -371,12 +369,6 @@ class GRPOJob(Job):
         while self.saving_model:
             logger.info("Waiting for final model to be saved...")
             time.sleep(5)
-
-        termination_data = {
-            "current_model": self.current_model,
-            "checkpoints": self.checkpoints,
-            "last_checkpoint": self.last_checkpoint,
-        }
 
         logger.info("Sending termination command")
         self.terminating = True
@@ -395,7 +387,7 @@ class GRPOJob(Job):
             time.sleep(3)
 
         logger.info("Starting cleanup")
-        self.cleanup_termination(inference_job)
+        self.cleanup_termination()
 
         if self.train_kwargs and "output_dir" in self.train_kwargs:
             output_dir = self.train_kwargs["output_dir"]
@@ -408,9 +400,7 @@ class GRPOJob(Job):
             logger.info("Training terminated, no output directory specified")
             self.train_kwargs = None
 
-        return termination_data
-
-    def cleanup_termination(self, inference_job: InferenceJob):
+    def cleanup_termination(self):
         try:
             # Kill training process and all its children (accelerate launcher creates multiple processes)
             if self.training_process:
@@ -457,13 +447,12 @@ class GRPOJob(Job):
                 logger.debug("Closing ZMQ connections...")
                 self.server_comms_handler.close()
 
-            if inference_job and inference_job.process is not None:
+            if self.inference_job and self.inference_job.process is not None:
                 logger.info("Killing inference manager...")
-                inference_job.kill()
+                self.inference_job.kill()
 
             # Reinitialize in case we want to start a new training run
             self.training_process = None
-            self.current_model = None
             self.server_comms_handler = None
             self.status_thread = None
             self.data_count = 0
@@ -472,15 +461,15 @@ class GRPOJob(Job):
             logger.error(f"Error during cleanup: {e}")
             # Still reset state even if cleanup fails
             self.training_process = None
-            self.current_model = None
             self.server_comms_handler = None
             self.status_thread = None
             self.data_count = 0
 
-    def get_status_dict(self):
-        return {
-            "status": self.status,
-            "current_model": self.current_model,
-            "checkpoints": self.checkpoints,
-            "last_checkpoint": self.last_checkpoint,
-        }
+    def get_status(self) -> GRPOStatus:
+        return GRPOStatus(
+            job_id=self.id,
+            status=self.status.value,
+            current_model=self.id,
+            checkpoints=self.checkpoints,
+            last_checkpoint=self.last_checkpoint,
+        )

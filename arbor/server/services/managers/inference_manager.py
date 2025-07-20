@@ -41,5 +41,10 @@ class InferenceManager:
     def launch_job(self, model: str, launch_kwargs: InferenceLaunchConfig):
         inference_job = InferenceJob(self.settings)
         inference_job.launch(model, launch_kwargs)
-        self.inference_jobs[model] = inference_job
+        if launch_kwargs.is_grpo and launch_kwargs.grpo_job_id:
+            self.inference_jobs[launch_kwargs.grpo_job_id] = inference_job
+        else:
+            self.inference_jobs[model] = inference_job
+
+        print(f"Inference jobs[1]: {self.inference_jobs}")
         return inference_job
