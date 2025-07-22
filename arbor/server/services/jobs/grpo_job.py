@@ -1,8 +1,6 @@
 import json
 import os
-import random
 import signal
-import string
 import subprocess
 import sys
 import threading
@@ -10,6 +8,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import coolname
 import psutil
 
 from arbor.server.api.models.schemas import (
@@ -32,8 +31,9 @@ logger = get_logger(__name__)
 
 
 class GRPOJob(Job):
-    def __init__(self, settings: Settings):
-        super().__init__("grpojob")
+    def __init__(self, settings: Settings, request: GRPOInitializeRequest):
+        id = self._make_job_id(request)
+        super().__init__(id=id)
         self.settings = settings
         self.trainin_process = None
         self.base_model = None
@@ -50,20 +50,19 @@ class GRPOJob(Job):
         self.data_count = 0
         self.last_inference_update = 0
 
+    def _make_job_id(self, request: GRPOInitializeRequest):
+        slug = coolname.generate_slug(2)
+        model = request.model.split("/")[-1].lower()
+        suffix = request.suffix if request.suffix is not None else slug
+        timestamp = datetime.now().strftime("%Y%m%d")
+        return f"grpo:{model}:{suffix}:{timestamp}"
+
     def _make_output_dir(self, request: GRPOInitializeRequest):
-        model_name = request.model.split("/")[-1].lower()
-        suffix = (
-            request.suffix
-            if request.suffix is not None
-            else "".join(random.choices(string.ascii_letters + string.digits, k=6))
-        )
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        name = f"ft:{model_name}:{suffix}:{timestamp}"
-        return name, str(Path(self.settings.STORAGE_PATH).resolve() / "models" / name)
+        return str(Path(self.settings.STORAGE_PATH).resolve() / "models" / self.id)
 
     def find_training_args(self, request: GRPOInitializeRequest) -> dict:
         """Process the config request and return training arguments."""
-        name, output_dir = self._make_output_dir(request)
+        output_dir = self._make_output_dir(request)
 
         # Here are defaults for training. We can adjust them if we disagree w the huggingface defaults
         default_train_kwargs = {"output_dir": output_dir, "grpo_flavor": "grpo"}
@@ -242,14 +241,6 @@ class GRPOJob(Job):
         )
         self.status_thread.start()
         self.server_comms_handler.wait_for_clients(num_processes)
-
-    async def _handle_weight_update_start(self):
-        """Handle weight update start in the event loop"""
-        await self.inference_job.start_weight_update()
-
-    async def _handle_weight_update_complete(self):
-        """Handle weight update complete in the event loop"""
-        await self.inference_job.complete_weight_update()
 
     def _handle_status_updates(self):
         """Handle status updates from training process using ZMQ SUB socket"""

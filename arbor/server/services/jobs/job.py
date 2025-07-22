@@ -2,6 +2,8 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
+import coolname
+
 from arbor.server.api.models.schemas import JobStatus
 
 
@@ -34,8 +36,13 @@ class JobCheckpoint:
 
 
 class Job:
-    def __init__(self, prefix: str = "ftjob"):
-        self.id = str(f"{prefix}-{uuid.uuid4()}")
+    def __init__(self, id=None, prefix="ftjob"):
+        if id is None:
+            readable_slug = coolname.generate_slug(2)
+            timestamp = datetime.now().strftime("%Y%m%d")
+            self.id = str(f"{prefix}:{readable_slug}:{timestamp}")
+        else:
+            self.id = id
         self.status = JobStatus.CREATED
         self.fine_tuned_model = None
         self.events: list[JobEvent] = []

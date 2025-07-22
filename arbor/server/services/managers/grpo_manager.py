@@ -18,7 +18,7 @@ class GRPOManager:
     def initialize(
         self, request: GRPOInitializeRequest, inference_manager: InferenceManager
     ):
-        grpo_job = GRPOJob(self.settings)
+        grpo_job = GRPOJob(self.settings, request)
         grpo_job.initialize(request, inference_manager)
         self.grpo_jobs[grpo_job.id] = grpo_job
 
