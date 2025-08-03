@@ -18,6 +18,7 @@ pip install -U arbor-ai
 
 Optionally, you can also install flash attention to speed up inference. <br/>
 This can take 15+ minutes to install on some setups:
+
 ```bash
 pip install flash-attn --no-build-isolation
 ```
@@ -33,6 +34,7 @@ pip install flash-attn --no-build-isolation
 ```bash
 python -m arbor.cli serve
 ```
+
 On the first run you'll be asked which GPUs will be used for training and which for inference. For more that one GPU, separate the ids by comma: `1, 2`. Your config file will be saved in `~/.arbor/config.yaml` should you want to edit these configs in the future.
 
 ### 2️⃣ Optimize a DSPy Program
@@ -52,9 +54,19 @@ export NCCL_P2P_DISABLE=1
 export NCCL_IB_DISABLE=1
 ```
 
+**NVCC**
+If you run into issues, double check that you have [nvcc](https://docs.nvidia.com/cuda/cuda-compiler-driver-nvcc/) installed:
+
+```bash
+nvcc --version
+```
+
+If you don't have admin permissions, you can often install nvcc using conda.
+
 ## 🙏 Acknowledgements
 
 Arbor builds on the shoulders of great work. We extend our thanks to:
+
 - **[Will Brown's Verifiers library](https://github.com/willccbb/verifiers)**
 - **[Hugging Face TRL library](https://github.com/huggingface/trl)**
 

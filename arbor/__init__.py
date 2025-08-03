@@ -2,11 +2,7 @@
 Arbor - A framework for fine-tuning and managing language models
 """
 
-try:
-    from importlib.metadata import PackageNotFoundError, version
-except ImportError:
-    # For Python < 3.8
-    from importlib_metadata import PackageNotFoundError, version
+from importlib.metadata import PackageNotFoundError, version
 
 try:
     __version__ = version("arbor-ai")

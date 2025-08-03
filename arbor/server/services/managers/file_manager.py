@@ -7,7 +7,7 @@ from typing import Literal, Union
 
 from fastapi import UploadFile
 
-from arbor.server.core.config import Settings
+from arbor.server.core.config import Config
 from arbor.server.utils.format_detection import detect_file_format
 from arbor.server.utils.logging import get_logger
 
@@ -21,8 +21,8 @@ class FileValidationError(Exception):
 
 
 class FileManager:
-    def __init__(self, settings: Settings):
-        self.uploads_dir = Path(settings.STORAGE_PATH) / "uploads"
+    def __init__(self, config: Config):
+        self.uploads_dir = Path(config.STORAGE_PATH) / "uploads"
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
         self.files = self.load_files_from_uploads()
 
@@ -167,14 +167,18 @@ class FileManager:
         elif detected_format == "dpo":
             self._validate_dpo_content(content)
         else:
-            raise FileValidationError("File format could not be determined. Please ensure the file is valid SFT or DPO format.")
+            raise FileValidationError(
+                "File format could not be determined. Please ensure the file is valid SFT or DPO format."
+            )
 
-    def _detect_content_format(self, content: bytes) -> Literal["sft", "dpo", "unknown"]:
+    def _detect_content_format(
+        self, content: bytes
+    ) -> Literal["sft", "dpo", "unknown"]:
         """
         Detect the format of content by examining its structure.
         """
         try:
-            lines = content.decode('utf-8').split('\n')
+            lines = content.decode("utf-8").split("\n")
             for line in lines:
                 line = line.strip()
                 if not line:
@@ -190,7 +194,10 @@ class FileManager:
                         return "sft"
 
                     # Check for DPO format indicators
-                    if all(key in data for key in ["input", "preferred_output", "non_preferred_output"]):
+                    if all(
+                        key in data
+                        for key in ["input", "preferred_output", "non_preferred_output"]
+                    ):
                         return "dpo"
 
                 except json.JSONDecodeError:
@@ -218,7 +225,7 @@ class FileManager:
         try:
             with open(file_path, "rb") as f:
                 content = f.read()
-            
+
             if format_type == "sft":
                 self._validate_sft_content(content)
             elif format_type == "dpo":
@@ -233,7 +240,7 @@ class FileManager:
         Validates SFT format content: JSONL with messages array structure.
         """
         try:
-            lines = content.decode('utf-8').split('\n')
+            lines = content.decode("utf-8").split("\n")
             for line_num, line in enumerate(lines, 1):
                 line = line.strip()
                 if not line:
@@ -283,7 +290,7 @@ class FileManager:
         Validates DPO format content: JSONL with input, preferred_output, and non_preferred_output structure.
         """
         try:
-            lines = content.decode('utf-8').split('\n')
+            lines = content.decode("utf-8").split("\n")
             for line_num, line in enumerate(lines, 1):
                 line = line.strip()
                 if not line:

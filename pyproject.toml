@@ -1,30 +1,33 @@
 [project]
 name = "arbor-ai"
-version = "0.2.1"
+version = "0.2.4"
 description = "A framework for fine-tuning and managing language models"
 authors = [
     {name = "Noah Ziems", email = "nziems2@nd.edu"}
 ]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-    "torch>=2.6.0",
+    "torch>=2.7.0",
     "fastapi",
     "uvicorn",
     "click",
     "python-multipart",
     "pydantic-settings",
-    #"vllm>=0.8.5.post1",
+    "vllm>=0.9.1",
     "transformers",
-    "trl>=0.17.0",
+    "trl==0.19.1",
     "peft",
     "ray>=2.9",
-    "setuptools (>=76.0.0,<77.0.0)",
+    "setuptools (>=76.0.0,<79.0.1)",
     "pyzmq>=26.4.0",
     "pyyaml>=6.0.2",
     "wandb",
     "httpx",
-    "coolname" # Used for generating slugs in job ids
+    "coolname", # Used for generating slugs in job ids
+    "jq>=1.8.0",
+    "textual", # Lots of our code is adopted from Will Brown's Verifiers library, so we give credit here
+    "verifiers",
 ]
 
 [project.scripts]
@@ -47,9 +50,3 @@ exclude = ["tests", "tests.*"]
 [project.urls]
 Homepage = "https://github.com/Ziems/arbor"
 Issues = "https://github.com/Ziems/arbor/issues"
-
-[tool.pytest.ini_options]
-filterwarnings = [
-    "ignore::DeprecationWarning:websockets.*",
-    "ignore::DeprecationWarning:uvicorn.*"
-]

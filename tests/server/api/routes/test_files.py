@@ -1,14 +1,13 @@
 from pathlib import Path
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 
 @pytest.fixture(scope="module")
 def server(tmp_path_factory):
     """Set up a test server with configured dependencies"""
-    from arbor.server.core.config import Settings, ArborConfig, InferenceConfig, TrainingConfig
+    from arbor.server.core.config import Config
     from arbor.server.main import app
     from arbor.server.services.managers.file_manager import FileManager
     from arbor.server.services.managers.file_train_manager import FileTrainManager
@@ -17,22 +16,16 @@ def server(tmp_path_factory):
     # Use tmp_path_factory instead of tmp_path because we're using scope="module"
     test_storage = tmp_path_factory.mktemp("test_storage")
 
-    # Create test settings with required arbor_config
-    settings = Settings(
-        STORAGE_PATH=str(test_storage),
-        arbor_config=ArborConfig(
-            inference=InferenceConfig(),
-            training=TrainingConfig()
-        )
-    )
+    # Create test config
+    config = Config(STORAGE_PATH=str(test_storage))
 
-    # Initialize services with test settings
-    file_manager = FileManager(settings=settings)
-    job_manager = JobManager(settings=settings)
-    file_train_manager = FileTrainManager(settings=settings)
+    # Initialize services with test config
+    file_manager = FileManager(config=config)
+    job_manager = JobManager(config=config)
+    file_train_manager = FileTrainManager(config=config)
 
     # Inject dependencies into app state
-    app.state.settings = settings
+    app.state.config = config
     app.state.file_manager = file_manager
     app.state.job_manager = job_manager
     app.state.file_train_manager = file_train_manager
@@ -264,7 +257,7 @@ def test_upload_file_validates_mixed_formats(client):
     files = {
         "file": (
             "test.jsonl",
-            b'{}\n{}',
+            b"{}\n{}",
             "application/json",
         )
     }
@@ -276,7 +269,7 @@ def test_upload_file_validates_mixed_formats(client):
     files = {
         "file": (
             "test.jsonl",
-            b'   \n  \n',
+            b"   \n  \n",
             "application/json",
         )
     }

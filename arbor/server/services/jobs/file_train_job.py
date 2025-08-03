@@ -12,7 +12,7 @@ from typing import Literal
 from arbor.server.api.models.schemas import (
     FineTuneRequest,
 )
-from arbor.server.core.config import Settings
+from arbor.server.core.config import Config
 from arbor.server.services.comms.comms import ArborServerCommsHandler
 from arbor.server.services.jobs.job import Job
 from arbor.server.services.managers.file_manager import FileManager
@@ -23,9 +23,9 @@ logger = get_logger(__name__)
 
 
 class FileTrainJob(Job):
-    def __init__(self, settings: Settings):
+    def __init__(self, config: Config):
         super().__init__()
-        self.settings = settings
+        self.config = config
 
     def _make_output_dir(self, request: FineTuneRequest):
         model_name = request.model.split("/")[-1].lower()
@@ -36,7 +36,7 @@ class FileTrainJob(Job):
         )
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         name = f"ft:{model_name}:{suffix}:{timestamp}"
-        return name, str(Path(self.settings.STORAGE_PATH).resolve() / "models" / name)
+        return name, str(Path(self.config.STORAGE_PATH).resolve() / "models" / name)
 
     def _prepare_training_file(
         self, request: FineTuneRequest, file_manager: FileManager, format_type: str
@@ -137,13 +137,14 @@ class FileTrainJob(Job):
         script_path = os.path.join(script_dir, script_name)
 
         my_env = os.environ.copy()
+        # TODO: This should first check to see if GPUs are available w/ a resource manager or something
         # Convert gpu_ids list to comma-separated string for environment variable
-        gpu_ids_str = ",".join(map(str, self.settings.arbor_config.training.gpu_ids))
+        gpu_ids_str = ",".join(map(str, self.config.arbor_config.training.gpu_ids))
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
         # WandB can block the training process for login, so we silence it
         my_env["WANDB_SILENT"] = "true"
 
-        num_processes = len(self.settings.arbor_config.training.gpu_ids)
+        num_processes = len(self.config.arbor_config.training.gpu_ids)
         main_process_port = get_free_port()
 
         params = [
@@ -155,11 +156,11 @@ class FileTrainJob(Job):
             "--main_process_port",
             str(main_process_port),
         ]
-        if self.settings.arbor_config.training.accelerate_config:
+        if self.config.arbor_config.training.accelerate_config:
             params.extend(
                 [
                     "--config_file",
-                    self.settings.arbor_config.training.accelerate_config,
+                    self.config.arbor_config.training.accelerate_config,
                 ]
             )
         params.extend(

@@ -11,20 +11,20 @@ from typing import Any, Dict, Optional
 import psutil
 import requests
 
-from arbor.server.core.config import Settings
+from arbor.server.core.config import Config
 from arbor.server.services.inference.vllm_client import VLLMClient
 from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
 from arbor.server.services.jobs.job import Job
-from arbor.server.utils.helpers import get_free_port, strip_prefix
+from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 
 class InferenceJob(Job):
-    def __init__(self, settings: Settings):
+    def __init__(self, config: Config):
         super().__init__()
-        self.settings = settings
+        self.config = config
         self.process: Optional[subprocess.Popen] = None
         self.launch_config: InferenceLaunchConfig = None
         self.last_activity = None
@@ -35,12 +35,16 @@ class InferenceJob(Job):
         self.group_port = None
         self.vllm_client = None
         self._is_updating = 0  # Counter for weight updates in progress
+        self.launched_model_name = (
+            None  # the name of the model that was originally launched
+        )
 
     def is_server_running(self) -> bool:
         """Check if vLLM server is running."""
         return self.process is not None and self.process.poll() is None
 
     def launch(self, model: str, launch_config: InferenceLaunchConfig):
+        self.launched_model_name = model
         if self.is_server_running():
             logger.info("Server is already launched.")
             return
@@ -55,7 +59,7 @@ class InferenceJob(Job):
         gpu_ids_str = ",".join(map(str, launch_config.gpu_ids))
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
         n_gpus = len(launch_config.gpu_ids)
-        command = f"{sys.executable} -m arbor.server.services.inference.vllm_serve --model {model} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching True"
+        command = f"{sys.executable} -m arbor.server.services.inference.vllm_serve --model {self.launched_model_name} --port {self.port} --gpu-memory-utilization 0.9 --data-parallel-size {n_gpus} --enable_prefix_caching"
 
         if launch_config.max_context_length:
             command += f" --max_model_len {launch_config.max_context_length}"
@@ -104,19 +108,21 @@ class InferenceJob(Job):
             # Join them all into a single string, or you might return a list
             return "".join(logs_buffer)
 
-        # Let the user know server is up
-        logger.info(f"Server ready on random port {self.port}!")
-
         self.get_logs = get_logs
         self.process = process
         self.thread = thread
+
+        # Wait for the OpenAI API endpoints to be ready
+        logger.info("Waiting for vLLM OpenAI API to be ready...")
+        wait_for_server(f"http://localhost:{self.port}", timeout=300)
+        logger.info(f"vLLM server ready on port {self.port}!")
 
         # Get another free port for weight sync group communication
         self.group_port = get_free_port()
         self.vllm_client = VLLMClient(
             port=self.port,
             group_port=self.group_port,
-            connection_timeout=300,  # 5 minutes
+            connection_timeout=0,  # No additional timeout since we already waited
         )
 
         # Once server is ready, we tell the thread to stop printing further lines.
@@ -148,6 +154,8 @@ class InferenceJob(Job):
         logger.info("Server killed.")
 
     async def run_inference(self, request_json: dict):
+        requested_model = request_json["model"]
+        request_json["model"] = self.launched_model_name
         # Check if weights are being updated
         while self._is_updating:
             # weights are being updated...waiting
@@ -158,8 +166,11 @@ class InferenceJob(Job):
 
         if self.process is None:
             raise RuntimeError("Server is not running. Please launch it first.")
-
-        return await self.vllm_client.chat(json_body=request_json)
+        response = await self.vllm_client.chat(json_body=request_json)
+        response["model"] = (
+            requested_model  # Set the model back to the original requested model
+        )
+        return response
 
     def start_weight_update(self):
         """Block inference during weight updates"""

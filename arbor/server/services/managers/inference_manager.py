@@ -1,8 +1,4 @@
-import subprocess
-from datetime import datetime
-from typing import Optional
-
-from arbor.server.core.config import Settings
+from arbor.server.core.config import Config
 from arbor.server.services.jobs.inference_job import InferenceJob
 from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
 from arbor.server.utils.logging import get_logger
@@ -11,8 +7,8 @@ logger = get_logger(__name__)
 
 
 class InferenceManager:
-    def __init__(self, settings: Settings):
-        self.settings = settings
+    def __init__(self, config: Config):
+        self.config = config
         self.inference_jobs: dict[str, InferenceJob] = {}
 
     # TODO: request_json should be checked for launch_model_config or something
@@ -25,9 +21,9 @@ class InferenceManager:
         inference_job = self.inference_jobs.get(model, None)
         if inference_job is None:
             try:
-                inference_job = InferenceJob(self.settings)
+                inference_job = InferenceJob(self.config)
                 inference_launch_config = InferenceLaunchConfig(
-                    gpu_ids=self.settings.arbor_config.inference.gpu_ids
+                    gpu_ids=self.config.arbor_config.inference.gpu_ids
                 )
                 inference_job.launch(model, inference_launch_config)
                 # This needs to have a unique id or something, not be referenced by model
@@ -39,7 +35,7 @@ class InferenceManager:
         return await inference_job.run_inference(request_json)
 
     def launch_job(self, model: str, launch_kwargs: InferenceLaunchConfig):
-        inference_job = InferenceJob(self.settings)
+        inference_job = InferenceJob(self.config)
         inference_job.launch(model, launch_kwargs)
         if launch_kwargs.is_grpo and launch_kwargs.grpo_job_id:
             self.inference_jobs[launch_kwargs.grpo_job_id] = inference_job

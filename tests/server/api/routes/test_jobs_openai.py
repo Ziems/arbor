@@ -21,7 +21,6 @@ def live_server_url(tmp_path_factory):
     from arbor.server.core.config import (
         ArborConfig,
         InferenceConfig,
-        Settings,
         TrainingConfig,
     )
     from arbor.server.main import app

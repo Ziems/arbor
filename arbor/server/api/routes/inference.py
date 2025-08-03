@@ -1,4 +1,3 @@
-import json
 import uuid
 
 from fastapi import APIRouter, Request
@@ -21,7 +20,7 @@ async def run_inference(
     raw_json["model"] = strip_prefix(raw_json["model"])
 
     # Generate a random hex ID
-    request_id = str(uuid.uuid4())
+    # request_id = str(uuid.uuid4())
 
     # forward the request to the inference server
     completion = await inference_manager.route_inference(raw_json)

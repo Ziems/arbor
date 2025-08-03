@@ -4,7 +4,7 @@ from datetime import datetime
 import click
 import uvicorn
 
-from arbor.server.core.config import Settings
+from arbor.server.core.config import Config
 from arbor.server.core.config_manager import ConfigManager
 from arbor.server.main import app
 from arbor.server.services.managers.file_manager import FileManager
@@ -43,8 +43,8 @@ def create_app(arbor_config_path: str):
         FastAPI: Configured FastAPI application
     """
     # Create new settings instance with overrides
-    settings = Settings.load_from_yaml(arbor_config_path)
-    log_dir = make_log_dir(settings.STORAGE_PATH)
+    config = Config.load_config_from_yaml(arbor_config_path)
+    log_dir = make_log_dir(config.STORAGE_PATH)
     app.state.log_dir = log_dir
 
     # Setup logging
@@ -63,9 +63,9 @@ def create_app(arbor_config_path: str):
     logger.info("Initializing Arbor application...")
 
     # Log system information via health manager
-    health_manager = HealthManager(settings=settings)
+    health_manager = HealthManager(config=config)
     try:
-        versions = settings.get_system_versions()
+        versions = config.get_system_versions()
         logger.info("System versions:")
         for category, version_info in versions.items():
             if isinstance(version_info, dict):
@@ -77,16 +77,16 @@ def create_app(arbor_config_path: str):
     except Exception as e:
         logger.warning(f"Could not log system versions: {e}")
 
-    # Initialize services with settings
+    # Initialize services with config
     logger.info("Initializing services...")
-    file_manager = FileManager(settings=settings)
-    job_manager = JobManager(settings=settings)
-    file_train_manager = FileTrainManager(settings=settings)
-    inference_manager = InferenceManager(settings=settings)
-    grpo_manager = GRPOManager(settings=settings)
+    file_manager = FileManager(config=config)
+    job_manager = JobManager(config=config)
+    file_train_manager = FileTrainManager(config=config)
+    inference_manager = InferenceManager(config=config)
+    grpo_manager = GRPOManager(config=config)
 
-    # Inject settings into app state
-    app.state.settings = settings
+    # Inject config into app state
+    app.state.config = config
     app.state.file_manager = file_manager
     app.state.job_manager = job_manager
     app.state.file_train_manager = file_train_manager
@@ -152,7 +152,7 @@ def serve(host, port, arbor_config):
     if arbor_config:
         config_path = arbor_config
     else:
-        config_path = Settings.use_default_config()
+        config_path = Config.use_default_config()
 
         # If no config found, run first-time setup
         if config_path is None:
@@ -171,6 +171,7 @@ def serve(host, port, arbor_config):
         # configure_uvicorn_logging()
         uvicorn.run(app, host=host, port=port)
     except Exception as e:
+
         click.echo(f"Failed to start server: {e}", err=True)
         raise click.Abort()
 

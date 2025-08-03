@@ -16,9 +16,8 @@ from arbor.server.api.models.schemas import (
     GRPOInitializeRequest,
     GRPOStatus,
     GRPOStepRequest,
-    GRPOTerminateRequest,
 )
-from arbor.server.core.config import Settings
+from arbor.server.core.config import Config
 from arbor.server.services.comms.comms import ArborServerCommsHandler
 from arbor.server.services.jobs.inference_job import InferenceJob
 from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
@@ -31,10 +30,10 @@ logger = get_logger(__name__)
 
 
 class GRPOJob(Job):
-    def __init__(self, settings: Settings, request: GRPOInitializeRequest):
+    def __init__(self, config: Config, request: GRPOInitializeRequest):
         id = self._make_job_id(request)
         super().__init__(id=id)
-        self.settings = settings
+        self.config = config
         self.trainin_process = None
         self.base_model = None
         self.train_kwargs = None
@@ -58,7 +57,7 @@ class GRPOJob(Job):
         return f"grpo:{model}:{suffix}:{timestamp}"
 
     def _make_output_dir(self, request: GRPOInitializeRequest):
-        return str(Path(self.settings.STORAGE_PATH).resolve() / "models" / self.id)
+        return str(Path(self.config.STORAGE_PATH).resolve() / "models" / self.id)
 
     def find_training_args(self, request: GRPOInitializeRequest) -> dict:
         """Process the config request and return training arguments."""
@@ -122,7 +121,7 @@ class GRPOJob(Job):
             # TODO: `gpu_ids` is hardcoded and may be better to be passed in the request
             # Likely needs to be the number of GPUs and not the ids themselves
             # So this would be best to do once we have a Resource manager
-            gpu_ids=self.settings.arbor_config.inference.gpu_ids,
+            gpu_ids=self.config.arbor_config.inference.gpu_ids,
             is_grpo=True,
             grpo_job_id=self.id,
         )
@@ -146,12 +145,12 @@ class GRPOJob(Job):
         # Start the training process with ZMQ ports
         my_env = os.environ.copy()
         # Convert gpu_ids list to comma-separated string for environment variable
-        gpu_ids_str = ",".join(map(str, self.settings.arbor_config.training.gpu_ids))
+        gpu_ids_str = ",".join(map(str, self.config.arbor_config.training.gpu_ids))
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
         # WandB can block the training process for login, so we silence it
         my_env["WANDB_SILENT"] = "true"
 
-        num_processes = self.settings.arbor_config.training.gpu_ids.count(",") + 1
+        num_processes = len(self.config.arbor_config.training.gpu_ids)
 
         # This is the port for the accelerate main process
         main_process_port = get_free_port()
@@ -165,11 +164,11 @@ class GRPOJob(Job):
             "--main_process_port",
             str(main_process_port),
         ]
-        if self.settings.arbor_config.training.accelerate_config:
+        if self.config.arbor_config.training.accelerate_config:
             params.extend(
                 [
                     "--config_file",
-                    self.settings.arbor_config.training.accelerate_config,
+                    self.config.arbor_config.training.accelerate_config,
                 ]
             )
         params.extend(

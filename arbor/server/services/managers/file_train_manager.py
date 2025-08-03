@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from arbor.server.api.models.schemas import FineTuneRequest
-from arbor.server.core.config import Settings
+from arbor.server.core.config import Config
 from arbor.server.services.jobs.file_train_job import FileTrainJob
 from arbor.server.services.jobs.job import JobEvent
 from arbor.server.services.managers.file_manager import FileManager
@@ -12,8 +12,8 @@ from arbor.server.services.managers.job_manager import Job, JobStatus
 
 
 class FileTrainManager:
-    def __init__(self, settings: Settings):
-        self.settings = settings
+    def __init__(self, config: Config):
+        self.config = config
 
     def fine_tune(self, request: FineTuneRequest, job: Job, file_manager: FileManager):
 
@@ -58,5 +58,5 @@ class FileTrainManager:
                 f"Unsupported training method: {fine_tune_type}. Supported methods: 'sft', 'dpo'"
             )
 
-        file_train_job = FileTrainJob(self.settings)
+        file_train_job = FileTrainJob(self.config)
         file_train_job.fine_tune(request, file_manager, fine_tune_type)

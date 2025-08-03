@@ -1,10 +1,11 @@
 from arbor.server.api.models.schemas import JobStatus
-from arbor.server.core.config import Settings
+from arbor.server.core.config import Config
 from arbor.server.services.jobs.job import Job
 
 
 class JobManager:
-    def __init__(self, settings: Settings):
+    def __init__(self, config: Config):
+        self.config = config
         self.jobs = {}
 
     def get_job(self, job_id: str) -> Job:

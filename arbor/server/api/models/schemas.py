@@ -236,3 +236,14 @@ class GRPOCheckpointRequest(GRPOBaseRequest):
 
 class GRPOTerminateRequest(GRPOBaseRequest):
     status: Optional[str] = "success"
+
+
+class LogQueryRequest(BaseModel):
+    jq_query: str
+    limit: Optional[int]
+
+
+class LogQueryResponse(BaseModel):
+    status: str
+    results: List[Any]
+    error_message: Optional[str] = None

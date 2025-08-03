@@ -1,3 +1,5 @@
+storage_path: '~/.arbor/storage'
+
 inference:
   gpu_ids: [0]
 

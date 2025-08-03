@@ -5,20 +5,20 @@ from arbor.server.api.models.schemas import (
     GRPOStepRequest,
     GRPOTerminateRequest,
 )
-from arbor.server.core.config import Settings
+from arbor.server.core.config import Config
 from arbor.server.services.jobs.grpo_job import GRPOJob
 from arbor.server.services.managers.inference_manager import InferenceManager
 
 
 class GRPOManager:
-    def __init__(self, settings: Settings):
-        self.settings = settings
+    def __init__(self, config: Config):
+        self.config = config
         self.grpo_jobs: dict[str, GRPOJob] = {}
 
     def initialize(
         self, request: GRPOInitializeRequest, inference_manager: InferenceManager
     ):
-        grpo_job = GRPOJob(self.settings, request)
+        grpo_job = GRPOJob(self.config, request)
         grpo_job.initialize(request, inference_manager)
         self.grpo_jobs[grpo_job.id] = grpo_job
 
