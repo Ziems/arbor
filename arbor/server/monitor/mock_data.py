@@ -1,7 +1,7 @@
-from dataclasses import dataclass
-from typing import List
 import random
 import time
+from dataclasses import dataclass
+from typing import List
 
 
 @dataclass

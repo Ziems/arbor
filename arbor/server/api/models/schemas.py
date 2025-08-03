@@ -20,6 +20,7 @@ class FileModel(BaseModel):
     created_at: int
     filename: str
     purpose: str
+    format: str = "unknown"  # Detected format: "sft", "dpo", or "unknown"
 
 
 class WandbConfig(BaseModel):
@@ -37,7 +38,7 @@ class IntegrationModel(BaseModel):
 class FineTuneRequest(BaseModel):
     model: str
     training_file: str  # id of uploaded jsonl file
-    method: dict
+    method: Optional[dict] = None
     suffix: Optional[str] = None
     # UNUSED
     validation_file: Optional[str] = None
@@ -91,6 +92,7 @@ class JobStatus(Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     PENDING_CANCEL = "pending_cancel"
+    CREATED = "created"
 
 
 # https://platform.openai.com/docs/api-reference/fine-tuning/object
@@ -176,12 +178,18 @@ class ChatCompletionModel(BaseModel):
     choices: List[ChatCompletionChoice]
 
 
-class GRPORequest(BaseModel):
-    model: str
-    batch: List[dict] | List[List[dict]]
+### GRPO
 
 
-class GRPOConfigRequest(BaseModel):
+class GRPOStatus(BaseModel):
+    job_id: str
+    status: Optional[str] = None
+    current_model: str
+    checkpoints: dict[str, str]
+    last_checkpoint: Optional[str] = None
+
+
+class GRPOInitializeRequest(BaseModel):
     model: str
     temperature: Optional[float] = None
     beta: Optional[float] = None
@@ -212,37 +220,22 @@ class GRPOConfigRequest(BaseModel):
     generation_batch_size: Optional[int] = None
 
 
-class GRPOConfigResponse(BaseModel):
-    status: str
+# Base class for all GRPO requests except initialize
+class GRPOBaseRequest(BaseModel):
+    job_id: str
 
 
-class GRPOTerminateRequest(BaseModel):
-    status: Optional[str] = "success"
+class GRPOStepRequest(GRPOBaseRequest):
+    model: str
+    batch: List[dict] | List[List[dict]]
 
 
-class GRPOTerminateResponse(BaseModel):
-    status: str
-    current_model: str
-    checkpoints: Optional[dict[str, str]] = None
-    last_checkpoint: Optional[str] = None
-
-
-class GRPOStepResponse(BaseModel):
-    status: str
-    current_model: str
-    checkpoints: dict[str, str]
-    last_checkpoint: Optional[str] = None
-
-
-class GRPOCheckpointRequest(BaseModel):
+class GRPOCheckpointRequest(GRPOBaseRequest):
     checkpoint_name: str
 
 
-class GRPOCheckpointResponse(BaseModel):
-    status: str
-    current_model: str
-    checkpoints: dict[str, str]
-    last_checkpoint: str
+class GRPOTerminateRequest(GRPOBaseRequest):
+    status: Optional[str] = "success"
 
 
 class LogQueryRequest(BaseModel):

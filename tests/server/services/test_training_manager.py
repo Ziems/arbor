@@ -21,9 +21,9 @@ def server(tmp_path_factory):
     """Set up a test server with configured dependencies"""
     from arbor.server.core.config import Config
     from arbor.server.main import app
-    from arbor.server.services.file_manager import FileManager
-    from arbor.server.services.job_manager import JobManager
-    from arbor.server.services.training_manager import TrainingManager
+    from arbor.server.services.managers.file_manager import FileManager
+    from arbor.server.services.managers.file_train_manager import FileTrainManager
+    from arbor.server.services.managers.job_manager import JobManager
 
     # Use tmp_path_factory for module-scoped fixture
     test_storage = tmp_path_factory.mktemp("test_storage")
@@ -31,16 +31,16 @@ def server(tmp_path_factory):
     # Create test config
     config = Config(STORAGE_PATH=str(test_storage))
 
-    # Initialize services with test config
+    # Initialize services with test settings
     file_manager = FileManager(config=config)
     job_manager = JobManager(config=config)
-    training_manager = TrainingManager(config=config)
+    file_train_manager = FileTrainManager(config=config)
 
     # Inject dependencies into app state
     app.state.config = config
     app.state.file_manager = file_manager
     app.state.job_manager = job_manager
-    app.state.training_manager = training_manager
+    app.state.file_train_manager = file_train_manager
 
     # Start server in a separate process
     proc = Process(target=run_server)

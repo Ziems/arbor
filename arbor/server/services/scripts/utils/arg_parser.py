@@ -23,9 +23,14 @@ def get_training_arg_parser():
         help="Model to use for training",
     )
     training_args.add_argument(
-        "--trl_config_kwargs",
+        "--trl_train_kwargs",
         type=json.loads,
-        help="Training configs as a JSON string",
+        help="TRL training configs as a JSON string",
+    )
+    training_args.add_argument(
+        "--arbor_train_kwargs",
+        type=json.loads,
+        help="Arbor training arguments as a JSON string",
     )
 
     return parser

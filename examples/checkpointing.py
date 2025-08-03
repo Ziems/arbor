@@ -74,27 +74,16 @@ def main():
     for i in range(len(dataset)):
         inputs = dataset[i]
         input_messages = [{"role": "user", "content": inputs["prompt"]}]
-
-        # Use ThreadPoolExecutor for concurrent requests
         completions = []
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            # Submit all 8 requests concurrently
-            future_to_index = {
-                executor.submit(
-                    _single_chat_completion, current_model, input_messages, 0.7
-                ): idx
-                for idx in range(8)
-            }
-
-            # Collect results as they complete
-            for future in as_completed(future_to_index):
-                try:
-                    completion = future.result()
-                    completions.append(completion)
-                except Exception as exc:
-                    print(f"Request generated an exception: {exc}")
-                    # Add a placeholder for failed requests
-                    completions.append({"content": "", "role": "assistant"})
+        for _ in range(8):
+            response = client.chat.completions.create(
+                model=current_model, messages=input_messages, temperature=0.7
+            )
+            # Assuming response.choices[0] is the single completion
+            choice = response.choices[0]
+            completions.append(
+                {"content": choice.message.content, "role": choice.message.role}
+            )
         rewards = _reward_func(inputs["prompt"], [c["content"] for c in completions])
         print(rewards)
 

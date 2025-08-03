@@ -16,11 +16,11 @@ except ImportError:
 
 
 class InferenceConfig(BaseModel):
-    gpu_ids: str = "0"
+    gpu_ids: list[int] = [0]
 
 
 class TrainingConfig(BaseModel):
-    gpu_ids: str = "0"
+    gpu_ids: list[int] = [0]
     accelerate_config: Optional[str] = None
 
 

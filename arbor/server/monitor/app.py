@@ -1,12 +1,12 @@
-from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Static
-from textual.containers import Container, Vertical
-from textual import on
-from textual.widgets import DataTable
-
-from .widgets import JobTable
-from .mock_data import generate_mock_jobs, MockJob
 from typing import List
+
+from textual import on
+from textual.app import App, ComposeResult
+from textual.containers import Container, Vertical
+from textual.widgets import DataTable, Footer, Header, Static
+
+from .mock_data import MockJob, generate_mock_jobs
+from .widgets import JobTable
 
 
 class ArborMonitorApp(App):

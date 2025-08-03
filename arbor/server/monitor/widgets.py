@@ -1,6 +1,8 @@
-from textual.widgets import DataTable
-from rich.text import Text
 from typing import List
+
+from rich.text import Text
+from textual.widgets import DataTable
+
 from .mock_data import MockJob
 
 

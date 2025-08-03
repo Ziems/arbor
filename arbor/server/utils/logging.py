@@ -26,12 +26,12 @@ class ColoredFormatter(logging.Formatter):
     def format(self, record):
         # Use the name mapping to get short names, fallback to original name
         name_mappings = {
-            "arbor.server.services.inference_manager": "infer",
-            "arbor.server.services.grpo_manager": "grpo",
-            "arbor.server.services.file_manager": "files",
-            "arbor.server.services.health_manager": "health",
-            "arbor.server.services.job_manager": "jobs",
-            "arbor.server.services.training_manager": "train",
+            "arbor.server.services.managers.inference_manager": "infer",
+            "arbor.server.services.managers.grpo_manager": "grpo",
+            "arbor.server.services.managers.file_manager": "files",
+            "arbor.server.services.managers.health_manager": "health",
+            "arbor.server.services.managers.job_manager": "jobs",
+            "arbor.server.services.managers.file_train_manager": "train",
             "arbor.server.services.comms.comms": "comms",
             "arbor.server.services.scripts.sft_training": "sft",
             "arbor.server.services.scripts.grpo_training": "grpo",
@@ -163,13 +163,13 @@ def configure_component_loggers(log_level: str):
 
     # Arbor component loggers with shorter names (8 chars max for proper centering)
     component_loggers = {
-        "arbor.server.services.inference_manager": "infer",
-        "arbor.server.services.grpo_manager": "grpo",
-        "arbor.server.services.file_manager": "files",
-        "arbor.server.services.health_manager": "health",
-        "arbor.server.services.job_manager": "jobs",
-        "arbor.server.services.training_manager": "train",
-        "arbor.server.services.comms": "comms",
+        "arbor.server.services.managers.inference_manager": "infer",
+        "arbor.server.services.managers.grpo_manager": "grpo",
+        "arbor.server.services.managers.file_manager": "files",
+        "arbor.server.services.managers.health_manager": "health",
+        "arbor.server.services.managers.job_manager": "jobs",
+        "arbor.server.services.managers.file_train_manager": "train",
+        "arbor.server.services.comms.comms": "comms",
         "arbor.server.services.scripts.sft_training": "sft",
         "arbor.server.services.scripts.grpo_training": "grpo",
         "arbor.config": "config",
@@ -217,12 +217,12 @@ def get_logger(name: str) -> logging.Logger:
     """
     # Mapping of full module names to short names (8 chars max for proper centering)
     name_mappings = {
-        "arbor.server.services.inference_manager": "infer",
-        "arbor.server.services.grpo_manager": "grpo",
-        "arbor.server.services.file_manager": "files",
-        "arbor.server.services.health_manager": "health",
-        "arbor.server.services.job_manager": "jobs",
-        "arbor.server.services.training_manager": "train",
+        "arbor.server.services.managers.inference_manager": "infer",
+        "arbor.server.services.managers.grpo_manager": "grpo",
+        "arbor.server.services.managers.file_manager": "files",
+        "arbor.server.services.managers.health_manager": "health",
+        "arbor.server.services.managers.job_manager": "jobs",
+        "arbor.server.services.managers.file_train_manager": "train",
         "arbor.server.services.comms.comms": "comms",
         "arbor.server.services.scripts.sft_training": "sft",
         "arbor.server.services.scripts.grpo_training": "grpo",

@@ -1,11 +1,7 @@
 from pathlib import Path
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
-from arbor.server.api.routes.files import router
-from arbor.server.services.file_manager import FileManager
 
 
 @pytest.fixture(scope="module")
@@ -13,9 +9,9 @@ def server(tmp_path_factory):
     """Set up a test server with configured dependencies"""
     from arbor.server.core.config import Config
     from arbor.server.main import app
-    from arbor.server.services.file_manager import FileManager
-    from arbor.server.services.job_manager import JobManager
-    from arbor.server.services.training_manager import TrainingManager
+    from arbor.server.services.managers.file_manager import FileManager
+    from arbor.server.services.managers.file_train_manager import FileTrainManager
+    from arbor.server.services.managers.job_manager import JobManager
 
     # Use tmp_path_factory instead of tmp_path because we're using scope="module"
     test_storage = tmp_path_factory.mktemp("test_storage")
@@ -26,13 +22,13 @@ def server(tmp_path_factory):
     # Initialize services with test config
     file_manager = FileManager(config=config)
     job_manager = JobManager(config=config)
-    training_manager = TrainingManager(config=config)
+    file_train_manager = FileTrainManager(config=config)
 
     # Inject dependencies into app state
     app.state.config = config
     app.state.file_manager = file_manager
     app.state.job_manager = job_manager
-    app.state.training_manager = training_manager
+    app.state.file_train_manager = file_train_manager
 
     return app
 
@@ -83,7 +79,7 @@ def test_upload_file_validates_file_type(client):
     assert "id" in response.json()
 
 
-def test_upload_file_validates_format(client):
+def test_upload_file_validates_sft_format(client):
     # Valid JSONL format (from our test file)
     test_file_path = (
         Path(__file__).parent.parent.parent.parent / "data" / "training_data_sft.jsonl"
@@ -166,3 +162,131 @@ def test_get_file_returns_same_content(client):
         stored_content = f.read()
 
     assert stored_content == valid_content
+
+
+def test_upload_file_validates_dpo_format(client):
+    """Test DPO format validation"""
+    # Valid DPO format (from our test file)
+    test_file_path = (
+        Path(__file__).parent.parent.parent.parent / "data" / "training_data_dpo.jsonl"
+    )
+    valid_content = test_file_path.read_bytes()
+
+    # Test valid DPO format
+    files = {"file": ("test.jsonl", valid_content, "application/json")}
+    response = client.post("/v1/files", files=files)
+    assert response.status_code == 200
+    assert "id" in response.json()
+
+    # Test DPO format with missing required fields
+    files = {
+        "file": (
+            "test.jsonl",
+            b'{"chosen": [{"role": "user", "content": "test"}], "rejected": [{"role": "assistant", "content": "test"}]}\n',
+            "application/json",
+        )
+    }
+    response = client.post("/v1/files", files=files)
+    assert response.status_code == 400
+    assert "Invalid file format" in response.json()["detail"]
+
+    # Test DPO format with missing input field
+    files = {
+        "file": (
+            "test.jsonl",
+            b'{"preferred_output": [{"role": "assistant", "content": "test"}], "non_preferred_output": [{"role": "assistant", "content": "test"}]}\n',
+            "application/json",
+        )
+    }
+    response = client.post("/v1/files", files=files)
+    assert response.status_code == 400
+    assert "Invalid file format" in response.json()["detail"]
+
+    # Test DPO format with invalid input structure
+    files = {
+        "file": (
+            "test.jsonl",
+            b'{"input": "not_a_dict", "preferred_output": [{"role": "assistant", "content": "test"}], "non_preferred_output": [{"role": "assistant", "content": "test"}]}\n',
+            "application/json",
+        )
+    }
+    response = client.post("/v1/files", files=files)
+    assert response.status_code == 400
+    assert "Invalid file format" in response.json()["detail"]
+
+    # Test DPO format with missing tools field
+    files = {
+        "file": (
+            "test.jsonl",
+            b'{"input": {"messages": [{"role": "user", "content": "test"}]}, "preferred_output": [{"role": "assistant", "content": "test"}], "non_preferred_output": [{"role": "assistant", "content": "test"}]}\n',
+            "application/json",
+        )
+    }
+    response = client.post("/v1/files", files=files)
+    assert response.status_code == 400
+    assert "Invalid file format" in response.json()["detail"]
+
+    # Test DPO format with missing parallel_tool_calls field
+    files = {
+        "file": (
+            "test.jsonl",
+            b'{"input": {"messages": [{"role": "user", "content": "test"}], "tools": []}, "preferred_output": [{"role": "assistant", "content": "test"}], "non_preferred_output": [{"role": "assistant", "content": "test"}]}\n',
+            "application/json",
+        )
+    }
+    response = client.post("/v1/files", files=files)
+    assert response.status_code == 400
+    assert "Invalid file format" in response.json()["detail"]
+
+
+def test_upload_file_validates_mixed_formats(client):
+    """Test that files with mixed or unknown formats are rejected"""
+    # Test file with neither SFT nor DPO format
+    files = {
+        "file": (
+            "test.jsonl",
+            b'{"random_field": "value"}\n{"another_field": "value"}',
+            "application/json",
+        )
+    }
+    response = client.post("/v1/files", files=files)
+    assert response.status_code == 400
+    assert "Invalid file format" in response.json()["detail"]
+
+    # Test file with empty JSON objects
+    files = {
+        "file": (
+            "test.jsonl",
+            b"{}\n{}",
+            "application/json",
+        )
+    }
+    response = client.post("/v1/files", files=files)
+    assert response.status_code == 400
+    assert "Invalid file format" in response.json()["detail"]
+
+    # Test file with only whitespace
+    files = {
+        "file": (
+            "test.jsonl",
+            b"   \n  \n",
+            "application/json",
+        )
+    }
+    response = client.post("/v1/files", files=files)
+    assert response.status_code == 400
+    assert "Invalid file format" in response.json()["detail"]
+
+
+def test_upload_file_validates_format_consistency(client):
+    """Test that all records in a file must have the same format"""
+    # Test file with mixed SFT and DPO formats
+    mixed_content = (
+        b'{"messages": [{"role": "user", "content": "test"}]}\n'
+        b'{"input": {"messages": [{"role": "user", "content": "test"}], "tools": [], "parallel_tool_calls": false}, "preferred_output": [{"role": "assistant", "content": "test"}], "non_preferred_output": [{"role": "assistant", "content": "test"}]}\n'
+    )
+    files = {"file": ("test.jsonl", mixed_content, "application/json")}
+    response = client.post("/v1/files", files=files)
+    # Mixed format files should be rejected
+    assert response.status_code == 400
+    assert "Invalid file format" in response.json()["detail"]

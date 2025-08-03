@@ -15,7 +15,6 @@ from transformers import (
     PreTrainedTokenizerBase,
     Trainer,
     TrainerCallback,
-    is_wandb_available,
 )
 from trl.data_utils import maybe_apply_chat_template
 from trl.trainer.grpo_trainer import GRPOConfig, GRPOTrainer, nanmax, nanmin
