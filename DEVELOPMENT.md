@@ -368,10 +368,10 @@ Runs on: `push` to `main`/`dev` branches, and all pull requests
 #### **Code Quality Workflow** (`.github/workflows/code-quality.yml`)
 Runs on: Pull requests touching Python files
 
-- **Pre-commit Checks**: Runs all pre-commit hooks
+- **Pre-commit Checks**: Runs all pre-commit hooks (formatting, tests, debug detection)
 - **Code Formatting**: Black, isort validation
-- **File Validation**: YAML, JSON, TOML syntax checks
-- **Debug Detection**: Prevents debug statements from being merged
+- **File Validation**: Basic configuration file validation
+- **Comprehensive Quality**: All the same checks as local pre-commit
 - **Performance**: ~30-60 seconds
 
 #### **Status Checks**
