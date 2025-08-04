@@ -10,11 +10,11 @@ from arbor.server.api.models.schemas import (
     LogQueryResponse,
     PaginatedResponse,
 )
-from arbor.server.services.managers.file_train_manager import FileTrainManager
-from arbor.server.services.managers.file_manager import FileManager
-from arbor.server.services.managers.job_manager import JobManager
-from arbor.server.services.jobs.job import Job
 from arbor.server.services.jobs.file_train_job import FileTrainJob
+from arbor.server.services.jobs.job import Job
+from arbor.server.services.managers.file_manager import FileManager
+from arbor.server.services.managers.file_train_manager import FileTrainManager
+from arbor.server.services.managers.job_manager import JobManager
 
 router = APIRouter()
 
@@ -44,10 +44,7 @@ def create_fine_tune_job(
 def get_jobs(request: Request):
     job_manager = request.app.state.job_manager
     return PaginatedResponse(
-        data=[
-            job.to_status_model()
-            for job in job_manager.get_jobs()
-        ],
+        data=[job.to_status_model() for job in job_manager.get_jobs()],
         has_more=False,
     )
 

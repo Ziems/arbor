@@ -58,13 +58,45 @@ minimal = [
     # Dev tools
     "black",
     "pytest",
+    "pytest-timeout",
+    "pytest-cov",
     "isort",
+    "pre-commit",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["arbor", "arbor.*"]
 exclude = ["tests", "tests.*"]
+
+[tool.coverage.run]
+source = ["arbor"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+    "*/migrations/*",
+    "*/venv/*",
+    "*/.venv/*",
+    "examples/*",
+    "arbor/server/services/scripts/*",
+    "arbor/server/services/inference/vllm_serve.py",
+    "arbor/server/services/inference/vllm_client.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
 
 [project.urls]
 Homepage = "https://github.com/Ziems/arbor"

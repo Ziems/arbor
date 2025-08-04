@@ -8,25 +8,26 @@ import threading
 import time
 from typing import Any, List, Optional, Union
 
+
 # Mock the GPU-related imports
 class MockTorch:
     class cuda:
         @staticmethod
         def is_available():
             return False
-        
+
         @staticmethod
         def device_count():
             return 0
-    
+
     @staticmethod
     def tensor(*args, **kwargs):
         return MockTensor()
-    
+
     @staticmethod
     def no_grad():
         return MockContextManager()
-    
+
     @staticmethod
     def cat(*args, **kwargs):
         return MockTensor()
@@ -35,19 +36,19 @@ class MockTorch:
 class MockTensor:
     def __init__(self, *args, **kwargs):
         self.shape = (1, 1)  # Mock shape
-    
+
     def to(self, device):
         return self
-    
+
     def sum(self, *args, **kwargs):
         return MockTensor()
-    
+
     def mean(self, *args, **kwargs):
         return MockTensor()
-    
+
     def item(self):
         return 0.5  # Mock scalar value
-    
+
     def tolist(self):
         return [0.5]
 
@@ -55,7 +56,7 @@ class MockTensor:
 class MockContextManager:
     def __enter__(self):
         return self
-    
+
     def __exit__(self, *args):
         pass
 
@@ -66,16 +67,16 @@ class MockAccelerator:
         self.device = "cpu"
         self.is_main_process = True
         self.process_index = 0
-    
+
     def wait_for_everyone(self):
         print("Mock: Waiting for everyone")
-    
+
     def gather(self, tensor):
         return tensor
-    
+
     def unwrap_model(self, model):
         return MockModel()
-    
+
     def end_training(self):
         print("Mock: Ending training")
 
@@ -83,7 +84,7 @@ class MockAccelerator:
 class MockModel:
     def __init__(self):
         self.training = True
-    
+
     def disable_adapter(self):
         return MockContextManager()
 
@@ -93,7 +94,7 @@ class MockVLLMClient:
         self.host = host
         self.port = port
         print(f"Mock: Initializing vLLM client to {host}:{port}")
-    
+
     def init_communicator(self):
         print("Mock: Initializing vLLM communicator")
 
@@ -114,7 +115,7 @@ class MockGRPOTrainer:
         self.ref_model = None
         self.num_iterations = 1
         print("Mock: Initialized GRPO Trainer")
-    
+
     def _init_metrics(self):
         return {
             "num_tokens": [],
@@ -127,16 +128,16 @@ class MockGRPOTrainer:
             "completions/max_terminated_length": [],
             "reward": [],
             "reward_std": [],
-            "frac_reward_zero_std": []
+            "frac_reward_zero_std": [],
         }
-    
+
     def train(self):
         print("Mock: Starting training...")
         for i in range(5):  # Mock 5 training steps
             print(f"Mock: Training step {i+1}/5")
             time.sleep(0.1)  # Simulate training time
         print("Mock: Training completed!")
-    
+
     def _get_per_token_logps(self, model, ids, mask, logits_to_keep, batch_size=None):
         # Mock per-token log probabilities
         return MockTensor()
@@ -150,7 +151,7 @@ class MockTrainerState:
 class MockTokenizer:
     def __init__(self):
         self.eos_token_id = 2
-    
+
     def __call__(self, *args, **kwargs):
         return {"input_ids": MockTensor(), "attention_mask": MockTensor()}
 
@@ -171,11 +172,13 @@ class MockArborGRPOTrainer(MockGRPOTrainer):
         super().__init__()
         self.vllm_client = None
         if self.accelerator.is_main_process:
-            print(f"Mock: Creating vLLM client for port {args.vllm_server_port if args else 8000}")
+            print(
+                f"Mock: Creating vLLM client for port {args.vllm_server_port if args else 8000}"
+            )
             self.vllm_client = MockVLLMClient(
                 args.vllm_server_host if args else "localhost",
                 args.vllm_server_port if args else 8000,
-                group_port=vllm_group_port
+                group_port=vllm_group_port,
             )
             self.vllm_client.init_communicator()
 
@@ -186,10 +189,10 @@ class MockDataset:
         self.comms_handler = None
         self.accelerator = None
         print("Mock: Created BlockingRotatingQueueDataset")
-    
+
     def set_comms_handler(self, handler):
         self.comms_handler = handler
-    
+
     def set_accelerator(self, accelerator):
         self.accelerator = accelerator
 
@@ -200,10 +203,10 @@ class MockWeightUpdateCallback:
         self.comms_handler = None
         self.trainer = None
         print("Mock: Created WeightUpdateCallback")
-    
+
     def set_comms_handler(self, handler):
         self.comms_handler = handler
-    
+
     def set_trainer(self, trainer):
         self.trainer = trainer
 
@@ -217,7 +220,7 @@ class MockLastStepTimeCallback:
 class MockIngestionMonitor:
     def time_since_last_step(self):
         return 1.0  # Mock time
-    
+
     def set_last_step_time(self):
         pass
 
@@ -225,10 +228,10 @@ class MockIngestionMonitor:
 class MockCommsHandler:
     def __init__(self, **kwargs):
         print("Mock: Created ArborScriptCommsHandler")
-    
+
     def send_status(self, status):
         print(f"Mock: Sending status: {status}")
-    
+
     def close(self):
         print("Mock: Closing comms handler")
 
@@ -236,7 +239,7 @@ class MockCommsHandler:
 class MockCommandMonitor:
     def __init__(self, **kwargs):
         print("Mock: Created CommandMonitor")
-    
+
     def start(self):
         print("Mock: Starting command monitor")
 
@@ -256,10 +259,7 @@ class MockDatasetItems:
     def __iter__(self):
         # Generate mock data items
         for i in range(10):  # Mock 10 items
-            yield {
-                "prompt": f"This is mock prompt {i}",
-                "content": f"Mock content {i}"
-            }
+            yield {"prompt": f"This is mock prompt {i}", "content": f"Mock content {i}"}
 
 
 def main():
@@ -294,7 +294,7 @@ def main():
     )
 
     args = parser.parse_args()
-    
+
     print("Mock GRPO Training Script Starting...")
     print(f"Model: {args.model}")
     print("This is a mock training script - no actual GPU operations will occur")
@@ -326,13 +326,18 @@ def main():
         # Create mock components
         ingestion_monitor = MockIngestionMonitor()
         train_dataset = MockDataset(ingestion_monitor=ingestion_monitor)
-        weight_update_callback = MockWeightUpdateCallback(ingestion_monitor=ingestion_monitor)
+        weight_update_callback = MockWeightUpdateCallback(
+            ingestion_monitor=ingestion_monitor
+        )
 
         trainer = MockArborGRPOTrainer(
             model=args.model,
             args=training_args,
             train_dataset=train_dataset,
-            callbacks=[MockLastStepTimeCallback(ingestion_monitor), weight_update_callback],
+            callbacks=[
+                MockLastStepTimeCallback(ingestion_monitor),
+                weight_update_callback,
+            ],
             peft_config=lora_config,
             vllm_group_port=args.vllm_group_port,
         )
@@ -383,14 +388,14 @@ def main():
         print("\nMock: Received interrupt, shutting down...")
     except Exception as e:
         print(f"Mock: Error: {e}")
-        if 'comms_handler' in locals():
+        if "comms_handler" in locals():
             comms_handler.send_status({"status": "error", "error": str(e)})
         raise e
     finally:
         print("Mock: Cleaning up resources...")
-        if 'trainer' in locals():
+        if "trainer" in locals():
             trainer.accelerator.end_training()
-        if 'comms_handler' in locals():
+        if "comms_handler" in locals():
             comms_handler.close()
         print("Mock: Cleanup complete")
 

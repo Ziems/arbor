@@ -15,7 +15,9 @@ class FileTrainManager:
     def __init__(self, config: Config):
         self.config = config
 
-    def fine_tune(self, request: FineTuneRequest, job: FileTrainJob, file_manager: FileManager):
+    def fine_tune(
+        self, request: FineTuneRequest, job: FileTrainJob, file_manager: FileManager
+    ):
 
         job.status = JobStatus.RUNNING
         job.add_event(

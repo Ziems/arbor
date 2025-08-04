@@ -16,7 +16,7 @@ class ArborMonitorApp(App):
     Screen {
         layout: vertical;
     }
-    
+
     .header-info {
         height: 1;
         padding: 0 1;
@@ -24,26 +24,26 @@ class ArborMonitorApp(App):
         color: $text;
         text-align: center;
     }
-    
+
     JobTable {
         height: 1fr;
         margin: 1;
         border: solid $primary;
     }
-    
+
     .status-container {
         height: 3;
         background: $surface;
         border: solid $primary;
         margin: 0 1;
     }
-    
+
     .status-line {
         height: 1;
         padding: 0 1;
         background: $surface;
     }
-    
+
     .help-line {
         height: 1;
         padding: 0 1;

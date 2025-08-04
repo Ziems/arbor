@@ -5,8 +5,8 @@ import pytest
 from arbor.server.api.models.schemas import JobStatus
 from arbor.server.core.config import (
     ArborConfig,
-    InferenceConfig,
     Config,
+    InferenceConfig,
     TrainingConfig,
 )
 
@@ -19,8 +19,8 @@ def server(tmp_path_factory):
     """Set up a test server with configured dependencies"""
     from arbor.server.core.config import (
         ArborConfig,
-        InferenceConfig,
         Config,
+        InferenceConfig,
         TrainingConfig,
     )
     from arbor.server.main import app
@@ -45,7 +45,13 @@ def server(tmp_path_factory):
     app.state.file_train_manager = FileTrainManager(config)
     app.state.job_manager = JobManager(config)
 
-    return app
+    yield app
+
+    # Cleanup after all tests in this module
+    try:
+        app.state.job_manager.cleanup()
+    except Exception as e:
+        print(f"Error during job manager cleanup: {e}")
 
 
 @pytest.fixture
@@ -126,11 +132,11 @@ def test_create_fine_tune_job_dpo(client, sample_file_dpo):
                     "beta": 0.1,
                     "batch_size": 1,
                     "learning_rate_multiplier": 1.0,
-                    "n_epochs": 1
+                    "n_epochs": 1,
                 }
-            }
+            },
         },
-        "suffix": "test_dpo"
+        "suffix": "test_dpo",
     }
 
     response = client.post("/v1/fine_tuning/jobs", json=fine_tune_request)

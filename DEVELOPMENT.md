@@ -149,9 +149,9 @@ def main():
     # Add same arguments as real script
     parser.add_argument("--model", type=str)
     # ... other args
-    
+
     args = parser.parse_args()
-    
+
     print("Mock: Starting my GPU operation...")
     # Simulate work without GPU dependencies
     for i in range(3):
@@ -249,19 +249,66 @@ Mock scripts should not import heavy dependencies. Check that your mock script o
 
 ## Testing
 
+### Test Suite Organization
+
+Arbor has a comprehensive test suite organized into two main categories:
+
+- **Unit Tests** (`tests/server/`): Fast tests using TestClient and mocking
+- **Integration Tests** (`tests/integration/`): End-to-end tests with real server processes
+
 ### Running Tests
 
 ```bash
+# Run all unit tests (recommended for development)
+ARBOR_MOCK_GPU=1 uv run --only-group minimal pytest tests/server/ tests/test_gpu_mocking.py -v
+
+# Run integration tests
+ARBOR_MOCK_GPU=1 uv run --only-group minimal pytest tests/integration/ -v
+
 # Run all tests
-pytest
+ARBOR_MOCK_GPU=1 uv run --only-group minimal pytest
 
-# Run with GPU mocking (automatic)
-export ARBOR_MOCK_GPU=1
-pytest
-
-# Run GPU mocking test suite
-python test_gpu_mocking.py
+# Run with coverage reporting
+ARBOR_MOCK_GPU=1 uv run --only-group minimal pytest tests/server/ tests/test_gpu_mocking.py --cov=arbor --cov-report=html
 ```
+
+### Test Coverage
+
+The project uses `pytest-cov` for coverage reporting. Coverage reports help identify areas that need more testing:
+
+- **Minimum Coverage**: 30% (enforced by pre-commit hooks)
+- **Coverage Reports**: Available in terminal and HTML format (`htmlcov/`)
+- **Excluded from Coverage**:
+  - Test files
+  - Examples directory
+  - Non-mocked GPU scripts (since we test with mocks)
+  - Heavy ML dependencies (vLLM, training scripts)
+
+View coverage reports:
+```bash
+# Generate and view HTML coverage report
+ARBOR_MOCK_GPU=1 uv run --only-group minimal pytest tests/server/ --cov=arbor --cov-report=html
+open htmlcov/index.html
+```
+
+### Pre-commit Testing
+
+Pre-commit hooks automatically run the full test suite before each commit:
+
+```bash
+# Install pre-commit hooks (one time setup)
+uv run --only-group minimal pre-commit install
+
+# Run pre-commit checks manually
+uv run --only-group minimal pre-commit run --all-files
+```
+
+Pre-commit runs:
+- Code formatting (Black, isort)
+- File validation (YAML, JSON, TOML syntax)
+- Debug statement detection
+- Unit tests with coverage reporting (~1.5s)
+- Integration tests (~9s)
 
 ### Writing Tests
 
@@ -270,6 +317,7 @@ When writing tests that involve GPU operations:
 1. **Use pytest**: GPU mocking is automatically enabled
 2. **Set environment**: Or manually set `ARBOR_MOCK_GPU=1`
 3. **Test mock behavior**: Verify mock scripts are used instead of real ones
+4. **Add cleanup**: Use `yield` in fixtures to ensure proper cleanup
 
 Example:
 ```python
@@ -280,10 +328,29 @@ from arbor.server.utils.mock_utils import should_use_mock_gpu, get_script_path
 def test_gpu_mocking():
     os.environ["ARBOR_MOCK_GPU"] = "1"
     assert should_use_mock_gpu()
-    
+
     script_path = get_script_path("grpo_training.py", "/some/dir")
     assert "grpo_training_mock.py" in script_path
+
+@pytest.fixture(scope="module")
+def server(tmp_path_factory):
+    """Server fixture with proper cleanup"""
+    # Setup code...
+    yield app
+
+    # Cleanup to prevent test hanging
+    try:
+        app.state.job_manager.cleanup()
+    except Exception as e:
+        print(f"Error during cleanup: {e}")
 ```
+
+### Test Performance
+
+- **Unit Tests**: ~0.6 seconds (26 tests)
+- **Integration Tests**: ~9 seconds (10 tests)
+- **GPU Mocking Tests**: ~0.35 seconds (8 tests)
+- **Total**: ~10-15 seconds for full suite
 
 ## Code Style
 

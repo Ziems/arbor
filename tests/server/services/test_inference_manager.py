@@ -24,12 +24,12 @@ def server(tmp_path_factory):
 
     # Create test config
     from arbor.server.core.config import ArborConfig, InferenceConfig, TrainingConfig
+
     config = Config(
         STORAGE_PATH=str(test_storage),
         arbor_config=ArborConfig(
-            inference=InferenceConfig(gpu_ids=[]),
-            training=TrainingConfig(gpu_ids=[])
-        )
+            inference=InferenceConfig(gpu_ids=[]), training=TrainingConfig(gpu_ids=[])
+        ),
     )
 
     # Initialize services with test config
@@ -41,10 +41,16 @@ def server(tmp_path_factory):
     app.state.inference_manager = inference_manager
     app.state.job_manager = job_manager
 
-    return app
+    yield app
+
+    # Cleanup after all tests in this module
+    try:
+        app.state.job_manager.cleanup()
+    except Exception as e:
+        print(f"Error during job manager cleanup: {e}")
 
 
-@pytest.fixture(scope="module") 
+@pytest.fixture(scope="module")
 def client(server):
     return TestClient(server)
 
@@ -71,7 +77,7 @@ class CarDescription(BaseModel):
 #     pass
 
 # def test_structured_inference_openai(server):
-#     # Test code would go here  
+#     # Test code would go here
 #     pass
 
 # def test_simple_inference(client):
@@ -82,8 +88,9 @@ class CarDescription(BaseModel):
 #     # Test code would go here
 #     pass
 
+
 def test_inference_manager_exists(server):
     """Basic test to verify inference manager is set up correctly."""
-    assert hasattr(server.state, 'inference_manager')
+    assert hasattr(server.state, "inference_manager")
     assert server.state.inference_manager is not None
     print("Inference manager is properly initialized")

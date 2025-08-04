@@ -8,47 +8,57 @@ from typing import Any, Optional, Union
 
 # Reuse mock classes from grpo_training_mock for consistency
 from .grpo_training_mock import (
-    MockTorch,
-    MockTensor,
     MockAccelerator,
-    MockModel,
-    MockVLLMClient,
-    MockGRPOTrainer,
-    MockGRPOConfig,
-    MockDataset,
-    MockWeightUpdateCallback,
-    MockIngestionMonitor,
-    MockCommsHandler,
     MockCommandMonitor,
+    MockCommsHandler,
+    MockDataset,
+    MockGRPOConfig,
+    MockGRPOTrainer,
+    MockIngestionMonitor,
     MockLoraConfig,
+    MockModel,
+    MockTensor,
     MockTokenizer,
+    MockTorch,
     MockTrainerState,
-    mock_load_dataset
+    MockVLLMClient,
+    MockWeightUpdateCallback,
+    mock_load_dataset,
 )
 
 
 class MockMMGRPOTrainer(MockGRPOTrainer):
     """Mock Multi-Modal GRPO Trainer"""
-    
-    def __init__(self, model, args=None, lora=False, vllm_group_port=None, 
-                 max_context_length=None, grpo_flavor="mmgrpo", **kwargs):
+
+    def __init__(
+        self,
+        model,
+        args=None,
+        lora=False,
+        vllm_group_port=None,
+        max_context_length=None,
+        grpo_flavor="mmgrpo",
+        **kwargs,
+    ):
         super().__init__()
         self.lora = lora
         self.max_context_length = max_context_length
         self.grpo_flavor = grpo_flavor
         self.vllm_client = None
-        
+
         print(f"Mock: Initializing MMGRPOTrainer with flavor={grpo_flavor}")
-        
+
         if self.accelerator.is_main_process:
-            print(f"Mock: Creating vLLM client for MMGRPO port {args.vllm_server_port if args else 8000}")
+            print(
+                f"Mock: Creating vLLM client for MMGRPO port {args.vllm_server_port if args else 8000}"
+            )
             self.vllm_client = MockVLLMClient(
                 args.vllm_server_host if args else "localhost",
                 args.vllm_server_port if args else 8000,
-                group_port=vllm_group_port
+                group_port=vllm_group_port,
             )
             self.vllm_client.init_communicator()
-    
+
     def train(self):
         print("Mock: Starting MM-GRPO training...")
         for i in range(3):  # Mock 3 training steps for MM-GRPO
@@ -59,7 +69,7 @@ class MockMMGRPOTrainer(MockGRPOTrainer):
 
 class MockBlockingQueueDataset(MockDataset):
     """Mock version of BlockingQueueDataset specifically for MMGRPO"""
-    
+
     def __init__(self, ingestion_monitor=None):
         super().__init__(ingestion_monitor)
         print("Mock: Created BlockingQueueDataset for MMGRPO")
@@ -96,10 +106,12 @@ def main():
     )
 
     args = parser.parse_args()
-    
+
     print("Mock MM-GRPO Training Script Starting...")
     print(f"Model: {args.model}")
-    print("This is a mock multi-modal training script - no actual GPU operations will occur")
+    print(
+        "This is a mock multi-modal training script - no actual GPU operations will occur"
+    )
 
     try:
         trl_train_args = {**(args.trl_train_kwargs or {})}
@@ -125,7 +137,9 @@ def main():
         # Create mock components specific to MMGRPO
         ingestion_monitor = MockIngestionMonitor()
         train_dataset = MockBlockingQueueDataset(ingestion_monitor=ingestion_monitor)
-        weight_update_callback = MockWeightUpdateCallback(ingestion_monitor=ingestion_monitor)
+        weight_update_callback = MockWeightUpdateCallback(
+            ingestion_monitor=ingestion_monitor
+        )
 
         trainer = MockMMGRPOTrainer(
             model=args.model,
@@ -184,14 +198,14 @@ def main():
         print("\nMock: MM-GRPO received interrupt, shutting down...")
     except Exception as e:
         print(f"Mock: MM-GRPO Error: {e}")
-        if 'comms_handler' in locals():
+        if "comms_handler" in locals():
             comms_handler.send_status({"status": "error", "error": str(e)})
         raise e
     finally:
         print("Mock: MM-GRPO cleaning up resources...")
-        if 'trainer' in locals():
+        if "trainer" in locals():
             trainer.accelerator.end_training()
-        if 'comms_handler' in locals():
+        if "comms_handler" in locals():
             comms_handler.close()
         print("Mock: MM-GRPO cleanup complete")
 

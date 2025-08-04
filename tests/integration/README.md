@@ -3,7 +3,7 @@
 These tests require real server processes and may be slow. They test end-to-end functionality including:
 
 - Real server startup with uvicorn
-- Actual HTTP requests 
+- Actual HTTP requests
 - Real training processes (with GPU mocking enabled via `ARBOR_MOCK_GPU=1`)
 - OpenAI client compatibility
 

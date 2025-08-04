@@ -14,8 +14,9 @@ def live_server_url(tmp_path_factory):
     """Start a real server for OpenAI client tests"""
     # CRITICAL: Set environment variable BEFORE any imports that check it
     import os
+
     os.environ["ARBOR_MOCK_GPU"] = "1"
-    
+
     import socket
     import threading
     import time
@@ -24,9 +25,9 @@ def live_server_url(tmp_path_factory):
 
     from arbor.server.core.config import (
         ArborConfig,
+        Config,
         InferenceConfig,
         TrainingConfig,
-        Config,
     )
     from arbor.server.main import app
     from arbor.server.services.managers.file_manager import FileManager
@@ -92,9 +93,7 @@ def sample_file_sft_live(live_server_url):
     import httpx
 
     # Load the test file from tests/data
-    test_file_path = (
-        Path(__file__).parent.parent / "data" / "training_data_sft.jsonl"
-    )
+    test_file_path = Path(__file__).parent.parent / "data" / "training_data_sft.jsonl"
     valid_content = test_file_path.read_bytes()
 
     # Upload file to the live server

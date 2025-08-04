@@ -23,10 +23,10 @@ async def upload_file(
         # Read and validate content before saving
         content = await file.read()
         file_manager.validate_content_format(content)
-        
+
         # Reset file pointer to beginning for saving
         await file.seek(0)
-        
+
         return FileModel(**file_manager.save_uploaded_file(file))
     except FileValidationError as e:
         raise HTTPException(status_code=400, detail=f"Invalid file format: {str(e)}")

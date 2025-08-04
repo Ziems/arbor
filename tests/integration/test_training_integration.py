@@ -10,7 +10,12 @@ from arbor.server.main import app
 @pytest.fixture(scope="module")
 def server(tmp_path_factory):
     """Set up a test server with configured dependencies using TestClient"""
-    from arbor.server.core.config import Config, ArborConfig, InferenceConfig, TrainingConfig
+    from arbor.server.core.config import (
+        ArborConfig,
+        Config,
+        InferenceConfig,
+        TrainingConfig,
+    )
     from arbor.server.services.managers.file_manager import FileManager
     from arbor.server.services.managers.file_train_manager import FileTrainManager
     from arbor.server.services.managers.job_manager import JobManager
@@ -22,9 +27,8 @@ def server(tmp_path_factory):
     config = Config(
         STORAGE_PATH=str(test_storage),
         arbor_config=ArborConfig(
-            inference=InferenceConfig(gpu_ids=[]),
-            training=TrainingConfig(gpu_ids=[])
-        )
+            inference=InferenceConfig(gpu_ids=[]), training=TrainingConfig(gpu_ids=[])
+        ),
     )
 
     # Initialize services with test settings
@@ -49,9 +53,7 @@ def client(server):
 @pytest.fixture(scope="module")
 def sample_training_file(client):
     """Upload a training file and return its ID"""
-    test_file_path = (
-        Path(__file__).parent.parent / "data" / "training_data_sft.jsonl"
-    )
+    test_file_path = Path(__file__).parent.parent / "data" / "training_data_sft.jsonl"
     test_content = test_file_path.read_bytes()
     files = {"file": ("test.jsonl", test_content, "application/json")}
 
@@ -64,7 +66,10 @@ def test_create_fine_tune_job(sample_training_file, client):
     """Test creating a fine-tune job - should be fast with ARBOR_MOCK_GPU=1"""
     finetune_response = client.post(
         "/v1/fine_tuning/jobs",
-        json={"training_file": sample_training_file, "model": "HuggingFaceTB/SmolLM2-135M-Instruct"},
+        json={
+            "training_file": sample_training_file,
+            "model": "HuggingFaceTB/SmolLM2-135M-Instruct",
+        },
     )
     assert finetune_response.status_code == 200
     job_data = finetune_response.json()
@@ -79,10 +84,13 @@ def test_get_fine_tune_job(sample_training_file, client):
     # Create job
     finetune_response = client.post(
         "/v1/fine_tuning/jobs",
-        json={"training_file": sample_training_file, "model": "HuggingFaceTB/SmolLM2-135M-Instruct"},
+        json={
+            "training_file": sample_training_file,
+            "model": "HuggingFaceTB/SmolLM2-135M-Instruct",
+        },
     )
     job_id = finetune_response.json()["id"]
-    
+
     # Get job status
     status_response = client.get(f"/v1/fine_tuning/jobs/{job_id}")
     assert status_response.status_code == 200
@@ -96,9 +104,12 @@ def test_list_fine_tune_jobs(sample_training_file, client):
     # Create a job
     client.post(
         "/v1/fine_tuning/jobs",
-        json={"training_file": sample_training_file, "model": "HuggingFaceTB/SmolLM2-135M-Instruct"},
+        json={
+            "training_file": sample_training_file,
+            "model": "HuggingFaceTB/SmolLM2-135M-Instruct",
+        },
     )
-    
+
     # List jobs
     list_response = client.get("/v1/fine_tuning/jobs")
     assert list_response.status_code == 200

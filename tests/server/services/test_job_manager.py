@@ -1,9 +1,9 @@
 import pytest
 
-from arbor.server.core.config import Config
-from arbor.server.services.managers.job_manager import JobManager
-from arbor.server.services.jobs.job import Job, JobEvent, JobCheckpoint
 from arbor.server.api.models.schemas import JobStatus
+from arbor.server.core.config import Config
+from arbor.server.services.jobs.job import Job, JobCheckpoint, JobEvent
+from arbor.server.services.managers.job_manager import JobManager
 
 
 @pytest.fixture
@@ -11,12 +11,12 @@ def test_config(tmp_path):
     # tmp_path is a Path object that points to a temporary directory
     # It will be automatically cleaned up after tests
     from arbor.server.core.config import ArborConfig, InferenceConfig, TrainingConfig
+
     return Config(
         STORAGE_PATH=str(tmp_path / "test_storage"),
         arbor_config=ArborConfig(
-            inference=InferenceConfig(gpu_ids=[]),
-            training=TrainingConfig(gpu_ids=[])
-        )
+            inference=InferenceConfig(gpu_ids=[]), training=TrainingConfig(gpu_ids=[])
+        ),
     )
 
 

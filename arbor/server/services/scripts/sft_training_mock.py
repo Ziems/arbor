@@ -5,13 +5,14 @@ import signal
 import sys
 import time
 
+
 # Mock classes to simulate SFT training without GPU dependencies
 class MockSFTTrainer:
     def __init__(self, model, args=None, **kwargs):
         self.model = model
         self.args = args
         print(f"Mock: Initialized SFTTrainer for model {model}")
-    
+
     def train(self):
         print("Mock: Starting SFT training...")
         for i in range(4):  # Mock 4 training steps
@@ -37,7 +38,7 @@ class MockLoraConfig:
 class MockCommsHandler:
     def __init__(self, **kwargs):
         print("Mock: Created ArborScriptCommsHandler for SFT")
-    
+
     def close(self):
         print("Mock: Closing SFT comms handler")
 
@@ -45,7 +46,7 @@ class MockCommsHandler:
 def get_mock_training_arg_parser():
     """Mock version of get_training_arg_parser"""
     parser = argparse.ArgumentParser()
-    
+
     pipe_args = parser.add_argument_group("Comms arguments")
     pipe_args.add_argument("--host", default="localhost")
     pipe_args.add_argument("--command_port", type=int)
@@ -66,18 +67,18 @@ def get_mock_training_arg_parser():
         type=json.loads,
         help="Training arguments as a JSON string",
     )
-    
+
     return parser
 
 
 def main():
     parser = get_mock_training_arg_parser()
     args, unknown = parser.parse_known_args()
-    
+
     print("Mock SFT Training Script Starting...")
     print(f"Model: {args.model}")
     print("This is a mock SFT training script - no actual GPU operations will occur")
-    
+
     if unknown:
         print(f"Mock: Ignoring unknown args: {unknown}")
 
@@ -100,8 +101,12 @@ def main():
             lora_config = MockLoraConfig()
 
         # Handle gradient checkpointing for LORA
-        if "gradient_checkpointing_kwargs" in trl_train_args and arbor_train_args.get("lora", False):
-            print("Mock: Setting gradient_checkpointing_kwargs to use_reentrant=False for LORA training")
+        if "gradient_checkpointing_kwargs" in trl_train_args and arbor_train_args.get(
+            "lora", False
+        ):
+            print(
+                "Mock: Setting gradient_checkpointing_kwargs to use_reentrant=False for LORA training"
+            )
             trl_train_args["gradient_checkpointing_kwargs"] = {
                 **(trl_train_args.get("gradient_checkpointing_kwargs") or {}),
                 "use_reentrant": False,
@@ -151,7 +156,7 @@ def main():
         raise e
     finally:
         print("Mock: SFT cleaning up resources...")
-        if 'comms_handler' in locals():
+        if "comms_handler" in locals():
             comms_handler.close()
         print("Mock: SFT cleanup complete")
 

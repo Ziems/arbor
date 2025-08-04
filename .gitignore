@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+
+# Coverage reports
+htmlcov/
+.coverage
 .Python
 build/
 develop-eggs/

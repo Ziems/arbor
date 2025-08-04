@@ -18,12 +18,12 @@ def server(tmp_path_factory):
 
     # Create test config
     from arbor.server.core.config import ArborConfig, InferenceConfig, TrainingConfig
+
     config = Config(
         STORAGE_PATH=str(test_storage),
         arbor_config=ArborConfig(
-            inference=InferenceConfig(gpu_ids=[]),
-            training=TrainingConfig(gpu_ids=[])
-        )
+            inference=InferenceConfig(gpu_ids=[]), training=TrainingConfig(gpu_ids=[])
+        ),
     )
 
     # Initialize services with test config
@@ -37,7 +37,13 @@ def server(tmp_path_factory):
     app.state.job_manager = job_manager
     app.state.file_train_manager = file_train_manager
 
-    return app
+    yield app
+
+    # Cleanup after all tests in this module
+    try:
+        app.state.job_manager.cleanup()
+    except Exception as e:
+        print(f"Error during job manager cleanup: {e}")
 
 
 @pytest.fixture

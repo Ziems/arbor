@@ -16,7 +16,11 @@ from arbor.server.services.jobs.inference_launch_config import InferenceLaunchCo
 from arbor.server.services.jobs.job import Job
 from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
-from arbor.server.utils.mock_utils import get_vllm_serve_module, setup_mock_environment, should_use_mock_gpu
+from arbor.server.utils.mock_utils import (
+    get_vllm_serve_module,
+    setup_mock_environment,
+    should_use_mock_gpu,
+)
 
 # Conditionally import the appropriate vLLM client
 if should_use_mock_gpu():
@@ -64,10 +68,10 @@ class InferenceJob(Job):
         # Convert gpu_ids list to comma-separated string for environment variable
         gpu_ids_str = ",".join(map(str, launch_config.gpu_ids))
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
-        
+
         # Setup mock environment if needed
         my_env = setup_mock_environment(my_env)
-        
+
         n_gpus = len(launch_config.gpu_ids)
         vllm_module = get_vllm_serve_module()
         command = f"{sys.executable} -m {vllm_module} --model {self.launched_model_name} --port {self.port} --gpu-memory-utilization 0.9 --data-parallel-size {n_gpus} --enable_prefix_caching"

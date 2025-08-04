@@ -21,7 +21,6 @@ from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
 from arbor.server.utils.mock_utils import get_script_path, setup_mock_environment
 
-
 logger = get_logger(__name__)
 
 
@@ -151,7 +150,7 @@ class FileTrainJob(Job):
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
         # WandB can block the training process for login, so we silence it
         my_env["WANDB_SILENT"] = "true"
-        
+
         # Setup mock environment if needed
         my_env = setup_mock_environment(my_env)
 
@@ -238,7 +237,7 @@ class FileTrainJob(Job):
 
     def terminate(self):
         raise NotImplementedError("Not implemented")
-    
+
     def to_status_model(self) -> JobStatusModel:
         print("To status model", self.model, self.training_file, self.fine_tuned_model)
         return JobStatusModel(

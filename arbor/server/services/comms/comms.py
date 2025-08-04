@@ -219,9 +219,9 @@ if __name__ == "__main__":
     import time
 
     time.sleep(1)
-    import pdb
-
-    pdb.set_trace()
+    # Debug statements removed
+    # import pdb
+    # pdb.set_trace()
 
     try:
         t1.join()
