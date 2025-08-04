@@ -54,6 +54,7 @@ minimal = [
     "coolname",
     "psutil",
     "requests",
+    "openai",  # Lightweight OpenAI client for tests
     # Dev tools
     "black",
     "pytest",

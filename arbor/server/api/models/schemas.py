@@ -101,6 +101,8 @@ class JobStatusModel(BaseModel):
     id: str
     fine_tuned_model: str | None = None
     status: JobStatus
+    training_file: str | None = None
+    model: str | None = None
 
     # UNUSED so commented out
     # model: str

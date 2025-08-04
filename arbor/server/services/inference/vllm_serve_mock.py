@@ -198,6 +198,19 @@ def create_mock_app(args: Namespace) -> FastAPI:
                 "total_tokens": sum(len(msg.get("content", "").split()) for msg in messages) + 10
             }
         }
+
+    @app.get("/v1/models")
+    async def list_models():
+        """Mock models endpoint - required for server readiness check"""
+        return {
+            "object": "list",
+            "data": [{
+                "id": args.model,
+                "object": "model",
+                "created": int(time.time()),
+                "owned_by": "mock-organization"
+            }]
+        }
     
     return app
 

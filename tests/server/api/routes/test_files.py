@@ -17,7 +17,14 @@ def server(tmp_path_factory):
     test_storage = tmp_path_factory.mktemp("test_storage")
 
     # Create test config
-    config = Config(STORAGE_PATH=str(test_storage))
+    from arbor.server.core.config import ArborConfig, InferenceConfig, TrainingConfig
+    config = Config(
+        STORAGE_PATH=str(test_storage),
+        arbor_config=ArborConfig(
+            inference=InferenceConfig(gpu_ids=[]),
+            training=TrainingConfig(gpu_ids=[])
+        )
+    )
 
     # Initialize services with test config
     file_manager = FileManager(config=config)

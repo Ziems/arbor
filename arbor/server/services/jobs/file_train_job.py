@@ -11,6 +11,7 @@ from typing import Literal
 
 from arbor.server.api.models.schemas import (
     FineTuneRequest,
+    JobStatusModel,
 )
 from arbor.server.core.config import Config
 from arbor.server.services.comms.comms import ArborServerCommsHandler
@@ -20,6 +21,7 @@ from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
 from arbor.server.utils.mock_utils import get_script_path, setup_mock_environment
 
+
 logger = get_logger(__name__)
 
 
@@ -27,6 +29,9 @@ class FileTrainJob(Job):
     def __init__(self, config: Config):
         super().__init__()
         self.config = config
+        self.model = None
+        self.training_file = None
+        self.fine_tuned_model = None
 
     def _make_output_dir(self, request: FineTuneRequest):
         model_name = request.model.split("/")[-1].lower()
@@ -128,6 +133,8 @@ class FileTrainJob(Job):
         trl_train_kwargs, arbor_train_kwargs = find_train_args_fn(request, file_manager)
 
         self.model = request.model
+        self.training_file = request.training_file
+        print("Set model and training file")
 
         self.server_comms_handler = ArborServerCommsHandler()
 
@@ -231,3 +238,13 @@ class FileTrainJob(Job):
 
     def terminate(self):
         raise NotImplementedError("Not implemented")
+    
+    def to_status_model(self) -> JobStatusModel:
+        print("To status model", self.model, self.training_file, self.fine_tuned_model)
+        return JobStatusModel(
+            id=self.id,
+            status=self.status.value,
+            model=self.model,
+            training_file=self.training_file,
+            fine_tuned_model=self.fine_tuned_model,
+        )

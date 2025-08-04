@@ -15,7 +15,7 @@ class FileTrainManager:
     def __init__(self, config: Config):
         self.config = config
 
-    def fine_tune(self, request: FineTuneRequest, job: Job, file_manager: FileManager):
+    def fine_tune(self, request: FineTuneRequest, job: FileTrainJob, file_manager: FileManager):
 
         job.status = JobStatus.RUNNING
         job.add_event(
@@ -58,5 +58,4 @@ class FileTrainManager:
                 f"Unsupported training method: {fine_tune_type}. Supported methods: 'sft', 'dpo'"
             )
 
-        file_train_job = FileTrainJob(self.config)
-        file_train_job.fine_tune(request, file_manager, fine_tune_type)
+        job.fine_tune(request, file_manager, fine_tune_type)

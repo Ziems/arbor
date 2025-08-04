@@ -4,7 +4,7 @@ from typing import Literal
 
 import coolname
 
-from arbor.server.api.models.schemas import JobStatus
+from arbor.server.api.models.schemas import JobStatus, JobStatusModel
 
 
 class JobEvent:
@@ -61,3 +61,11 @@ class Job:
 
     def get_checkpoints(self) -> list[JobCheckpoint]:
         return self.checkpoints
+
+    def to_status_model(self) -> JobStatusModel:
+        """Convert this job to a JobStatusModel for API responses."""
+        return JobStatusModel(
+            id=self.id,
+            status=self.status,
+            fine_tuned_model=self.fine_tuned_model,
+        )

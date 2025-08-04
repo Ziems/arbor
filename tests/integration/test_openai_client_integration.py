@@ -12,6 +12,10 @@ TEST_MODEL = "HuggingFaceTB/SmolLM2-135M-Instruct"
 @pytest.fixture(scope="session")
 def live_server_url(tmp_path_factory):
     """Start a real server for OpenAI client tests"""
+    # CRITICAL: Set environment variable BEFORE any imports that check it
+    import os
+    os.environ["ARBOR_MOCK_GPU"] = "1"
+    
     import socket
     import threading
     import time
@@ -22,6 +26,7 @@ def live_server_url(tmp_path_factory):
         ArborConfig,
         InferenceConfig,
         TrainingConfig,
+        Config,
     )
     from arbor.server.main import app
     from arbor.server.services.managers.file_manager import FileManager
@@ -31,14 +36,15 @@ def live_server_url(tmp_path_factory):
 
     # Set up the same dependencies as the test server fixture
     test_storage = tmp_path_factory.mktemp("test_storage")
-    settings = Settings(
+    settings = Config(
         STORAGE_PATH=str(test_storage),
         arbor_config=ArborConfig(
-            inference=InferenceConfig(gpu_ids=[2]), training=TrainingConfig(gpu_ids=[3])
+            inference=InferenceConfig(gpu_ids=[]), training=TrainingConfig(gpu_ids=[])
         ),
     )
 
     # Configure app state
+    app.state.config = settings
     app.state.file_manager = FileManager(settings)
     app.state.file_train_manager = FileTrainManager(settings)
     app.state.job_manager = JobManager(settings)
@@ -87,7 +93,7 @@ def sample_file_sft_live(live_server_url):
 
     # Load the test file from tests/data
     test_file_path = (
-        Path(__file__).parent.parent.parent.parent / "data" / "training_data_sft.jsonl"
+        Path(__file__).parent.parent / "data" / "training_data_sft.jsonl"
     )
     valid_content = test_file_path.read_bytes()
 
@@ -180,6 +186,7 @@ def test_openai_get_fine_tune_job(openai_client, sample_file_sft_live):
 
 
 def test_openai_cancel_fine_tune_job(openai_client, sample_file_sft_live):
+    raise Exception("Not implemented")
     """Test canceling a fine-tune job using OpenAI client"""
     try:
         # Create a job first

@@ -15,15 +15,17 @@ logger = logging.getLogger(__name__)
 class MockVLLMClient:
     """Mock vLLM client that simulates the real client interface."""
     
-    def __init__(self, model_name: str, port: int = 8000, host: str = "localhost"):
-        self.model_name = model_name
+    def __init__(self, model_name: str = None, port: int = 8000, host: str = "localhost", group_port: int = None, connection_timeout: int = 60, **kwargs):
+        self.model_name = model_name or "mock-model"
         self.port = port
         self.host = host
+        self.group_port = group_port
+        self.connection_timeout = connection_timeout
         self.base_url = f"http://{host}:{port}"
         self.is_running = False
         self.start_time = None
         
-        logger.info(f"Mock vLLM client initialized for model: {model_name}")
+        logger.info(f"Mock vLLM client initialized for model: {self.model_name} on port {port}")
         
     def start_server(self, **kwargs) -> bool:
         """Mock server start - always succeeds."""
@@ -104,6 +106,23 @@ class MockVLLMClient:
             return self._mock_stream_response(messages, max_tokens, temperature)
         else:
             return await self.generate(messages, max_tokens, temperature, **kwargs)
+    
+    async def chat(self, json_body: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+        """Mock chat method that matches the real VLLMClient interface."""
+        messages = json_body.get("messages", [])
+        model = json_body.get("model", self.model_name)
+        max_tokens = json_body.get("max_tokens", 150)
+        temperature = json_body.get("temperature", 0.7)
+        stream = json_body.get("stream", False)
+        
+        return await self.chat_completion(
+            messages=messages,
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stream=stream,
+            **kwargs
+        )
             
     def _mock_stream_response(self, messages: List[Dict[str, str]], max_tokens: int, temperature: float):
         """Mock streaming response generator."""

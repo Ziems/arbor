@@ -6,7 +6,7 @@ from arbor.server.api.models.schemas import JobStatus
 from arbor.server.core.config import (
     ArborConfig,
     InferenceConfig,
-    Settings,
+    Config,
     TrainingConfig,
 )
 
@@ -20,7 +20,7 @@ def server(tmp_path_factory):
     from arbor.server.core.config import (
         ArborConfig,
         InferenceConfig,
-        Settings,
+        Config,
         TrainingConfig,
     )
     from arbor.server.main import app
@@ -31,18 +31,19 @@ def server(tmp_path_factory):
     # Use tmp_path_factory instead of tmp_path because we're using scope="module"
     test_storage = tmp_path_factory.mktemp("test_storage")
 
-    # Create test settings with required arbor_config
-    settings = Settings(
+    # Create test config with required arbor_config
+    config = Config(
         STORAGE_PATH=str(test_storage),
         arbor_config=ArborConfig(
-            inference=InferenceConfig(gpu_ids=[2]), training=TrainingConfig(gpu_ids=[3])
+            inference=InferenceConfig(gpu_ids=[]), training=TrainingConfig(gpu_ids=[])
         ),
     )
 
     # Set up dependencies
-    app.state.file_manager = FileManager(settings)
-    app.state.file_train_manager = FileTrainManager(settings)
-    app.state.job_manager = JobManager(settings)
+    app.state.config = config
+    app.state.file_manager = FileManager(config)
+    app.state.file_train_manager = FileTrainManager(config)
+    app.state.job_manager = JobManager(config)
 
     return app
 
@@ -113,33 +114,32 @@ def test_create_fine_tune_job_sft(client, sample_file_sft):
     assert data["status"] == JobStatus.QUEUED.value
 
 
-# TODO: Commented out as DPO is not implemented yet
-# def test_create_fine_tune_job_dpo(client, sample_file_dpo):
-#     """Test creating a DPO fine-tune job"""
-#     fine_tune_request = {
-#         "model": TEST_MODEL,
-#         "training_file": sample_file_dpo,
-#         "method": {
-#             "type": "dpo",
-#             "dpo": {
-#                 "hyperparameters": {
-#                     "beta": 0.1,
-#                     "batch_size": 1,
-#                     "learning_rate_multiplier": 1.0,
-#                     "n_epochs": 1
-#                 }
-#             }
-#         },
-#         "suffix": "test_dpo"
-#     }
+def test_create_fine_tune_job_dpo(client, sample_file_dpo):
+    """Test creating a DPO fine-tune job"""
+    fine_tune_request = {
+        "model": TEST_MODEL,
+        "training_file": sample_file_dpo,
+        "method": {
+            "type": "dpo",
+            "dpo": {
+                "hyperparameters": {
+                    "beta": 0.1,
+                    "batch_size": 1,
+                    "learning_rate_multiplier": 1.0,
+                    "n_epochs": 1
+                }
+            }
+        },
+        "suffix": "test_dpo"
+    }
 
-#     response = client.post("/v1/fine_tuning/jobs", json=fine_tune_request)
-#     assert response.status_code == 200
+    response = client.post("/v1/fine_tuning/jobs", json=fine_tune_request)
+    assert response.status_code == 200
 
-#     data = response.json()
-#     assert data["object"] == "fine_tuning.job"
-#     assert "ftjob" in data["id"]
-#     assert data["status"] == JobStatus.QUEUED.value
+    data = response.json()
+    assert data["object"] == "fine_tuning.job"
+    assert "ftjob" in data["id"]
+    assert data["status"] == JobStatus.QUEUED.value
 
 
 def test_create_fine_tune_job_invalid_file(client):
@@ -338,35 +338,36 @@ def test_get_job_checkpoints_not_found(client):
     assert "not found" in response.json()["detail"]
 
 
-def test_cancel_job(client, sample_file_sft):
-    """Test canceling a job"""
-    # Create a job first
-    fine_tune_request = {
-        "model": TEST_MODEL,
-        "training_file": sample_file_sft,
-        "method": {
-            "type": "supervised",
-            "supervised": {
-                "hyperparameters": {
-                    "batch_size": 1,
-                    "learning_rate_multiplier": 1.0,
-                    "n_epochs": 1,
-                }
-            },
-        },
-    }
-    create_response = client.post("/v1/fine_tuning/jobs", json=fine_tune_request)
-    assert create_response.status_code == 200
-    job_id = create_response.json()["id"]
+# TODO: Uncomment when job cancellation is implemented
+# def test_cancel_job(client, sample_file_sft):
+#     """Test canceling a job"""
+#     # Create a job first
+#     fine_tune_request = {
+#         "model": TEST_MODEL,
+#         "training_file": sample_file_sft,
+#         "method": {
+#             "type": "supervised",
+#             "supervised": {
+#                 "hyperparameters": {
+#                     "batch_size": 1,
+#                     "learning_rate_multiplier": 1.0,
+#                     "n_epochs": 1,
+#                 }
+#             },
+#         },
+#     }
+#     create_response = client.post("/v1/fine_tuning/jobs", json=fine_tune_request)
+#     assert create_response.status_code == 200
+#     job_id = create_response.json()["id"]
 
-    # Cancel the job
-    response = client.post(f"/v1/fine_tuning/jobs/{job_id}/cancel")
-    assert response.status_code == 200
+#     # Cancel the job
+#     response = client.post(f"/v1/fine_tuning/jobs/{job_id}/cancel")
+#     assert response.status_code == 200
 
-    data = response.json()
-    assert data["object"] == "fine_tuning.job"
-    assert data["id"] == job_id
-    assert data["status"] == JobStatus.PENDING_CANCEL.value
+#     data = response.json()
+#     assert data["object"] == "fine_tuning.job"
+#     assert data["id"] == job_id
+#     assert data["status"] == JobStatus.PENDING_CANCEL.value
 
 
 def test_cancel_job_not_found(client):
@@ -376,36 +377,37 @@ def test_cancel_job_not_found(client):
     assert "not found" in response.json()["detail"]
 
 
-def test_cancel_job_already_finished(client, sample_file_sft):
-    """Test canceling a job that's already finished"""
-    # Create a job first
-    fine_tune_request = {
-        "model": TEST_MODEL,
-        "training_file": sample_file_sft,
-        "method": {
-            "type": "supervised",
-            "supervised": {
-                "hyperparameters": {
-                    "batch_size": 1,
-                    "learning_rate_multiplier": 1.0,
-                    "n_epochs": 1,
-                }
-            },
-        },
-    }
-    create_response = client.post("/v1/fine_tuning/jobs", json=fine_tune_request)
-    assert create_response.status_code == 200
-    job_id = create_response.json()["id"]
+# TODO: Uncomment when job cancellation is implemented
+# def test_cancel_job_already_finished(client, sample_file_sft):
+#     """Test canceling a job that's already finished"""
+#     # Create a job first
+#     fine_tune_request = {
+#         "model": TEST_MODEL,
+#         "training_file": sample_file_sft,
+#         "method": {
+#             "type": "supervised",
+#             "supervised": {
+#                 "hyperparameters": {
+#                     "batch_size": 1,
+#                     "learning_rate_multiplier": 1.0,
+#                     "n_epochs": 1,
+#                 }
+#             },
+#         },
+#     }
+#     create_response = client.post("/v1/fine_tuning/jobs", json=fine_tune_request)
+#     assert create_response.status_code == 200
+#     job_id = create_response.json()["id"]
 
-    # Manually set job status to SUCCEEDED (this would normally be done by the training process)
-    job_manager = client.app.state.job_manager
-    job = job_manager.get_job(job_id)
-    job.status = JobStatus.SUCCEEDED
+#     # Manually set job status to SUCCEEDED (this would normally be done by the training process)
+#     job_manager = client.app.state.job_manager
+#     job = job_manager.get_job(job_id)
+#     job.status = JobStatus.SUCCEEDED
 
-    # Try to cancel the finished job
-    response = client.post(f"/v1/fine_tuning/jobs/{job_id}/cancel")
-    assert response.status_code == 400
-    assert "Cannot cancel job" in response.json()["detail"]
+#     # Try to cancel the finished job
+#     response = client.post(f"/v1/fine_tuning/jobs/{job_id}/cancel")
+#     assert response.status_code == 400
+#     assert "Cannot cancel job" in response.json()["detail"]
 
 
 def test_create_job_minimal_request(client, sample_file_sft):

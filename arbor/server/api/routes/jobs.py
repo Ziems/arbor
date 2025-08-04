@@ -10,6 +10,11 @@ from arbor.server.api.models.schemas import (
     LogQueryResponse,
     PaginatedResponse,
 )
+from arbor.server.services.managers.file_train_manager import FileTrainManager
+from arbor.server.services.managers.file_manager import FileManager
+from arbor.server.services.managers.job_manager import JobManager
+from arbor.server.services.jobs.job import Job
+from arbor.server.services.jobs.file_train_job import FileTrainJob
 
 router = APIRouter()
 
@@ -20,15 +25,15 @@ def create_fine_tune_job(
     request: Request,
     fine_tune_request: FineTuneRequest,
 ):
-    job_manager = request.app.state.job_manager
-    file_manager = request.app.state.file_manager
-    file_train_manager = request.app.state.file_train_manager
+    job_manager: JobManager = request.app.state.job_manager
+    file_manager: FileManager = request.app.state.file_manager
+    file_train_manager: FileTrainManager = request.app.state.file_train_manager
 
-    job = job_manager.create_job()
+    job = job_manager.create_file_train_job()
     try:
         file_train_manager.fine_tune(fine_tune_request, job, file_manager)
         job.status = JobStatus.QUEUED
-        return JobStatusModel(id=job.id, status=job.status.value)
+        return job.to_status_model()
     except ValueError as e:
         # Handle cases where training file is not found or other validation errors
         raise HTTPException(status_code=400, detail=str(e))
@@ -40,7 +45,7 @@ def get_jobs(request: Request):
     job_manager = request.app.state.job_manager
     return PaginatedResponse(
         data=[
-            JobStatusModel(id=job.id, status=job.status.value)
+            job.to_status_model()
             for job in job_manager.get_jobs()
         ],
         has_more=False,
@@ -108,9 +113,7 @@ def get_job_status(
         job = job_manager.get_job(job_id)
     except ValueError:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    return JobStatusModel(
-        id=job_id, status=job.status.value, fine_tuned_model=job.fine_tuned_model
-    )
+    return job.to_status_model()
 
 
 # Cancel a fine-tune job
@@ -132,7 +135,7 @@ def cancel_job(request: Request, job_id: str):
         )
 
     job.status = JobStatus.PENDING_CANCEL
-    return JobStatusModel(id=job.id, status=job.status.value)
+    return job.to_status_model()
 
 
 @router.post("/{job_id}/logs/query", response_model=LogQueryResponse)

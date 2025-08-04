@@ -1,25 +1,28 @@
 import pytest
 
 from arbor.server.core.config import Config
-from arbor.server.services.job_manager import (
-    Job,
-    JobCheckpoint,
-    JobEvent,
-    JobManager,
-    JobStatus,
-)
+from arbor.server.services.managers.job_manager import JobManager
+from arbor.server.services.jobs.job import Job, JobEvent, JobCheckpoint
+from arbor.server.api.models.schemas import JobStatus
 
 
 @pytest.fixture
-def test_settings(tmp_path):
+def test_config(tmp_path):
     # tmp_path is a Path object that points to a temporary directory
     # It will be automatically cleaned up after tests
-    return Config(STORAGE_PATH=str(tmp_path / "test_storage"))
+    from arbor.server.core.config import ArborConfig, InferenceConfig, TrainingConfig
+    return Config(
+        STORAGE_PATH=str(tmp_path / "test_storage"),
+        arbor_config=ArborConfig(
+            inference=InferenceConfig(gpu_ids=[]),
+            training=TrainingConfig(gpu_ids=[])
+        )
+    )
 
 
 @pytest.fixture
-def job_manager(test_settings):
-    return JobManager(settings=test_settings)
+def job_manager(test_config):
+    return JobManager(config=test_config)
 
 
 def test_create_job(job_manager):
@@ -28,7 +31,7 @@ def test_create_job(job_manager):
     assert isinstance(job, Job)
     assert "ftjob" in job.id
     assert job.id in job_manager.jobs
-    assert job.status == JobStatus.PENDING
+    assert job.status == JobStatus.CREATED
     assert job.events == []
     assert job.checkpoints == []
     assert job.fine_tuned_model is None
@@ -68,7 +71,7 @@ def test_job_checkpoints(job_manager):
 def test_get_job(job_manager):
     job = job_manager.create_job()
 
-    assert job_manager.get_job(job.id).status == JobStatus.PENDING
+    assert job_manager.get_job(job.id).status == JobStatus.CREATED
 
     with pytest.raises(ValueError):
         job_manager.get_job("nonexistent-id")
