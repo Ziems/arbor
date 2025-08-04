@@ -12,12 +12,17 @@ import psutil
 import requests
 
 from arbor.server.core.config import Config
-from arbor.server.services.inference.vllm_client import VLLMClient
 from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
 from arbor.server.services.jobs.job import Job
 from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
-from arbor.server.utils.mock_utils import get_vllm_serve_module, setup_mock_environment
+from arbor.server.utils.mock_utils import get_vllm_serve_module, setup_mock_environment, should_use_mock_gpu
+
+# Conditionally import the appropriate vLLM client
+if should_use_mock_gpu():
+    from arbor.server.services.inference.vllm_client_mock import VLLMClient
+else:
+    from arbor.server.services.inference.vllm_client import VLLMClient
 
 logger = get_logger(__name__)
 
