@@ -18,6 +18,7 @@ from arbor.server.services.jobs.job import Job
 from arbor.server.services.managers.file_manager import FileManager
 from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
+from arbor.server.utils.mock_utils import get_script_path, setup_mock_environment
 
 logger = get_logger(__name__)
 
@@ -134,7 +135,7 @@ class FileTrainJob(Job):
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"
         )
         script_name = {"dpo": "dpo_training.py", "sft": "sft_training.py"}[train_type]
-        script_path = os.path.join(script_dir, script_name)
+        script_path = get_script_path(script_name, script_dir)
 
         my_env = os.environ.copy()
         # TODO: This should first check to see if GPUs are available w/ a resource manager or something
@@ -143,6 +144,9 @@ class FileTrainJob(Job):
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
         # WandB can block the training process for login, so we silence it
         my_env["WANDB_SILENT"] = "true"
+        
+        # Setup mock environment if needed
+        my_env = setup_mock_environment(my_env)
 
         num_processes = len(self.config.arbor_config.training.gpu_ids)
         main_process_port = get_free_port()

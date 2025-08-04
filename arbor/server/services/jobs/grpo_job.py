@@ -25,6 +25,7 @@ from arbor.server.services.jobs.job import Job
 from arbor.server.services.managers.inference_manager import InferenceManager
 from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
+from arbor.server.utils.mock_utils import get_script_path, setup_mock_environment
 
 logger = get_logger(__name__)
 
@@ -140,7 +141,7 @@ class GRPOJob(Job):
         script_name = {"mmgrpo": "mmgrpo_training.py", "grpo": "grpo_training.py"}[
             arbor_train_kwargs["grpo_flavor"]
         ]
-        script_path = os.path.join(script_dir, script_name)
+        script_path = get_script_path(script_name, script_dir)
 
         # Start the training process with ZMQ ports
         my_env = os.environ.copy()
@@ -149,6 +150,9 @@ class GRPOJob(Job):
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
         # WandB can block the training process for login, so we silence it
         my_env["WANDB_SILENT"] = "true"
+        
+        # Setup mock environment if needed
+        my_env = setup_mock_environment(my_env)
 
         num_processes = len(self.config.arbor_config.training.gpu_ids)
 

@@ -41,6 +41,24 @@ dev = [
     "pytest",
     "openai"
 ]
+minimal = [
+    # Core server dependencies without heavy ML libs
+    "fastapi",
+    "uvicorn",
+    "click",
+    "python-multipart",
+    "pydantic-settings",
+    "pyzmq>=26.4.0",
+    "pyyaml>=6.0.2",
+    "httpx",
+    "coolname",
+    "psutil",
+    "requests",
+    # Dev tools
+    "black",
+    "pytest",
+    "isort",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
