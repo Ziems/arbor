@@ -352,6 +352,35 @@ def server(tmp_path_factory):
 - **GPU Mocking Tests**: ~0.35 seconds (8 tests)
 - **Total**: ~10-15 seconds for full suite
 
+### Continuous Integration
+
+GitHub Actions automatically run tests on all branches:
+
+#### **Test Workflow** (`.github/workflows/test.yml`)
+Runs on: `push` to `main`/`dev` branches, and all pull requests
+
+- **Multi-Python Testing**: Tests against Python 3.11, 3.12, and 3.13
+- **Unit Tests**: With coverage reporting (30% minimum)
+- **Integration Tests**: End-to-end functionality testing
+- **Coverage Upload**: Uploads coverage to Codecov (Python 3.13 only)
+- **Performance**: ~2-3 minutes per Python version
+
+#### **Code Quality Workflow** (`.github/workflows/code-quality.yml`)
+Runs on: Pull requests touching Python files
+
+- **Pre-commit Checks**: Runs all pre-commit hooks
+- **Code Formatting**: Black, isort validation
+- **File Validation**: YAML, JSON, TOML syntax checks
+- **Debug Detection**: Prevents debug statements from being merged
+- **Performance**: ~30-60 seconds
+
+#### **Status Checks**
+Both workflows are required to pass before merging pull requests. This ensures:
+- Code is properly formatted and follows style guidelines
+- All tests pass across supported Python versions
+- Test coverage is maintained above the minimum threshold
+- No debug statements are accidentally committed
+
 ## Code Style
 
 Use the included development tools:
