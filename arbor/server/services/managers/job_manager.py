@@ -2,17 +2,24 @@ from arbor.server.api.models.schemas import JobStatus
 from arbor.server.core.config import Config
 from arbor.server.services.jobs.file_train_job import FileTrainJob
 from arbor.server.services.jobs.job import Job
+from arbor.server.services.managers.base_manager import BaseManager
 
 
-class JobManager:
+class JobManager(BaseManager):
     def __init__(self, config: Config):
-        self.config = config
+        super().__init__(config)
         self.jobs = {}
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         """Clean up all jobs and their resources"""
-        for job in self.jobs.values():
+        if self._cleanup_called:
+            return
+
+        self.logger.info(f"Cleaning up {len(self.jobs)} jobs...")
+
+        for job_id, job in self.jobs.items():
             try:
+                self.logger.debug(f"Cleaning up job {job_id}")
                 # Call cleanup methods based on job type
                 if hasattr(job, "terminate"):
                     job.terminate()
@@ -21,11 +28,11 @@ class JobManager:
                 elif hasattr(job, "cleanup"):
                     job.cleanup()
             except Exception as e:
-                # Log error but continue cleanup
-                import logging
+                self.logger.error(f"Error cleaning up job {job_id}: {e}")
 
-                logging.error(f"Error cleaning up job {job.id}: {e}")
         self.jobs.clear()
+        self._cleanup_called = True
+        self.logger.info("JobManager cleanup completed")
 
     def get_job(self, job_id: str) -> Job:
         if job_id not in self.jobs:

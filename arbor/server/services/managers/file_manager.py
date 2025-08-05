@@ -8,10 +8,8 @@ from typing import Literal, Union
 from fastapi import UploadFile
 
 from arbor.server.core.config import Config
+from arbor.server.services.managers.base_manager import BaseManager
 from arbor.server.utils.format_detection import detect_file_format
-from arbor.server.utils.logging import get_logger
-
-logger = get_logger(__name__)
 
 
 class FileValidationError(Exception):
@@ -20,8 +18,9 @@ class FileValidationError(Exception):
     pass
 
 
-class FileManager:
+class FileManager(BaseManager):
     def __init__(self, config: Config):
+        super().__init__(config)
         self.uploads_dir = Path(config.STORAGE_PATH) / "uploads"
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
         self.files = self.load_files_from_uploads()
@@ -414,3 +413,11 @@ class FileManager:
             self._validate_dpo_content(content)
         except Exception as e:
             raise FileValidationError(f"Failed to validate file: {e}")
+
+    def cleanup(self) -> None:
+        """Clean up FileManager resources"""
+        if self._cleanup_called:
+            return
+
+        self.logger.info("FileManager cleanup completed (no active resources to clean)")
+        self._cleanup_called = True

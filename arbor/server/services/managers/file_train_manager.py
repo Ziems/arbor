@@ -7,13 +7,14 @@ from arbor.server.api.models.schemas import FineTuneRequest
 from arbor.server.core.config import Config
 from arbor.server.services.jobs.file_train_job import FileTrainJob
 from arbor.server.services.jobs.job import JobEvent
+from arbor.server.services.managers.base_manager import BaseManager
 from arbor.server.services.managers.file_manager import FileManager
 from arbor.server.services.managers.job_manager import Job, JobStatus
 
 
-class FileTrainManager:
+class FileTrainManager(BaseManager):
     def __init__(self, config: Config):
-        self.config = config
+        super().__init__(config)
 
     def fine_tune(
         self, request: FineTuneRequest, job: FileTrainJob, file_manager: FileManager
@@ -61,3 +62,19 @@ class FileTrainManager:
             )
 
         job.fine_tune(request, file_manager, fine_tune_type)
+
+    def cleanup(self) -> None:
+        """Clean up FileTrainManager resources"""
+        if self._cleanup_called:
+            return
+
+        self.logger.info(
+            "FileTrainManager cleanup - checking for active training jobs..."
+        )
+
+        # Note: FileTrainManager doesn't directly track jobs, but we should log
+        # that cleanup was called. The actual job cleanup happens in JobManager
+        # since that's where the job instances are stored.
+
+        self.logger.info("FileTrainManager cleanup completed")
+        self._cleanup_called = True

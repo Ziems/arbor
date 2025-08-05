@@ -7,12 +7,13 @@ from arbor.server.api.models.schemas import (
 )
 from arbor.server.core.config import Config
 from arbor.server.services.jobs.grpo_job import GRPOJob
+from arbor.server.services.managers.base_manager import BaseManager
 from arbor.server.services.managers.inference_manager import InferenceManager
 
 
-class GRPOManager:
+class GRPOManager(BaseManager):
     def __init__(self, config: Config):
-        self.config = config
+        super().__init__(config)
         self.grpo_jobs: dict[str, GRPOJob] = {}
 
     def initialize(
@@ -43,3 +44,24 @@ class GRPOManager:
         # TODO: Maybe also update job_manager or resource manager
 
         return grpo_job.get_status()
+
+    def cleanup(self) -> None:
+        """Clean up all GRPO jobs and their resources"""
+        if self._cleanup_called:
+            return
+
+        self.logger.info(f"Cleaning up {len(self.grpo_jobs)} GRPO jobs...")
+
+        for job_id, grpo_job in self.grpo_jobs.items():
+            try:
+                self.logger.debug(f"Cleaning up GRPO job {job_id}")
+                if hasattr(grpo_job, "terminate"):
+                    grpo_job.terminate()
+                elif hasattr(grpo_job, "cleanup"):
+                    grpo_job.cleanup()
+            except Exception as e:
+                self.logger.error(f"Error cleaning up GRPO job {job_id}: {e}")
+
+        self.grpo_jobs.clear()
+        self._cleanup_called = True
+        self.logger.info("GRPOManager cleanup completed")

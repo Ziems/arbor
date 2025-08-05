@@ -167,11 +167,24 @@ def serve(host, port, arbor_config):
 
     try:
         create_app(config_path)
+
+        # Add signal handling for graceful shutdown
+        import signal
+
+        def signal_handler(signum, frame):
+            click.echo("\nShutting down server gracefully...")
+            # The FastAPI lifespan handler will handle the actual cleanup
+            raise KeyboardInterrupt()
+
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+
         # Temporarily disable custom uvicorn logging configuration
         # configure_uvicorn_logging()
         uvicorn.run(app, host=host, port=port)
+    except KeyboardInterrupt:
+        click.echo("Server shutdown completed.")
     except Exception as e:
-
         click.echo(f"Failed to start server: {e}", err=True)
         raise click.Abort()
 

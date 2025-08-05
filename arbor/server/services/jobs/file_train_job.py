@@ -236,7 +236,44 @@ class FileTrainJob(Job):
             logger.debug(f"Received status update: {status}")
 
     def terminate(self):
-        raise NotImplementedError("Not implemented")
+        """Terminate the training process and clean up resources"""
+        logger.info(f"Terminating FileTrainJob {self.id}")
+
+        # Terminate the training process if it exists
+        if hasattr(self, "training_process") and self.training_process:
+            try:
+                logger.info(f"Terminating training process {self.training_process.pid}")
+                # Try graceful termination first
+                self.training_process.terminate()
+
+                # Wait a bit for graceful shutdown
+                try:
+                    self.training_process.wait(timeout=5)
+                    logger.info("Training process terminated gracefully")
+                except subprocess.TimeoutExpired:
+                    # Force kill if it doesn't terminate gracefully
+                    logger.warning(
+                        "Training process didn't terminate gracefully, force killing"
+                    )
+                    self.training_process.kill()
+                    self.training_process.wait()
+                    logger.info("Training process force killed")
+
+            except Exception as e:
+                logger.error(f"Error terminating training process: {e}")
+
+        # Clean up comms handler if it exists
+        if hasattr(self, "server_comms_handler") and self.server_comms_handler:
+            try:
+                # Assuming the comms handler might have cleanup methods
+                if hasattr(self.server_comms_handler, "cleanup"):
+                    self.server_comms_handler.cleanup()
+                elif hasattr(self.server_comms_handler, "close"):
+                    self.server_comms_handler.close()
+            except Exception as e:
+                logger.error(f"Error cleaning up comms handler: {e}")
+
+        logger.info(f"FileTrainJob {self.id} termination completed")
 
     def to_status_model(self) -> JobStatusModel:
         print("To status model", self.model, self.training_file, self.fine_tuned_model)

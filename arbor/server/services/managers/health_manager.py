@@ -5,6 +5,7 @@ from typing import Any, Dict
 import psutil
 
 from arbor.server.core.config import Config
+from arbor.server.services.managers.base_manager import BaseManager
 
 try:
     import GPUtil
@@ -21,11 +22,11 @@ except ImportError:
     TORCH_AVAILABLE = False
 
 
-class HealthManager:
+class HealthManager(BaseManager):
     """Manages system health checks including GPU monitoring."""
 
     def __init__(self, config: Config = None):
-        self.config = config
+        super().__init__(config)
 
     def get_gpu_info(self) -> Dict[str, Any]:
         """Get GPU information including available and used GPUs."""
@@ -169,3 +170,13 @@ class HealthManager:
             return True
         except Exception:
             return False
+
+    def cleanup(self) -> None:
+        """Clean up HealthManager resources"""
+        if self._cleanup_called:
+            return
+
+        self.logger.info(
+            "HealthManager cleanup completed (no active resources to clean)"
+        )
+        self._cleanup_called = True
