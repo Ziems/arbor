@@ -39,5 +39,5 @@ async def launch_inference(request: Request):
 @router.post("/kill")
 async def kill_inference(request: Request):
     inference_manager: InferenceManager = request.app.state.inference_manager
-    inference_manager.kill()
-    return {"message": "Inference server killed"}
+    inference_manager.cleanup()
+    return {"message": "Inference server terminated"}

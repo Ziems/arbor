@@ -23,28 +23,53 @@ def initialize_grpo(request: Request, grpo_initialize_request: GRPOInitializeReq
     return grpo_status
 
 
-# Create a grpo job
-@router.post("/step", response_model=GRPOStatus)
-def run_grpo_step(request: Request, grpo_request: GRPOStepRequest):
+@router.post("/{job_id}/step", response_model=GRPOStatus)
+def run_grpo_step(request: Request, job_id: str, grpo_request: GRPOStepRequest):
     grpo_manager: GRPOManager = request.app.state.grpo_manager
+    # Override job_id from URL
+    grpo_request.job_id = job_id
     grpo_status: GRPOStatus = grpo_manager.route_grpo_step(grpo_request)
 
     return grpo_status
 
 
-@router.post("/checkpoint", response_model=GRPOStatus)
-def checkpoint(request: Request, grpo_checkpoint_request: GRPOCheckpointRequest):
+@router.post("/{job_id}/checkpoint", response_model=GRPOStatus)
+def checkpoint(
+    request: Request, job_id: str, grpo_checkpoint_request: GRPOCheckpointRequest
+):
     grpo_manager: GRPOManager = request.app.state.grpo_manager
+    # Override job_id from URL
+    grpo_checkpoint_request.job_id = job_id
     grpo_status: GRPOStatus = grpo_manager.route_grpo_checkpoint(
         grpo_checkpoint_request
     )
     return grpo_status
 
 
-@router.post("/terminate", response_model=GRPOStatus)
-def terminate_grpo(request: GRPOTerminateRequest):
-    # No body needed for this request at this moment
+@router.post("/{job_id}/cancel", response_model=GRPOStatus)
+def cancel_grpo(request: Request, job_id: str):
+    from fastapi import HTTPException
+
     grpo_manager: GRPOManager = request.app.state.grpo_manager
 
-    grpo_status: GRPOStatus = grpo_manager.terminate(request)
+    try:
+        grpo_status: GRPOStatus = grpo_manager.cancel(job_id)
+        return grpo_status
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to cancel GRPO job: {str(e)}"
+        )
+
+
+@router.post("/{job_id}/terminate", response_model=GRPOStatus)
+def terminate_grpo(request: Request, job_id: str):
+    from arbor.server.api.models.schemas import GRPOTerminateRequest
+
+    grpo_manager: GRPOManager = request.app.state.grpo_manager
+
+    # Create the request object with job_id from URL
+    terminate_request = GRPOTerminateRequest(job_id=job_id)
+    grpo_status: GRPOStatus = grpo_manager.terminate(terminate_request)
     return grpo_status

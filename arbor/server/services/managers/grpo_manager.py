@@ -43,6 +43,16 @@ class GRPOManager(BaseManager):
 
         return grpo_job.get_status()
 
+    def cancel(self, job_id: str) -> GRPOStatus:
+        """Cancel a GRPO job"""
+        if job_id not in self.grpo_jobs:
+            raise ValueError(f"GRPO job {job_id} not found")
+
+        grpo_job = self.grpo_jobs[job_id]
+        grpo_job.cancel()
+
+        return grpo_job.get_status()
+
     def terminate(self, request: GRPOTerminateRequest):
         grpo_job = self.grpo_jobs[request.job_id]
         grpo_job.terminate()
@@ -61,10 +71,8 @@ class GRPOManager(BaseManager):
         for job_id, grpo_job in self.grpo_jobs.items():
             try:
                 self.logger.debug(f"Cleaning up GRPO job {job_id}")
-                if hasattr(grpo_job, "terminate"):
-                    grpo_job.terminate()
-                elif hasattr(grpo_job, "cleanup"):
-                    grpo_job.cleanup()
+                # All GRPO jobs have terminate method
+                grpo_job.terminate()
             except Exception as e:
                 self.logger.error(f"Error cleaning up GRPO job {job_id}: {e}")
 

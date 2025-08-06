@@ -21,13 +21,8 @@ class JobManager(BaseManager):
         for job_id, job in self.jobs.items():
             try:
                 self.logger.debug(f"Cleaning up job {job_id}")
-                # Call cleanup methods based on job type
-                if hasattr(job, "terminate"):
-                    job.terminate()
-                elif hasattr(job, "kill"):
-                    job.kill()
-                elif hasattr(job, "cleanup"):
-                    job.cleanup()
+                # All jobs have terminate method
+                job.terminate()
             except Exception as e:
                 self.logger.error(f"Error cleaning up job {job_id}: {e}")
 
@@ -58,3 +53,26 @@ class JobManager(BaseManager):
             if job.status == JobStatus.RUNNING:
                 return job
         return None
+
+    def cancel_job(self, job_id: str) -> Job:
+        """Cancel a job by its ID"""
+        job = self.get_job(job_id)  # This will raise ValueError if not found
+
+        # Check if job can be cancelled
+        if job.status in [JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED]:
+            raise ValueError(f"Cannot cancel job with status {job.status.value}")
+
+        # Set to pending cancel first
+        job.status = JobStatus.PENDING_CANCEL
+
+        try:
+            # Call the job's cancel method
+            job.cancel()
+            self.logger.info(f"Successfully cancelled job {job_id}")
+        except Exception as e:
+            # If cancellation fails, set to failed status
+            job.status = JobStatus.FAILED
+            self.logger.error(f"Failed to cancel job {job_id}: {e}")
+            raise
+
+        return job

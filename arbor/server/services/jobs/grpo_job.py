@@ -326,43 +326,70 @@ class GRPOJob(Job):
             logger.info("Waiting for checkpoint to be saved...")
             time.sleep(5)
 
-    def terminate(self):
-        """Clean up resources and save the final model."""
-        time.sleep(5)
+    def cancel(self):
+        """Cancel the GRPO training job"""
+        from arbor.server.api.models.schemas import JobStatus
 
-        while (
-            self.inference_job and self.inference_job.is_updating
-        ):  # Use the property instead of direct access
-            logger.info("Waiting for final weight updates to finish before saving...")
+        # Call parent cancel method to check status and set CANCELLED
+        super().cancel()
+
+        logger.info(f"Cancelling GRPOJob {self.id}")
+
+        # Terminate without saving model for faster cancellation
+        self.terminate(save_model=False)
+
+    def terminate(self, save_model: bool = True):
+        """Clean up resources and optionally save the final model.
+
+        Args:
+            save_model: Whether to save the model before terminating
+        """
+        if save_model:
+            logger.info("Terminating with model saving...")
             time.sleep(5)
 
-        logger.info("Sending save model command")
-        self.saving_model = True
-        self.server_comms_handler.send_command({"command": "save_model"})
-        while self.saving_model:
-            logger.info("Waiting for final model to be saved...")
-            time.sleep(5)
-
-        logger.info("Sending termination command")
-        self.terminating = True
-        self.server_comms_handler.send_command({"command": "terminate"})
-        logger.info("Waiting for training process to finish...")
-
-        # Wait for at most 15 seconds for termination
-        start_time = time.time()
-        while self.terminating:
-            if time.time() - start_time > 15:
-                logger.warning(
-                    "Termination wait timed out after 15 seconds, proceeding with cleanup..."
+            while (
+                self.inference_job and self.inference_job.is_updating
+            ):  # Use the property instead of direct access
+                logger.info(
+                    "Waiting for final weight updates to finish before saving..."
                 )
-                break
-            logger.info("Waiting for run to be terminated...")
-            time.sleep(3)
+                time.sleep(5)
+
+            logger.info("Sending save model command")
+            self.saving_model = True
+            self.server_comms_handler.send_command({"command": "save_model"})
+            while self.saving_model:
+                logger.info("Waiting for final model to be saved...")
+                time.sleep(5)
+        else:
+            logger.info("Terminating without model saving...")
+
+        # Send termination command if we have comms
+        if self.server_comms_handler:
+            try:
+                logger.info("Sending termination command")
+                self.terminating = True
+                self.server_comms_handler.send_command({"command": "terminate"})
+
+                # Wait time depends on whether we're saving model or not
+                max_wait_time = 15 if save_model else 5
+                start_time = time.time()
+                while self.terminating:
+                    if time.time() - start_time > max_wait_time:
+                        logger.warning(
+                            f"Termination wait timed out after {max_wait_time} seconds, proceeding with cleanup..."
+                        )
+                        break
+                    logger.info("Waiting for run to be terminated...")
+                    time.sleep(3)
+            except Exception as e:
+                logger.warning(f"Error sending termination command: {e}")
 
         logger.info("Starting cleanup")
         self.cleanup_termination()
 
-        if self.train_kwargs and "output_dir" in self.train_kwargs:
+        if save_model and self.train_kwargs and "output_dir" in self.train_kwargs:
             output_dir = self.train_kwargs["output_dir"]
             logger.info(f"Training completed. Model saved to {output_dir}")
             logger.info(f"Training logs and checkpoints are stored in: {output_dir}")
@@ -370,7 +397,10 @@ class GRPOJob(Job):
                 logger.warning(f"Output directory {output_dir} does not exist")
             self.train_kwargs = None
         else:
-            logger.info("Training terminated, no output directory specified")
+            logger.info(
+                "Training terminated, no output directory specified"
+                + (" (model not saved)" if not save_model else "")
+            )
             self.train_kwargs = None
 
     def cleanup_termination(self):
@@ -387,8 +417,8 @@ class GRPOJob(Job):
                 self.server_comms_handler.close()
 
             if self.inference_job and self.inference_job.process is not None:
-                logger.info("Killing inference manager...")
-                self.inference_job.kill()
+                logger.info("Terminating inference job...")
+                self.inference_job.terminate()
 
             # Release GPUs
             if self.gpu_manager:

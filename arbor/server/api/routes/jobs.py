@@ -114,25 +114,21 @@ def get_job_status(
 
 
 # Cancel a fine-tune job
-# TODO: Implement this
 @router.post("/{job_id}/cancel", response_model=JobStatusModel)
 def cancel_job(request: Request, job_id: str):
     job_manager = request.app.state.job_manager
+
     try:
-        job = job_manager.get_job(job_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-
-    raise HTTPException(status_code=400, detail="Not implemented")
-
-    # Only allow cancellation of jobs that aren't finished
-    if job.status in [JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED]:
-        raise HTTPException(
-            status_code=400, detail=f"Cannot cancel job with status {job.status.value}"
-        )
-
-    job.status = JobStatus.PENDING_CANCEL
-    return job.to_status_model()
+        job = job_manager.cancel_job(job_id)
+        return job.to_status_model()
+    except ValueError as e:
+        # Check if it's a "not found" error or "cannot cancel" error
+        if "not found" in str(e):
+            raise HTTPException(status_code=404, detail=str(e))
+        else:
+            raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to cancel job: {str(e)}")
 
 
 @router.post("/{job_id}/logs/query", response_model=LogQueryResponse)

@@ -95,11 +95,8 @@ class InferenceManager(BaseManager):
                 if self.gpu_manager and hasattr(inference_job, "id"):
                     self.gpu_manager.release_gpus(inference_job.id)
 
-                # Kill the job
-                if hasattr(inference_job, "kill"):
-                    inference_job.kill()
-                elif hasattr(inference_job, "cleanup"):
-                    inference_job.cleanup()
+                # Terminate the job
+                inference_job.terminate()
             except Exception as e:
                 self.logger.error(f"Error cleaning up inference job {job_id}: {e}")
 

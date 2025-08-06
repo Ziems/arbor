@@ -217,8 +217,24 @@ class FileTrainJob(Job):
         for status in self.server_comms_handler.receive_status():
             logger.debug(f"Received status update: {status}")
 
-    def terminate(self):
-        """Terminate the training process and clean up resources"""
+    def cancel(self):
+        """Cancel the training job"""
+        from arbor.server.api.models.schemas import JobStatus
+
+        # Call parent cancel method to check status and set CANCELLED
+        super().cancel()
+
+        logger.info(f"Cancelling FileTrainJob {self.id}")
+
+        # Terminate without saving (FileTrainJob doesn't save models mid-training anyway)
+        self.terminate(save_model=False)
+
+    def terminate(self, save_model: bool = True):
+        """Terminate the training process and clean up resources
+
+        Args:
+            save_model: Whether to save model before terminating (not applicable for FileTrainJob)
+        """
         logger.info(f"Terminating FileTrainJob {self.id}")
 
         # Terminate the training process using ProcessRunner

@@ -13,6 +13,7 @@
 - [x] Make the Popens a lot cleaner. Thats the ugliest part of this project
 - [ ] Resume crashed training job
 - [x] Publish to pypi from CI/CD
+- [ ] Test GRPO Checkpointing and Saving
 
 ## Much Later
 - [ ] Have Job Queuing Based on Required Resources

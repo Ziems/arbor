@@ -108,16 +108,35 @@ class InferenceJob(Job):
 
         # Server is ready, ProcessRunner handles ongoing logging
 
-    def kill(self):
+    def cancel(self):
+        """Cancel the inference job"""
+        from arbor.server.api.models.schemas import JobStatus
+
+        # Call parent cancel method to check status and set CANCELLED
+        super().cancel()
+
+        logger.info(f"Cancelling InferenceJob {self.id}")
+
+        # Terminate the inference server (no model saving for inference jobs)
+        self.terminate(save_model=False)
+
+    def terminate(self, save_model: bool = True):
+        """Terminate the inference server
+
+        Args:
+            save_model: Not applicable for inference jobs, ignored
+        """
         if self.process_runner is None:
-            logger.info("No running server to kill.")
+            logger.info("No running server to terminate.")
             return
+
+        logger.info(f"Terminating InferenceJob {self.id}")
 
         # Use ProcessRunner for clean termination
         self.process_runner.terminate()
         self.process_runner = None
         self.last_activity = None
-        logger.info("Server killed.")
+        logger.info("Server terminated.")
 
     async def run_inference(self, request_json: dict):
         requested_model = request_json["model"]

@@ -62,6 +62,13 @@ class Job:
     def get_checkpoints(self) -> list[JobCheckpoint]:
         return self.checkpoints
 
+    def cancel(self):
+        """Cancel the job. Override in subclasses for specific cancellation logic."""
+        if self.status in [JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED]:
+            raise ValueError(f"Cannot cancel job with status {self.status.value}")
+
+        self.status = JobStatus.CANCELLED
+
     def to_status_model(self) -> JobStatusModel:
         """Convert this job to a JobStatusModel for API responses."""
         return JobStatusModel(
