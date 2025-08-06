@@ -26,7 +26,7 @@ dependencies = [
     "httpx",
     "coolname", # Used for generating slugs in job ids
     "jq>=1.8.0",
-    "textual", 
+    "textual",
     "verifiers", # Lots of our code is adopted from Will Brown's Verifiers library, so we give credit here
 ]
 
@@ -42,7 +42,7 @@ dev = [
     "openai"
 ]
 minimal = [
-    # Core server dependencies without heavy ML libs
+    # Core server dependencies without heavy ML libs (used for development on Mac)
     "fastapi",
     "uvicorn",
     "click",
