@@ -1,9 +1,7 @@
 import asyncio
 import os
 import signal
-import subprocess
 import sys
-import threading
 import time
 from datetime import datetime
 from typing import Any, Dict, Optional
@@ -21,6 +19,7 @@ from arbor.server.utils.mock_utils import (
     setup_mock_environment,
     should_use_mock_gpu,
 )
+from arbor.server.utils.process_runner import InferenceProcessRunner
 
 # Conditionally import the appropriate vLLM client
 if should_use_mock_gpu():
@@ -35,7 +34,7 @@ class InferenceJob(Job):
     def __init__(self, config: Config):
         super().__init__()
         self.config = config
-        self.process: Optional[subprocess.Popen] = None
+        self.process_runner: Optional[InferenceProcessRunner] = None
         self.launch_config: InferenceLaunchConfig = None
         self.last_activity = None
         self._shutting_down = False
@@ -51,7 +50,7 @@ class InferenceJob(Job):
 
     def is_server_running(self) -> bool:
         """Check if vLLM server is running."""
-        return self.process is not None and self.process.poll() is None
+        return self.process_runner is not None and self.process_runner.is_running()
 
     def launch(self, model: str, launch_config: InferenceLaunchConfig):
         self.launched_model_name = model
@@ -81,51 +80,18 @@ class InferenceJob(Job):
 
         logger.info(f"Running command: {command}")
 
-        # We will manually stream & capture logs.
-        process = subprocess.Popen(
-            command.replace("\\\n", " ").replace("\\", " ").split(),
-            text=True,
-            stdout=subprocess.PIPE,  # We'll read from pipe
-            stderr=subprocess.STDOUT,  # Merge stderr into stdout
+        # Start the inference server using our clean process runner
+        self.process_runner = InferenceProcessRunner(self.id)
+        process = self.process_runner.start_inference_server(
+            command,
             env=my_env,
+            log_callback=lambda line: logger.info(f"[vLLM LOG] {line}"),
         )
 
-        # A threading.Event to control printing after the server is ready.
-        # This will store *all* lines (both before and after readiness).
         logger.info(f"vLLM server process started with PID {process.pid}.")
-        stop_printing_event = threading.Event()
-        logs_buffer = []
 
-        def _tail_process(proc, buffer, stop_event):
-            while True:
-                line = proc.stdout.readline()
-                if not line and proc.poll() is not None:
-                    # Process ended and no new line
-                    break
-                if line:
-                    buffer.append(line)
-                    # Log only if stop_event is not set
-                    if not stop_event.is_set():
-                        logger.info(f"[vLLM LOG] {line.strip()}")
-                    else:
-                        logger.debug(f"[vLLM LOG] {line.strip()}")
-
-        # Start a background thread to read from the process continuously
-        thread = threading.Thread(
-            target=_tail_process,
-            args=(process, logs_buffer, stop_printing_event),
-            daemon=True,
-        )
-        thread.start()
-
-        # A convenience getter so the caller can see all logs so far (and future).
-        def get_logs() -> str:
-            # Join them all into a single string, or you might return a list
-            return "".join(logs_buffer)
-
-        self.get_logs = get_logs
+        # Store process reference for compatibility
         self.process = process
-        self.thread = thread
 
         # Wait for the OpenAI API endpoints to be ready
         logger.info("Waiting for vLLM OpenAI API to be ready...")
@@ -140,32 +106,17 @@ class InferenceJob(Job):
             connection_timeout=0,  # No additional timeout since we already waited
         )
 
-        # Once server is ready, we tell the thread to stop printing further lines.
-        stop_printing_event.set()
+        # Server is ready, ProcessRunner handles ongoing logging
 
     def kill(self):
-        if self.process is None:
+        if self.process_runner is None:
             logger.info("No running server to kill.")
             return
 
-        process = self.process
-        thread = self.thread
-
-        # Clear references first
-        self.process = None
-        self.thread = None
-        self.get_logs = None
+        # Use ProcessRunner for clean termination
+        self.process_runner.terminate()
+        self.process_runner = None
         self.last_activity = None
-
-        try:
-            kill_vllm_server(process.pid)
-        except Exception as e:
-            logger.error(f"Error during cleanup: {e}")
-            try:
-                process.kill()  # Final attempt to kill
-            except:
-                pass
-
         logger.info("Server killed.")
 
     async def run_inference(self, request_json: dict):

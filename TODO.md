@@ -10,11 +10,10 @@
 - [ ] Submit requested GPUs in Inference and Jobs Launch
 - [x] DPO Script
 - [ ] Make file train manager actually track jobs in dict (and cleanup properly)
-- [ ] Make the Popens a lot cleaner. Thats the ugliest part of this project
+- [x] Make the Popens a lot cleaner. Thats the ugliest part of this project
 - [ ] Resume crashed training job
-- [ ] Publish to pypi from CI/CD
+- [x] Publish to pypi from CI/CD
 
 ## Much Later
 - [ ] Have Job Queuing Based on Required Resources
-- [ ] Arbor HTOP
 - [ ] Make logs in json for jqfzf

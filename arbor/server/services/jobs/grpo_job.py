@@ -1,15 +1,13 @@
 import json
 import os
-import signal
-import subprocess
 import sys
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import coolname
-import psutil
 
 from arbor.server.api.models.schemas import (
     GRPOCheckpointRequest,
@@ -26,6 +24,7 @@ from arbor.server.services.managers.inference_manager import InferenceManager
 from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
 from arbor.server.utils.mock_utils import get_script_path, setup_mock_environment
+from arbor.server.utils.process_runner import AccelerateProcessRunner
 
 logger = get_logger(__name__)
 
@@ -47,6 +46,7 @@ class GRPOJob(Job):
         self.saving_model = False
         self.terminating = False
         self.inference_job: InferenceJob = None
+        self.process_runner: Optional[AccelerateProcessRunner] = None
 
         self.checkpoints = {}
         self.last_checkpoint = None
@@ -174,84 +174,48 @@ class GRPOJob(Job):
         # This is the port for the accelerate main process
         main_process_port = get_free_port()
 
-        params = [
-            sys.executable,
-            "-m",
-            "accelerate.commands.launch",
-            "--num_processes",
-            str(num_processes),
-            "--main_process_port",
-            str(main_process_port),
+        logger.info(f"Running GRPO training command")
+
+        # Use clean process runner for GRPO training
+        self.process_runner = AccelerateProcessRunner(self.id)
+
+        # Build script args directly (everything that goes after the script path)
+        script_args = [
+            # Comms args
+            "--host",
+            self.server_comms_handler.host,
+            "--command_port",
+            str(self.server_comms_handler.command_port),
+            "--status_port",
+            str(self.server_comms_handler.status_port),
+            "--data_port",
+            str(self.server_comms_handler.data_port),
+            "--broadcast_port",
+            str(self.server_comms_handler.broadcast_port),
+            "--handshake_port",
+            str(self.server_comms_handler.handshake_port),
+            "--vllm_port",
+            str(self.inference_job.port),
+            "--vllm_group_port",
+            str(self.inference_job.group_port),
+            # Training args
+            "--model",
+            request.model,
+            "--trl_train_kwargs",
+            json.dumps(trl_train_kwargs),
+            "--arbor_train_kwargs",
+            json.dumps(arbor_train_kwargs),
         ]
-        if self.config.accelerate_config:
-            params.extend(
-                [
-                    "--config_file",
-                    self.config.accelerate_config,
-                ]
-            )
-        params.extend(
-            [
-                script_path,
-                # Comms args
-                "--host",
-                self.server_comms_handler.host,
-                "--command_port",
-                str(self.server_comms_handler.command_port),
-                "--status_port",
-                str(self.server_comms_handler.status_port),
-                "--data_port",
-                str(self.server_comms_handler.data_port),
-                "--broadcast_port",
-                str(self.server_comms_handler.broadcast_port),
-                "--handshake_port",
-                str(self.server_comms_handler.handshake_port),
-                "--vllm_port",
-                str(self.inference_job.port),
-                "--vllm_group_port",
-                str(self.inference_job.group_port),
-                # Training args
-                "--model",
-                request.model,
-                "--trl_train_kwargs",
-                json.dumps(trl_train_kwargs),
-                "--arbor_train_kwargs",
-                json.dumps(arbor_train_kwargs),
-            ]
-        )
-        logger.info(f"Running GRPO training command: {' '.join(params)}")
 
-        self.training_process = subprocess.Popen(
-            params,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+        self.training_process = self.process_runner.start_training(
+            script_path=script_path,
+            num_processes=num_processes,
+            main_process_port=main_process_port,
+            script_args=script_args,
+            accelerate_config=self.config.accelerate_config,
             env=my_env,
+            log_callback=lambda line: logger.info(f"[GRPO LOG] {line}"),
         )
-
-        # A threading.Event to control printing after the server is ready.
-        stop_printing_event = threading.Event()
-        logs_buffer = []
-
-        def _tail_process(proc, buffer, stop_event):
-            while True:
-                line = proc.stdout.readline()
-                if not line and proc.poll() is not None:
-                    # Process ended and no new line
-                    break
-                if line:
-                    buffer.append(line)
-                    # Log only if stop_event is not set
-                    if not stop_event.is_set():
-                        logger.info(f"[GRPO LOG] {line.strip()}")
-
-        # Start a background thread to read from the process continuously
-        thread = threading.Thread(
-            target=_tail_process,
-            args=(self.training_process, logs_buffer, stop_printing_event),
-            daemon=True,
-        )
-        thread.start()
 
         # Start status handling thread
         self.status_thread = threading.Thread(
@@ -411,45 +375,11 @@ class GRPOJob(Job):
 
     def cleanup_termination(self):
         try:
-            # Kill training process and all its children (accelerate launcher creates multiple processes)
-            if self.training_process:
-                logger.info("Terminating training process and its children...")
-                try:
-                    parent = psutil.Process(self.training_process.pid)
-                    # Get all child processes including grandchildren
-                    children = parent.children(recursive=True)
-
-                    # Send SIGTERM to children first
-                    for child in children:
-                        try:
-                            child.send_signal(signal.SIGTERM)
-                        except psutil.NoSuchProcess:
-                            pass
-
-                    # Send SIGTERM to parent
-                    parent.send_signal(signal.SIGTERM)
-
-                    # Wait for processes to terminate gracefully
-                    gone, alive = psutil.wait_procs(children + [parent], timeout=10)
-
-                    # If any processes are still alive, force kill them
-                    for p in alive:
-                        try:
-                            p.kill()  # SIGKILL
-                        except psutil.NoSuchProcess:
-                            pass
-
-                except psutil.NoSuchProcess:
-                    logger.warning(f"Process {self.training_process.pid} not found")
-                except Exception as e:
-                    logger.error(f"Error killing training process tree: {e}")
-                    # Fallback to basic termination
-                    self.training_process.terminate()
-                    try:
-                        self.training_process.wait(timeout=10)
-                    except subprocess.TimeoutExpired:
-                        self.training_process.kill()
-                        self.training_process.wait(timeout=10)
+            # Terminate training process using ProcessRunner
+            if self.process_runner:
+                logger.info("Terminating training process...")
+                self.process_runner.terminate()
+                self.process_runner = None
 
             # Clean up ZMQ connections
             if self.server_comms_handler:
@@ -467,6 +397,7 @@ class GRPOJob(Job):
 
             # Reinitialize in case we want to start a new training run
             self.training_process = None
+            self.process_runner = None
             self.server_comms_handler = None
             self.status_thread = None
             self.data_count = 0
@@ -475,6 +406,7 @@ class GRPOJob(Job):
             logger.error(f"Error during cleanup: {e}")
             # Still reset state even if cleanup fails
             self.training_process = None
+            self.process_runner = None
             self.server_comms_handler = None
             self.status_thread = None
             self.data_count = 0

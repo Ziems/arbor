@@ -2,12 +2,10 @@ import json
 import os
 import random
 import string
-import subprocess
 import sys
-import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional
 
 from arbor.server.api.models.schemas import (
     FineTuneRequest,
@@ -20,6 +18,7 @@ from arbor.server.services.managers.file_manager import FileManager
 from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
 from arbor.server.utils.mock_utils import get_script_path, setup_mock_environment
+from arbor.server.utils.process_runner import AccelerateProcessRunner
 
 logger = get_logger(__name__)
 
@@ -33,6 +32,7 @@ class FileTrainJob(Job):
         self.training_file = None
         self.fine_tuned_model = None
         self.allocated_gpus = None
+        self.process_runner: Optional[AccelerateProcessRunner] = None
 
     def _make_output_dir(self, request: FineTuneRequest):
         model_name = request.model.split("/")[-1].lower()
@@ -172,78 +172,45 @@ class FileTrainJob(Job):
         num_processes = len(self.allocated_gpus)
         main_process_port = get_free_port()
 
-        params = [
-            sys.executable,
-            "-m",
-            "accelerate.commands.launch",
-            "--num_processes",
-            str(num_processes),
-            "--main_process_port",
-            str(main_process_port),
+        logger.info(f"Running training command")
+
+        # Use clean process runner for training
+        self.process_runner = AccelerateProcessRunner(self.id)
+
+        # Build script args directly (everything that goes after the script path)
+        script_args = [
+            # Comms args
+            "--host",
+            self.server_comms_handler.host,
+            "--command_port",
+            str(self.server_comms_handler.command_port),
+            "--status_port",
+            str(self.server_comms_handler.status_port),
+            "--data_port",
+            str(self.server_comms_handler.data_port),
+            "--broadcast_port",
+            str(self.server_comms_handler.broadcast_port),
+            "--handshake_port",
+            str(self.server_comms_handler.handshake_port),
+            # Training args
+            "--model",
+            self.model,
+            "--trl_train_kwargs",
+            json.dumps(trl_train_kwargs),
+            "--arbor_train_kwargs",
+            json.dumps(arbor_train_kwargs),
         ]
-        if self.config.accelerate_config:
-            params.extend(
-                [
-                    "--config_file",
-                    self.config.accelerate_config,
-                ]
-            )
-        params.extend(
-            [
-                script_path,
-                # Comms args
-                "--host",
-                self.server_comms_handler.host,
-                "--command_port",
-                str(self.server_comms_handler.command_port),
-                "--status_port",
-                str(self.server_comms_handler.status_port),
-                "--data_port",
-                str(self.server_comms_handler.data_port),
-                "--broadcast_port",
-                str(self.server_comms_handler.broadcast_port),
-                "--handshake_port",
-                str(self.server_comms_handler.handshake_port),
-                # Training args
-                "--model",
-                self.model,
-                "--trl_train_kwargs",
-                json.dumps(trl_train_kwargs),
-                "--arbor_train_kwargs",
-                json.dumps(arbor_train_kwargs),
-            ]
-        )
-        logger.info(f"Running training command: {' '.join(params)}")
 
-        self.training_process = subprocess.Popen(
-            params,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+        self.training_process = self.process_runner.start_training(
+            script_path=script_path,
+            num_processes=num_processes,
+            main_process_port=main_process_port,
+            script_args=script_args,
+            accelerate_config=self.config.accelerate_config,
             env=my_env,
+            log_callback=lambda line: logger.info(f"[{train_type.upper()} LOG] {line}"),
         )
 
-        stop_printing_event = threading.Event()
-        logs_buffer = []
-
-        def _tail_process(proc, buffer, stop_event):
-            while True:
-                line = proc.stdout.readline()
-                if not line and proc.poll() is not None:
-                    # Process ended and no new line
-                    break
-                if line:
-                    buffer.append(line)
-                    # Log only if stop_event is not set
-                    if not stop_event.is_set():
-                        logger.info(f"[{train_type.upper()} LOG] {line.strip()}")
-
-        thread = threading.Thread(
-            target=_tail_process,
-            args=(self.training_process, logs_buffer, stop_printing_event),
-            daemon=True,
-        )
-        thread.start()
         self.server_comms_handler.wait_for_clients(num_processes)
 
     def _handle_status_updates(self):
@@ -254,28 +221,10 @@ class FileTrainJob(Job):
         """Terminate the training process and clean up resources"""
         logger.info(f"Terminating FileTrainJob {self.id}")
 
-        # Terminate the training process if it exists
-        if hasattr(self, "training_process") and self.training_process:
-            try:
-                logger.info(f"Terminating training process {self.training_process.pid}")
-                # Try graceful termination first
-                self.training_process.terminate()
-
-                # Wait a bit for graceful shutdown
-                try:
-                    self.training_process.wait(timeout=5)
-                    logger.info("Training process terminated gracefully")
-                except subprocess.TimeoutExpired:
-                    # Force kill if it doesn't terminate gracefully
-                    logger.warning(
-                        "Training process didn't terminate gracefully, force killing"
-                    )
-                    self.training_process.kill()
-                    self.training_process.wait()
-                    logger.info("Training process force killed")
-
-            except Exception as e:
-                logger.error(f"Error terminating training process: {e}")
+        # Terminate the training process using ProcessRunner
+        if self.process_runner:
+            self.process_runner.terminate()
+            self.process_runner = None
 
         # Clean up comms handler if it exists
         if hasattr(self, "server_comms_handler") and self.server_comms_handler:
