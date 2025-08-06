@@ -6,7 +6,7 @@ __pycache__/
 
 # Coverage reports
 htmlcov/
-.coverage
+.coverage*
 .Python
 build/
 develop-eggs/
