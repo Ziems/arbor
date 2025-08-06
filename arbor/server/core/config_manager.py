@@ -13,7 +13,7 @@ class ConfigManager:
 
     def _init_arbor_directories(self):
         arbor_root = Path.home() / ".arbor"
-        storage_dir = Path(self.STORAGE_PATH)
+        storage_dir = Path.home() / ".arbor" / "storage"  # Use default storage path
 
         arbor_root.mkdir(exist_ok=True)
         storage_dir.mkdir(exist_ok=True)

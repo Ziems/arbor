@@ -40,6 +40,7 @@ class FineTuneRequest(BaseModel):
     training_file: str  # id of uploaded jsonl file
     method: Optional[dict] = None
     suffix: Optional[str] = None
+    num_gpus: Optional[int] = 1  # Number of GPUs to request for training
     # UNUSED
     validation_file: Optional[str] = None
     integrations: Optional[List[IntegrationModel]] = []
@@ -220,6 +221,9 @@ class GRPOInitializeRequest(BaseModel):
     # To name the run
     suffix: Optional[str] = None
     generation_batch_size: Optional[int] = None
+    # GPU allocation
+    num_training_gpus: Optional[int] = 1
+    num_inference_gpus: Optional[int] = 1
 
 
 # Base class for all GRPO requests except initialize

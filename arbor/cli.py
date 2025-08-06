@@ -5,12 +5,11 @@ import click
 import uvicorn
 
 from arbor.server.core.config import Config
-from arbor.server.core.config_manager import ConfigManager
 from arbor.server.main import app
 from arbor.server.services.managers.file_manager import FileManager
 from arbor.server.services.managers.file_train_manager import FileTrainManager
+from arbor.server.services.managers.gpu_manager import GPUManager
 from arbor.server.services.managers.grpo_manager import GRPOManager
-from arbor.server.services.managers.health_manager import HealthManager
 from arbor.server.services.managers.inference_manager import InferenceManager
 from arbor.server.services.managers.job_manager import JobManager
 from arbor.server.utils.logging import (
@@ -43,8 +42,8 @@ def create_app(arbor_config_path: str):
         FastAPI: Configured FastAPI application
     """
     # Create new settings instance with overrides
-    config = Config.load_config_from_yaml(arbor_config_path)
-    log_dir = make_log_dir(config.STORAGE_PATH)
+    config = Config.load(arbor_config_path)
+    log_dir = make_log_dir(config.storage_path)
     app.state.log_dir = log_dir
 
     # Setup logging
@@ -63,7 +62,6 @@ def create_app(arbor_config_path: str):
     logger.info("Initializing Arbor application...")
 
     # Log system information via health manager
-    health_manager = HealthManager(config=config)
     try:
         versions = config.get_system_versions()
         logger.info("System versions:")
@@ -79,20 +77,21 @@ def create_app(arbor_config_path: str):
 
     # Initialize services with config
     logger.info("Initializing services...")
-    file_manager = FileManager(config=config)
-    job_manager = JobManager(config=config)
-    file_train_manager = FileTrainManager(config=config)
-    inference_manager = InferenceManager(config=config)
-    grpo_manager = GRPOManager(config=config)
+    gpu_manager = GPUManager(config=config)
+    file_manager = FileManager(config=config, gpu_manager=gpu_manager)
+    job_manager = JobManager(config=config, gpu_manager=gpu_manager)
+    file_train_manager = FileTrainManager(config=config, gpu_manager=gpu_manager)
+    inference_manager = InferenceManager(config=config, gpu_manager=gpu_manager)
+    grpo_manager = GRPOManager(config=config, gpu_manager=gpu_manager)
 
     # Inject config into app state
     app.state.config = config
+    app.state.gpu_manager = gpu_manager
     app.state.file_manager = file_manager
     app.state.job_manager = job_manager
     app.state.file_train_manager = file_train_manager
     app.state.inference_manager = inference_manager
     app.state.grpo_manager = grpo_manager
-    app.state.health_manager = health_manager
 
     logger.info("Arbor application initialized successfully")
     return app
@@ -149,21 +148,8 @@ def stop_server(server):
 def serve(host, port, arbor_config):
     """Start the Arbor API server"""
 
-    if arbor_config:
-        config_path = arbor_config
-    else:
-        config_path = Config.use_default_config()
-
-        # If no config found, run first-time setup
-        if config_path is None:
-            config_path = run_first_time_setup()
-
-    # Validate config exists and is readable
-    is_valid, msg = ConfigManager.validate_config_file(config_path)
-
-    if not is_valid:
-        click.echo(msg)
-        raise click.Abort()
+    # Just use the config path or None (will use defaults)
+    config_path = arbor_config
 
     try:
         create_app(config_path)
@@ -186,58 +172,6 @@ def serve(host, port, arbor_config):
         click.echo("Server shutdown completed.")
     except Exception as e:
         click.echo(f"Failed to start server: {e}", err=True)
-        raise click.Abort()
-
-
-def run_first_time_setup() -> str:
-    """Run first-time setup and return created config path"""
-    click.echo("Welcome to Arbor!")
-    click.echo("It looks like this is your first time running Arbor.")
-    click.echo("Let's set up your configuration...\n")
-
-    try:
-        # Get config details
-        inference = click.prompt(
-            "Which gpu ids should be used for inference (separated by comma)",
-            default="0",
-        )
-        training = click.prompt(
-            "Which gpu ids should be used for training (separated by comma)",
-            default="1, 2",
-        )
-        click.echo()
-
-        # Get config file path
-        config_path = click.prompt(
-            "Enter path to save config file in. We recommend (~/.arbor/config.yaml)",
-            default=ConfigManager.get_default_config_path(),
-        )
-        logger = get_logger(__name__)
-        logger.info(f"Config path selected: {config_path}")
-        click.echo()
-
-        # Update or create config at path
-        config_path = ConfigManager.update_config(inference, training, config_path)
-        click.echo(f"Created configuration at: {config_path}")
-
-        # Check if it is a valid config file
-        is_valid, msg = ConfigManager.validate_config_file(config_path)
-        if not is_valid:
-            raise click.ClickException(f"Invalid config file: {msg}")
-
-        # Read and display the contents
-        _, content = ConfigManager.get_config_contents(config_path)
-
-        click.echo("\nConfiguration file contents:")
-        click.echo("---")
-        click.echo(content)
-        click.echo("---")
-
-        click.echo("\nSetup complete! Starting Arbor server...")
-        return config_path
-
-    except Exception as e:
-        click.echo(f"Failed initial setup of Arbor: {e}", err=True)
         raise click.Abort()
 
 

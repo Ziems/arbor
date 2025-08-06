@@ -163,12 +163,17 @@ async def detailed_health_check(request: Request):
             except Exception as e:
                 health_info["system"]["error"] = str(e)
 
-            # GPU info (if available)
+            # GPU info (if available) - simplified without health_manager
             try:
-                health_manager = getattr(request.app.state, "health_manager", None)
-                if health_manager:
-                    gpu_info = health_manager.get_gpu_info()
-                    health_info["system"]["gpu"] = gpu_info
+                gpu_manager = getattr(request.app.state, "gpu_manager", None)
+                if gpu_manager:
+                    status = gpu_manager.get_status()
+                    health_info["system"]["gpu"] = {
+                        "total_gpus": len(status["total_gpus"]),
+                        "free_gpus": len(status["free_gpus"]),
+                        "allocated_gpus": len(status["allocated_gpus"]),
+                        "allocations": status["allocations"],
+                    }
             except Exception as e:
                 health_info["system"]["gpu"] = {"error": str(e)}
 

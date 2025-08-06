@@ -3,12 +3,7 @@ from pathlib import Path
 import pytest
 
 from arbor.server.api.models.schemas import JobStatus
-from arbor.server.core.config import (
-    ArborConfig,
-    Config,
-    InferenceConfig,
-    TrainingConfig,
-)
+from arbor.server.core.config import Config
 
 # Configurable test model - can be changed for different test scenarios
 TEST_MODEL = "HuggingFaceTB/SmolLM2-135M-Instruct"
@@ -17,12 +12,7 @@ TEST_MODEL = "HuggingFaceTB/SmolLM2-135M-Instruct"
 @pytest.fixture(scope="module")
 def server(tmp_path_factory):
     """Set up a test server with configured dependencies"""
-    from arbor.server.core.config import (
-        ArborConfig,
-        Config,
-        InferenceConfig,
-        TrainingConfig,
-    )
+    from arbor.server.core.config import Config
     from arbor.server.main import app
     from arbor.server.services.managers.file_manager import FileManager
     from arbor.server.services.managers.file_train_manager import FileTrainManager
@@ -31,13 +21,8 @@ def server(tmp_path_factory):
     # Use tmp_path_factory instead of tmp_path because we're using scope="module"
     test_storage = tmp_path_factory.mktemp("test_storage")
 
-    # Create test config with required arbor_config
-    config = Config(
-        STORAGE_PATH=str(test_storage),
-        arbor_config=ArborConfig(
-            inference=InferenceConfig(gpu_ids=[]), training=TrainingConfig(gpu_ids=[])
-        ),
-    )
+    # Create test config
+    config = Config(storage_path=str(test_storage), gpu_ids=[])
 
     # Set up dependencies
     app.state.config = config

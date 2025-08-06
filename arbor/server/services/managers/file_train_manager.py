@@ -13,8 +13,9 @@ from arbor.server.services.managers.job_manager import Job, JobStatus
 
 
 class FileTrainManager(BaseManager):
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, gpu_manager=None):
         super().__init__(config)
+        self.gpu_manager = gpu_manager
 
     def fine_tune(
         self, request: FineTuneRequest, job: FileTrainJob, file_manager: FileManager

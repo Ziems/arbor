@@ -23,12 +23,7 @@ def live_server_url(tmp_path_factory):
 
     import uvicorn
 
-    from arbor.server.core.config import (
-        ArborConfig,
-        Config,
-        InferenceConfig,
-        TrainingConfig,
-    )
+    from arbor.server.core.config import Config
     from arbor.server.main import app
     from arbor.server.services.managers.file_manager import FileManager
     from arbor.server.services.managers.file_train_manager import FileTrainManager
@@ -37,12 +32,7 @@ def live_server_url(tmp_path_factory):
 
     # Set up the same dependencies as the test server fixture
     test_storage = tmp_path_factory.mktemp("test_storage")
-    settings = Config(
-        STORAGE_PATH=str(test_storage),
-        arbor_config=ArborConfig(
-            inference=InferenceConfig(gpu_ids=[]), training=TrainingConfig(gpu_ids=[])
-        ),
-    )
+    settings = Config(storage_path=str(test_storage), gpu_ids=[])
 
     # Configure app state
     app.state.config = settings

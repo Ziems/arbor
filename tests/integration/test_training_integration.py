@@ -10,12 +10,7 @@ from arbor.server.main import app
 @pytest.fixture(scope="module")
 def server(tmp_path_factory):
     """Set up a test server with configured dependencies using TestClient"""
-    from arbor.server.core.config import (
-        ArborConfig,
-        Config,
-        InferenceConfig,
-        TrainingConfig,
-    )
+    from arbor.server.core.config import Config
     from arbor.server.services.managers.file_manager import FileManager
     from arbor.server.services.managers.file_train_manager import FileTrainManager
     from arbor.server.services.managers.job_manager import JobManager
@@ -23,13 +18,8 @@ def server(tmp_path_factory):
     # Use tmp_path_factory for module-scoped fixture
     test_storage = tmp_path_factory.mktemp("test_storage")
 
-    # Create test config with required arbor_config
-    config = Config(
-        STORAGE_PATH=str(test_storage),
-        arbor_config=ArborConfig(
-            inference=InferenceConfig(gpu_ids=[]), training=TrainingConfig(gpu_ids=[])
-        ),
-    )
+    # Create test config
+    config = Config(storage_path=str(test_storage), gpu_ids=[])
 
     # Initialize services with test settings
     file_manager = FileManager(config=config)

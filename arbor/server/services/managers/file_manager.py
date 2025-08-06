@@ -19,9 +19,10 @@ class FileValidationError(Exception):
 
 
 class FileManager(BaseManager):
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, gpu_manager=None):
         super().__init__(config)
-        self.uploads_dir = Path(config.STORAGE_PATH) / "uploads"
+        self.gpu_manager = gpu_manager
+        self.uploads_dir = Path(config.storage_path) / "uploads"
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
         self.files = self.load_files_from_uploads()
 

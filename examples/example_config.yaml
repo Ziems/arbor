@@ -1,7 +1,4 @@
 storage_path: '~/.arbor/storage'
-
-inference:
-  gpu_ids: [0]
-
-training:
-  gpu_ids: [1, 2]
+gpu_ids: [0, 1, 2]
+accelerate_config: null
+inactivity_timeout: 30

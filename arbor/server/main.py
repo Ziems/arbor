@@ -17,12 +17,12 @@ def cleanup_managers(app: FastAPI):
 
     # List of managers that should have cleanup methods
     manager_names = [
+        "gpu_manager",
         "job_manager",
         "inference_manager",
         "grpo_manager",
         "file_train_manager",
         "file_manager",
-        "health_manager",
     ]
 
     for manager_name in manager_names:

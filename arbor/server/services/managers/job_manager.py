@@ -6,9 +6,10 @@ from arbor.server.services.managers.base_manager import BaseManager
 
 
 class JobManager(BaseManager):
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, gpu_manager=None):
         super().__init__(config)
         self.jobs = {}
+        self.gpu_manager = gpu_manager
 
     def cleanup(self) -> None:
         """Clean up all jobs and their resources"""
@@ -45,7 +46,7 @@ class JobManager(BaseManager):
         return job
 
     def create_file_train_job(self) -> FileTrainJob:
-        job = FileTrainJob(self.config)
+        job = FileTrainJob(self.config, gpu_manager=self.gpu_manager)
         self.jobs[job.id] = job
         return job
 

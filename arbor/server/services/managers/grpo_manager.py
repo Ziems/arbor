@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING, Optional
+
 from arbor.server.api.models.schemas import (
     GRPOCheckpointRequest,
     GRPOInitializeRequest,
@@ -10,16 +12,20 @@ from arbor.server.services.jobs.grpo_job import GRPOJob
 from arbor.server.services.managers.base_manager import BaseManager
 from arbor.server.services.managers.inference_manager import InferenceManager
 
+if TYPE_CHECKING:
+    from arbor.server.services.managers.gpu_manager import GPUManager
+
 
 class GRPOManager(BaseManager):
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, gpu_manager: Optional["GPUManager"] = None):
         super().__init__(config)
         self.grpo_jobs: dict[str, GRPOJob] = {}
+        self.gpu_manager = gpu_manager
 
     def initialize(
         self, request: GRPOInitializeRequest, inference_manager: InferenceManager
     ):
-        grpo_job = GRPOJob(self.config, request)
+        grpo_job = GRPOJob(self.config, request, gpu_manager=self.gpu_manager)
         grpo_job.initialize(request, inference_manager)
         self.grpo_jobs[grpo_job.id] = grpo_job
 

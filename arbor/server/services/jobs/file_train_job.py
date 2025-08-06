@@ -25,12 +25,14 @@ logger = get_logger(__name__)
 
 
 class FileTrainJob(Job):
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, gpu_manager=None):
         super().__init__()
         self.config = config
+        self.gpu_manager = gpu_manager
         self.model = None
         self.training_file = None
         self.fine_tuned_model = None
+        self.allocated_gpus = None
 
     def _make_output_dir(self, request: FineTuneRequest):
         model_name = request.model.split("/")[-1].lower()
@@ -41,7 +43,7 @@ class FileTrainJob(Job):
         )
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         name = f"ft:{model_name}:{suffix}:{timestamp}"
-        return name, str(Path(self.config.STORAGE_PATH).resolve() / "models" / name)
+        return name, str(Path(self.config.storage_path).resolve() / "models" / name)
 
     def _prepare_training_file(
         self, request: FineTuneRequest, file_manager: FileManager, format_type: str
@@ -124,6 +126,20 @@ class FileTrainJob(Job):
         file_manager: FileManager,
         train_type: Literal["dpo", "sft"],
     ):
+        # Allocate GPUs from GPU manager
+        if self.gpu_manager:
+            self.allocated_gpus = self.gpu_manager.allocate_gpus(
+                self.id, request.num_gpus
+            )
+            logger.info(
+                f"Allocated GPUs {self.allocated_gpus} for FileTrainJob {self.id}"
+            )
+        else:
+            # Fallback to using all config GPUs if no GPU manager
+            self.allocated_gpus = self.config.gpu_ids
+            logger.warning(
+                f"No GPU manager provided, using all config GPUs: {self.allocated_gpus}"
+            )
 
         find_train_args_fn = {
             "dpo": self.find_train_args_dpo,
@@ -144,9 +160,8 @@ class FileTrainJob(Job):
         script_path = get_script_path(script_name, script_dir)
 
         my_env = os.environ.copy()
-        # TODO: This should first check to see if GPUs are available w/ a resource manager or something
-        # Convert gpu_ids list to comma-separated string for environment variable
-        gpu_ids_str = ",".join(map(str, self.config.arbor_config.training.gpu_ids))
+        # Use allocated GPUs instead of all config GPUs
+        gpu_ids_str = ",".join(map(str, self.allocated_gpus))
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
         # WandB can block the training process for login, so we silence it
         my_env["WANDB_SILENT"] = "true"
@@ -154,7 +169,7 @@ class FileTrainJob(Job):
         # Setup mock environment if needed
         my_env = setup_mock_environment(my_env)
 
-        num_processes = len(self.config.arbor_config.training.gpu_ids)
+        num_processes = len(self.allocated_gpus)
         main_process_port = get_free_port()
 
         params = [
@@ -166,11 +181,11 @@ class FileTrainJob(Job):
             "--main_process_port",
             str(main_process_port),
         ]
-        if self.config.arbor_config.training.accelerate_config:
+        if self.config.accelerate_config:
             params.extend(
                 [
                     "--config_file",
-                    self.config.arbor_config.training.accelerate_config,
+                    self.config.accelerate_config,
                 ]
             )
         params.extend(
@@ -272,6 +287,17 @@ class FileTrainJob(Job):
                     self.server_comms_handler.close()
             except Exception as e:
                 logger.error(f"Error cleaning up comms handler: {e}")
+
+        # Release allocated GPUs
+        if self.gpu_manager and self.allocated_gpus:
+            try:
+                self.gpu_manager.release_gpus(self.id)
+                logger.info(
+                    f"Released GPUs {self.allocated_gpus} for FileTrainJob {self.id}"
+                )
+                self.allocated_gpus = None
+            except Exception as e:
+                logger.error(f"Error releasing GPUs: {e}")
 
         logger.info(f"FileTrainJob {self.id} termination completed")
 

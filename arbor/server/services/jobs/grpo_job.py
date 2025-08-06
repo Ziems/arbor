@@ -31,11 +31,14 @@ logger = get_logger(__name__)
 
 
 class GRPOJob(Job):
-    def __init__(self, config: Config, request: GRPOInitializeRequest):
+    def __init__(
+        self, config: Config, request: GRPOInitializeRequest, gpu_manager=None
+    ):
         id = self._make_job_id(request)
         super().__init__(id=id)
         self.config = config
-        self.trainin_process = None
+        self.gpu_manager = gpu_manager
+        self.training_process = None
         self.base_model = None
         self.train_kwargs = None
         self.server_comms_handler = None
@@ -58,7 +61,7 @@ class GRPOJob(Job):
         return f"grpo:{model}:{suffix}:{timestamp}"
 
     def _make_output_dir(self, request: GRPOInitializeRequest):
-        return str(Path(self.config.STORAGE_PATH).resolve() / "models" / self.id)
+        return str(Path(self.config.storage_path).resolve() / "models" / self.id)
 
     def find_training_args(self, request: GRPOInitializeRequest) -> dict:
         """Process the config request and return training arguments."""
@@ -117,12 +120,24 @@ class GRPOJob(Job):
             self.train_kwargs
         )
 
+        # Allocate total GPUs needed and split them
+        if not self.gpu_manager:
+            raise RuntimeError("GPU manager is required for GRPO")
+
+        total_gpus = request.num_inference_gpus + request.num_training_gpus
+        allocated_gpus = self.gpu_manager.allocate_gpus(self.id, total_gpus)
+
+        # Split the allocated GPUs
+        inference_gpus = allocated_gpus[: request.num_inference_gpus]
+        training_gpus = allocated_gpus[request.num_inference_gpus :]
+
+        logger.info(
+            f"Allocated {total_gpus} GPUs for GRPO job {self.id}: inference={inference_gpus}, training={training_gpus}"
+        )
+
         inference_launch_config = InferenceLaunchConfig(
             max_context_length=arbor_train_kwargs.get("max_context_length", None),
-            # TODO: `gpu_ids` is hardcoded and may be better to be passed in the request
-            # Likely needs to be the number of GPUs and not the ids themselves
-            # So this would be best to do once we have a Resource manager
-            gpu_ids=self.config.arbor_config.inference.gpu_ids,
+            gpu_ids=inference_gpus,
             is_grpo=True,
             grpo_job_id=self.id,
         )
@@ -143,10 +158,10 @@ class GRPOJob(Job):
         ]
         script_path = get_script_path(script_name, script_dir)
 
-        # Start the training process with ZMQ ports
         my_env = os.environ.copy()
-        # Convert gpu_ids list to comma-separated string for environment variable
-        gpu_ids_str = ",".join(map(str, self.config.arbor_config.training.gpu_ids))
+        # Use the training GPUs that were allocated earlier
+        gpu_ids_str = ",".join(map(str, training_gpus))
+
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
         # WandB can block the training process for login, so we silence it
         my_env["WANDB_SILENT"] = "true"
@@ -154,7 +169,7 @@ class GRPOJob(Job):
         # Setup mock environment if needed
         my_env = setup_mock_environment(my_env)
 
-        num_processes = len(self.config.arbor_config.training.gpu_ids)
+        num_processes = len(training_gpus)
 
         # This is the port for the accelerate main process
         main_process_port = get_free_port()
@@ -168,11 +183,11 @@ class GRPOJob(Job):
             "--main_process_port",
             str(main_process_port),
         ]
-        if self.config.arbor_config.training.accelerate_config:
+        if self.config.accelerate_config:
             params.extend(
                 [
                     "--config_file",
-                    self.config.arbor_config.training.accelerate_config,
+                    self.config.accelerate_config,
                 ]
             )
         params.extend(
@@ -444,6 +459,11 @@ class GRPOJob(Job):
             if self.inference_job and self.inference_job.process is not None:
                 logger.info("Killing inference manager...")
                 self.inference_job.kill()
+
+            # Release GPUs
+            if self.gpu_manager:
+                self.gpu_manager.release_gpus(self.id)
+                logger.info(f"Released GPUs for GRPO job {self.id}")
 
             # Reinitialize in case we want to start a new training run
             self.training_process = None

@@ -1,15 +1,18 @@
 - [x] Test GRPO w/ Jobs Framework
 - [ ] Test dspy.GRPO w/ Jobs Framework
-- [ ] Add GPU Manager
+- [x] Add GPU Manager
 - [x] Cleanup the subprocess creation
 - [ ] Cancel jobs from monitor
 - [ ] Allow monitor to be multi-node
 - [ ] Integrate monitor with DSPy
 - [ ] Test training 30B model
-- [ ] Have Users Set Available GPUs
+- [x] Have Users Set Available GPUs
 - [ ] Submit requested GPUs in Inference and Jobs Launch
 - [x] DPO Script
-- [ ] Make file train manager actually track jobs (and cleanup properly)
+- [ ] Make file train manager actually track jobs in dict (and cleanup properly)
+- [ ] Make the Popens a lot cleaner. Thats the ugliest part of this project
+- [ ] Resume crashed training job
+- [ ] Publish to pypi from CI/CD
 
 ## Much Later
 - [ ] Have Job Queuing Based on Required Resources

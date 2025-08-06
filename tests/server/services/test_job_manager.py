@@ -10,14 +10,7 @@ from arbor.server.services.managers.job_manager import JobManager
 def test_config(tmp_path):
     # tmp_path is a Path object that points to a temporary directory
     # It will be automatically cleaned up after tests
-    from arbor.server.core.config import ArborConfig, InferenceConfig, TrainingConfig
-
-    return Config(
-        STORAGE_PATH=str(tmp_path / "test_storage"),
-        arbor_config=ArborConfig(
-            inference=InferenceConfig(gpu_ids=[]), training=TrainingConfig(gpu_ids=[])
-        ),
-    )
+    return Config(storage_path=str(tmp_path / "test_storage"), gpu_ids=[])
 
 
 @pytest.fixture
