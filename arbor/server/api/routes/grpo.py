@@ -42,9 +42,7 @@ def checkpoint(request: Request, grpo_checkpoint_request: GRPOCheckpointRequest)
 
 
 @router.post("/terminate", response_model=GRPOStatus)
-def terminate_grpo(request: GRPOTerminateRequest):
-    # No body needed for this request at this moment
+def terminate_grpo(request: Request, grpo_terminate_request: GRPOTerminateRequest):
     grpo_manager: GRPOManager = request.app.state.grpo_manager
-
-    grpo_status: GRPOStatus = grpo_manager.terminate(request)
+    grpo_status: GRPOStatus = grpo_manager.terminate(grpo_terminate_request)
     return grpo_status

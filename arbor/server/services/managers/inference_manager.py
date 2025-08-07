@@ -34,11 +34,15 @@ class InferenceManager:
 
         return await inference_job.run_inference(request_json)
 
-    def launch_job(self, model: str, launch_kwargs: InferenceLaunchConfig):
+    def launch_job(self, model: str, launch_config: InferenceLaunchConfig):
+        assert launch_config.gpu_ids is not None, "GPU IDs must be set in the config"
+        assert (
+            len(launch_config.gpu_ids) > 0
+        ), f"Inference Job must have at least one GPU in gpu_ids. Currently set to {launch_config.gpu_ids}"
         inference_job = InferenceJob(self.config)
-        inference_job.launch(model, launch_kwargs)
-        if launch_kwargs.is_grpo and launch_kwargs.grpo_job_id:
-            self.inference_jobs[launch_kwargs.grpo_job_id] = inference_job
+        inference_job.launch(model, launch_config)
+        if launch_config.is_grpo and launch_config.grpo_job_id:
+            self.inference_jobs[launch_config.grpo_job_id] = inference_job
         else:
             self.inference_jobs[model] = inference_job
 

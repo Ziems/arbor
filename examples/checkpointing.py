@@ -18,7 +18,13 @@ def initialize_grpo(
     model, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/initialize"
 ):
     headers = {"Content-Type": "application/json"}
-    data = {"model": model, "num_generations": 8, "lora": True, "grpo_flavor": "grpo"}
+    data = {
+        "model": model,
+        "num_generations": 16,
+        "lora": True,
+        "grpo_flavor": "grpo",
+        "max_grad_norm": 1.0,
+    }
     response = requests.post(url, headers=headers, json=data)
     return response
 
@@ -26,26 +32,34 @@ def initialize_grpo(
 # "HuggingFaceTB/SmolLM2-135M-Instruct"
 # "Qwen/Qwen2-0.5B-Instruct"
 def run_grpo_step(
-    model_name, batch, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/step"
+    model_name,
+    batch,
+    job_id,
+    url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/step",
 ):
     headers = {"Content-Type": "application/json"}
-    data = {"model": model_name, "batch": batch}
+    data = {"model": model_name, "batch": batch, "job_id": job_id}
     response = requests.post(url, headers=headers, json=data)
     return response
 
 
 def checkpoint(
-    checkpoint_name, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/checkpoint"
+    checkpoint_name,
+    job_id,
+    url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/checkpoint",
 ):
     headers = {"Content-Type": "application/json"}
-    data = {"checkpoint_name": checkpoint_name}
+    data = {"checkpoint_name": checkpoint_name, "job_id": job_id}
     response = requests.post(url, headers=headers, json=data)
     return response
 
 
-def terminate_grpo(url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/terminate"):
+def terminate_grpo(
+    job_id, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/terminate"
+):
     headers = {"Content-Type": "application/json"}
-    response = requests.post(url, headers=headers)
+    data = {"job_id": job_id}
+    response = requests.post(url, headers=headers, json=data)
     return response
 
 
@@ -68,6 +82,8 @@ def main():
     dataset = load_dataset("trl-lib/tldr", split="train")
     current_model = "Qwen/Qwen3-0.6B"
     initialize_response = initialize_grpo(model=current_model)
+    current_model = initialize_response.json()["current_model"]
+    job_id = initialize_response.json()["job_id"]
     last_checkpoint = None
 
     tik = time.time()
@@ -75,35 +91,34 @@ def main():
         inputs = dataset[i]
         input_messages = [{"role": "user", "content": inputs["prompt"]}]
         completions = []
-        for _ in range(8):
-            response = client.chat.completions.create(
-                model=current_model, messages=input_messages, temperature=0.7
-            )
-            # Assuming response.choices[0] is the single completion
-            choice = response.choices[0]
+        response = client.chat.completions.create(
+            model=current_model, messages=input_messages, temperature=0.7, n=16
+        )
+        for choice in response.choices:
             completions.append(
                 {"content": choice.message.content, "role": choice.message.role}
             )
         rewards = _reward_func(inputs["prompt"], [c["content"] for c in completions])
-        print(rewards)
+        print(rewards, sum(rewards) / len(rewards))
 
         batch = []
         for completion, reward in zip(completions, rewards):
             batch.append(
                 {"messages": input_messages, "completion": completion, "reward": reward}
             )
-        step_response = run_grpo_step(model_name=current_model, batch=batch)
-        current_model = step_response.json()["current_model"]
+        step_response = run_grpo_step(
+            model_name=current_model, batch=batch, job_id=job_id
+        )
 
-        if i == 10:
-            checkpoint_response = checkpoint(checkpoint_name=f"checkpoint_{i}")
-            last_checkpoint_name = checkpoint_response.json()["last_checkpoint"]
+        # if i == 10:
+        # checkpoint_response = checkpoint(checkpoint_name=f"checkpoint_{i}", job_id=job_id)
+        # last_checkpoint_name = checkpoint_response.json()["last_checkpoint"]
 
-        if i == 20:
+        if i == 200:
             break
     tok = time.time()
     print(f"Time taken: {tok - tik} seconds")
-    terminate_response = terminate_grpo()
+    terminate_response = terminate_grpo(job_id=job_id)
     import pdb
 
     pdb.set_trace()

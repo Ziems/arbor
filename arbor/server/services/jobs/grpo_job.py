@@ -110,7 +110,6 @@ class GRPOJob(Job):
     def initialize(
         self, request: GRPOInitializeRequest, inference_manager: InferenceManager
     ):
-        """Initialize the training process with ZMQ-based communication."""
         self.train_kwargs = self.find_training_args(request)
         trl_train_kwargs, arbor_train_kwargs = self.process_training_args(
             self.train_kwargs

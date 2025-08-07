@@ -235,7 +235,7 @@ class GRPOCheckpointRequest(GRPOBaseRequest):
 
 
 class GRPOTerminateRequest(GRPOBaseRequest):
-    status: Optional[str] = "success"
+    pass
 
 
 class LogQueryRequest(BaseModel):
