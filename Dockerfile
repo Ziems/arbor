@@ -6,18 +6,17 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    python3.11 \
-    python3.11-dev \
-    python3.11-distutils \
+    python3 \
+    python3-dev \
     python3-pip \
+    python3-venv \
     git \
     curl \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Set python3.11 as default python
-RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+# Set python3 as default python
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1
 
 # Install uv for faster package management
 RUN pip install uv
