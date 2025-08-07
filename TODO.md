@@ -9,6 +9,8 @@
 - [ ] Make file train manager actually track jobs in dict (and cleanup properly)
 - [ ] Resume crashed training job
 - [ ] Test GRPO Checkpointing and Saving
+- [ ] Update tutorial in README.md
+- [ ] Put back the launch endpoint
 
 ## Much Later
 - [ ] Have Job Queuing Based on Required Resources
