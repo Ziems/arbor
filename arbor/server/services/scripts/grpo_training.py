@@ -27,6 +27,7 @@ from transformers import (
 )
 from trl import GRPOConfig, GRPOTrainer
 from trl.data_utils import maybe_apply_chat_template
+from trl.trainer.utils import selective_log_softmax
 
 from arbor.server.services.comms.comms import (
     ArborScriptCommsHandler,
@@ -108,6 +109,38 @@ class ArborGRPOTrainer(GRPOTrainer):
         # desynchronization and seems to lead to DeepSpeed hanging during initialization. To prevent this, we
         # synchronize all processes after vLLM has been fully initialized.
         self.accelerator.wait_for_everyone()
+
+    def _get_per_token_logps(
+        self, model, input_ids, attention_mask, logits_to_keep, batch_size=None
+    ) -> torch.Tensor:
+        """Override to ensure batch_size is never zero"""
+        # Ensure batch_size is never zero
+        if batch_size is None or batch_size == 0:
+            batch_size = input_ids.size(0)
+
+        all_logps = []
+        for i in range(0, input_ids.size(0), batch_size):
+            input_ids_batch = input_ids[i : i + batch_size]
+            attention_mask_batch = attention_mask[i : i + batch_size]
+
+            # We add 1 to `logits_to_keep` because the last logits of the sequence is later excluded
+            logits = model(
+                input_ids=input_ids_batch,
+                attention_mask=attention_mask_batch,
+                logits_to_keep=logits_to_keep + 1,
+            ).logits
+            logits = logits[
+                :, :-1, :
+            ]  # (B, L-1, V), exclude the last logit: it corresponds to the next token pred
+            input_ids_batch = input_ids_batch[:, -logits_to_keep:]
+            # Divide logits by sampling temperature.
+            # See https://huggingface.co/blog/the_n_implementation_details_of_rlhf_with_ppo#policy-training-implementation-details
+            logits = logits / self.temperature
+            logps = selective_log_softmax(
+                logits, input_ids_batch
+            )  # compute logprobs for the input tokens
+            all_logps.append(logps)
+        return torch.cat(all_logps, dim=0)
 
     def _generate_and_score_completions(
         self, batch: List[dict[str, Any]]
