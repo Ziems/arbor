@@ -6,6 +6,8 @@
 
 [![PyPI Downloads](https://static.pepy.tech/badge/arbor-ai/month)](https://pepy.tech/projects/arbor-ai)
 
+[![DSPy Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/ZAEGgxjPUe) [![Arbor Channel](https://img.shields.io/badge/Arbor%20Channel-Open-5865F2?logo=discord&logoColor=white)](https://discordapp.com/channels/1161519468141355160/1396547082839654430)
+
 ---
 
 ## 🚀 Installation
@@ -73,7 +75,6 @@ docker run --gpus all -p 7453:7453 -v ~/.arbor:/root/.arbor arbor-ai
 Follow the DSPy tutorials here to see usage examples:
 [DSPy RL Optimization Examples](https://dspy.ai/tutorials/rl_papillon/)
 
-
 ---
 
 ### Troubleshooting
@@ -94,6 +95,15 @@ nvcc --version
 ```
 
 If you don't have admin permissions, you can often install nvcc using conda.
+
+---
+
+## Community
+
+- Join our Discord for help, updates, and discussion: [DSPy Discord](https://discord.gg/ZAEGgxjPUe)
+- Arbor-specific channel in the DSPy Discord: [Arbor Channel](https://discordapp.com/channels/1161519468141355160/1396547082839654430)
+
+---
 
 ## 🙏 Acknowledgements
 
