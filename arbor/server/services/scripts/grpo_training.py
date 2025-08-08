@@ -221,6 +221,21 @@ class ArborGRPOTrainer(GRPOTrainer):
             else self.args.per_device_eval_batch_size
         )
 
+        # Use actual tensor size for batch processing if eval batch size is 0
+        if batch_size == 0:
+            batch_size = prompt_completion_ids.size(0)
+
+        logger.info(
+            f"[DEBUG] Mode: {mode}, batch_size: {batch_size}, tensor_size: {prompt_completion_ids.size(0)}"
+        )
+        logger.info(
+            f"[DEBUG] per_device_train_batch_size: {self.args.per_device_train_batch_size}"
+        )
+        logger.info(
+            f"[DEBUG] per_device_eval_batch_size: {self.args.per_device_eval_batch_size}"
+        )
+        logger.info(f"[DEBUG] model.training: {self.model.training}")
+
         with torch.no_grad():
             # When using num_iterations == 1, old_per_token_logps == per_token_logps, so we can skip it's
             # computation here, and use per_token_logps.detach() instead.
@@ -241,6 +256,9 @@ class ArborGRPOTrainer(GRPOTrainer):
 
             if self.beta != 0.0:
                 if self.ref_model is not None:
+                    logger.info(
+                        f"[DEBUG] Calling _get_per_token_logps for ref_model without batch_size"
+                    )
                     ref_per_token_logps = self._get_per_token_logps(
                         self.ref_model,
                         prompt_completion_ids,
@@ -248,6 +266,9 @@ class ArborGRPOTrainer(GRPOTrainer):
                         logits_to_keep,
                     )
                 else:
+                    logger.info(
+                        f"[DEBUG] Calling _get_per_token_logps for main model (ref mode) without batch_size"
+                    )
                     with self.accelerator.unwrap_model(self.model).disable_adapter():
                         ref_per_token_logps = self._get_per_token_logps(
                             self.model,
