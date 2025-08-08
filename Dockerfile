@@ -1,4 +1,5 @@
 FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
@@ -17,9 +18,6 @@ RUN apt-get update && apt-get install -y \
 
 # Set python3 as default python
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1
-
-# Install uv for faster package management
-RUN pip install uv
 
 # Set working directory
 WORKDIR /app
@@ -43,4 +41,4 @@ RUN mkdir -p /root/.arbor
 EXPOSE 7453
 
 # Set default command
-CMD ["python", "-m", "arbor.cli", "serve"]
+CMD ["uv", "run", "arbor", "serve"]

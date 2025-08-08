@@ -6,7 +6,6 @@ services:
     ports:
       - "7453:7453"
     volumes:
-      - ./storage:/app/storage
       - ~/.arbor:/root/.arbor
     environment:
       - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-all}
