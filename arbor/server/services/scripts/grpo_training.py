@@ -27,6 +27,7 @@ from transformers import (
 )
 from trl import GRPOConfig, GRPOTrainer
 from trl.data_utils import maybe_apply_chat_template
+from trl.trainer.utils import pad, selective_log_softmax
 
 from arbor.server.services.comms.comms import (
     ArborScriptCommsHandler,
@@ -180,10 +181,27 @@ class ArborGRPOTrainer(GRPOTrainer):
             completion_ids = completion_ids[:, : self.max_completion_length]
             completion_mask = completion_mask[:, : self.max_completion_length]
 
-        prompt_ids = broadcast_object_list(prompt_ids)
-        prompt_mask = broadcast_object_list(prompt_mask)
-        completion_ids = broadcast_object_list(completion_ids)
-        completion_mask = broadcast_object_list(completion_mask)
+        prompt_ids = gather_object(prompt_ids)
+        prompt_mask = gather_object(prompt_mask)
+        completion_ids = gather_object(completion_ids)
+        completion_mask = gather_object(completion_mask)
+
+        prompt_ids = broadcast_object_list(prompt_ids, from_process=0)
+        prompt_mask = broadcast_object_list(prompt_mask, from_process=0)
+        completion_ids = broadcast_object_list(completion_ids, from_process=0)
+        completion_mask = broadcast_object_list(completion_mask, from_process=0)
+
+        prompt_ids = [tensor.to(device) for tensor in prompt_ids]
+        prompt_mask = [tensor.to(device) for tensor in prompt_mask]
+        completion_ids = [tensor.to(device) for tensor in completion_ids]
+        completion_mask = [tensor.to(device) for tensor in completion_mask]
+
+        prompt_ids = pad(prompt_ids, padding_value=self.processing_class.pad_token_id)
+        prompt_mask = pad(prompt_mask, padding_value=0)
+        completion_ids = pad(
+            completion_ids, padding_value=self.processing_class.pad_token_id
+        )
+        completion_mask = pad(completion_mask, padding_value=0)
 
         process_slice = slice(
             self.accelerator.process_index * len(batch),
@@ -210,16 +228,17 @@ class ArborGRPOTrainer(GRPOTrainer):
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B, P+C)
 
-        logger.info(
-            f"prompt_completion_ids.shape (after truncation, if enabled): {prompt_completion_ids.shape}, prompt_ids.shape: {prompt_ids.shape}, completion_ids.shape: {completion_ids.shape}"
-        )
-
         logits_to_keep = completion_ids.size(1)
         batch_size = (
             self.args.per_device_train_batch_size
             if mode == "train"
             else self.args.per_device_eval_batch_size
         )
+
+        # TODO: Not sure if needed
+        # Use actual tensor size for batch processing if eval batch size is 0
+        if batch_size == 0:
+            batch_size = prompt_completion_ids.size(0)
 
         with torch.no_grad():
             # When using num_iterations == 1, old_per_token_logps == per_token_logps, so we can skip it's

@@ -7,10 +7,13 @@
 - [ ] Submit requested GPUs in Inference and Jobs Launch
 - [x] DPO Script
 - [ ] Make file train manager actually track jobs in dict (and cleanup properly)
+- [ ] Finish writing tests
+- [ ] Get colab working
 - [ ] Resume crashed training job
 - [ ] Test GRPO Checkpointing and Saving
+- [ ] GPU Training barebones test script
 - [ ] Update tutorial in README.md
-- [ ] Put back the launch endpoint
+- [ ] Put back launch endpoint
 
 ## Much Later
 - [ ] Have Job Queuing Based on Required Resources

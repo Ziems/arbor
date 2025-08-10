@@ -54,26 +54,30 @@ class InferenceManager(BaseManager):
 
         return await inference_job.run_inference(request_json)
 
-    def launch_job(self, model: str, launch_kwargs: InferenceLaunchConfig):
+    def launch_job(self, model: str, launch_config: InferenceLaunchConfig):
+        assert launch_config.gpu_ids is not None, "GPU IDs must be set in the config"
+        assert (
+            len(launch_config.gpu_ids) > 0
+        ), f"Inference Job must have at least one GPU in gpu_ids. Currently set to {launch_config.gpu_ids}"
         inference_job = InferenceJob(self.config)
 
         # Use provided GPU IDs or allocate through GPU manager
-        if launch_kwargs.gpu_ids is None and self.gpu_manager:
+        if launch_config.gpu_ids is None and self.gpu_manager:
             # If no GPUs specified and we have a GPU manager, allocate 1 GPU
             allocated_gpus = self.gpu_manager.allocate_gpus(inference_job.id, 1)
-            launch_kwargs.gpu_ids = allocated_gpus
+            launch_config.gpu_ids = allocated_gpus
             self.logger.info(
                 f"Allocated GPUs {allocated_gpus} for inference job {inference_job.id}"
             )
-        elif launch_kwargs.gpu_ids is None:
+        elif launch_config.gpu_ids is None:
             # Fallback to first GPU in config
-            launch_kwargs.gpu_ids = (
+            launch_config.gpu_ids = (
                 [self.config.gpu_ids[0]] if self.config.gpu_ids else [0]
             )
 
-        inference_job.launch(model, launch_kwargs)
-        if launch_kwargs.is_grpo and launch_kwargs.grpo_job_id:
-            self.inference_jobs[launch_kwargs.grpo_job_id] = inference_job
+        inference_job.launch(model, launch_config)
+        if launch_config.is_grpo and launch_config.grpo_job_id:
+            self.inference_jobs[launch_config.grpo_job_id] = inference_job
         else:
             self.inference_jobs[model] = inference_job
 
