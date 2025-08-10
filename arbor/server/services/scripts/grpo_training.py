@@ -27,6 +27,7 @@ from transformers import (
 )
 from trl import GRPOConfig, GRPOTrainer
 from trl.data_utils import maybe_apply_chat_template
+from trl.trainer.utils import pad, selective_log_softmax
 
 from arbor.server.services.comms.comms import (
     ArborScriptCommsHandler,
@@ -109,6 +110,38 @@ class ArborGRPOTrainer(GRPOTrainer):
         # synchronize all processes after vLLM has been fully initialized.
         self.accelerator.wait_for_everyone()
 
+    def _get_per_token_logps(
+        self, model, input_ids, attention_mask, logits_to_keep, batch_size=None
+    ) -> torch.Tensor:
+        """Override to ensure batch_size is never zero"""
+        # Ensure batch_size is never zero
+        if batch_size is None or batch_size == 0:
+            batch_size = input_ids.size(0)
+
+        all_logps = []
+        for i in range(0, input_ids.size(0), batch_size):
+            input_ids_batch = input_ids[i : i + batch_size]
+            attention_mask_batch = attention_mask[i : i + batch_size]
+
+            # We add 1 to `logits_to_keep` because the last logits of the sequence is later excluded
+            logits = model(
+                input_ids=input_ids_batch,
+                attention_mask=attention_mask_batch,
+                logits_to_keep=logits_to_keep + 1,
+            ).logits
+            logits = logits[
+                :, :-1, :
+            ]  # (B, L-1, V), exclude the last logit: it corresponds to the next token pred
+            input_ids_batch = input_ids_batch[:, -logits_to_keep:]
+            # Divide logits by sampling temperature.
+            # See https://huggingface.co/blog/the_n_implementation_details_of_rlhf_with_ppo#policy-training-implementation-details
+            logits = logits / self.temperature
+            logps = selective_log_softmax(
+                logits, input_ids_batch
+            )  # compute logprobs for the input tokens
+            all_logps.append(logps)
+        return torch.cat(all_logps, dim=0)
+
     def _generate_and_score_completions(
         self, batch: List[dict[str, Any]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
@@ -180,10 +213,27 @@ class ArborGRPOTrainer(GRPOTrainer):
             completion_ids = completion_ids[:, : self.max_completion_length]
             completion_mask = completion_mask[:, : self.max_completion_length]
 
-        prompt_ids = broadcast_object_list(prompt_ids)
-        prompt_mask = broadcast_object_list(prompt_mask)
-        completion_ids = broadcast_object_list(completion_ids)
-        completion_mask = broadcast_object_list(completion_mask)
+        prompt_ids = gather_object(prompt_ids)
+        prompt_mask = gather_object(prompt_mask)
+        completion_ids = gather_object(completion_ids)
+        completion_mask = gather_object(completion_mask)
+
+        prompt_ids = broadcast_object_list(prompt_ids, from_process=0)
+        prompt_mask = broadcast_object_list(prompt_mask, from_process=0)
+        completion_ids = broadcast_object_list(completion_ids, from_process=0)
+        completion_mask = broadcast_object_list(completion_mask, from_process=0)
+
+        prompt_ids = [tensor.to(device) for tensor in prompt_ids]
+        prompt_mask = [tensor.to(device) for tensor in prompt_mask]
+        completion_ids = [tensor.to(device) for tensor in completion_ids]
+        completion_mask = [tensor.to(device) for tensor in completion_mask]
+
+        prompt_ids = pad(prompt_ids, padding_value=self.processing_class.pad_token_id)
+        prompt_mask = pad(prompt_mask, padding_value=0)
+        completion_ids = pad(
+            completion_ids, padding_value=self.processing_class.pad_token_id
+        )
+        completion_mask = pad(completion_mask, padding_value=0)
 
         process_slice = slice(
             self.accelerator.process_index * len(batch),
@@ -210,16 +260,16 @@ class ArborGRPOTrainer(GRPOTrainer):
         prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B, P+C)
 
-        logger.info(
-            f"prompt_completion_ids.shape (after truncation, if enabled): {prompt_completion_ids.shape}, prompt_ids.shape: {prompt_ids.shape}, completion_ids.shape: {completion_ids.shape}"
-        )
-
         logits_to_keep = completion_ids.size(1)
         batch_size = (
             self.args.per_device_train_batch_size
             if mode == "train"
             else self.args.per_device_eval_batch_size
         )
+
+        # Use actual tensor size for batch processing if eval batch size is 0
+        if batch_size == 0:
+            batch_size = prompt_completion_ids.size(0)
 
         with torch.no_grad():
             # When using num_iterations == 1, old_per_token_logps == per_token_logps, so we can skip it's
@@ -241,6 +291,9 @@ class ArborGRPOTrainer(GRPOTrainer):
 
             if self.beta != 0.0:
                 if self.ref_model is not None:
+                    logger.info(
+                        f"[DEBUG] Calling _get_per_token_logps for ref_model without batch_size"
+                    )
                     ref_per_token_logps = self._get_per_token_logps(
                         self.ref_model,
                         prompt_completion_ids,
@@ -248,6 +301,9 @@ class ArborGRPOTrainer(GRPOTrainer):
                         logits_to_keep,
                     )
                 else:
+                    logger.info(
+                        f"[DEBUG] Calling _get_per_token_logps for main model (ref mode) without batch_size"
+                    )
                     with self.accelerator.unwrap_model(self.model).disable_adapter():
                         ref_per_token_logps = self._get_per_token_logps(
                             self.model,
