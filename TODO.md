@@ -3,7 +3,7 @@
 - [ ] Cancel jobs from monitor
 - [ ] Allow monitor to be multi-node
 - [ ] Integrate monitor with DSPy
-- [ ] Test training 30B model
+- [x] Test training 30B model
 - [ ] Submit requested GPUs in Inference and Jobs Launch
 - [x] DPO Script
 - [ ] Make file train manager actually track jobs in dict (and cleanup properly)

@@ -70,6 +70,18 @@ docker run --gpus all -p 7453:7453 -v ~/.arbor:/root/.arbor arbor-ai
   - mount that same path into the container, or
   - update `storage_path` in `~/.arbor/config.yaml` to `/root/.arbor/storage`.
 
+**Google Colab/Jupyter:**
+
+```python
+import arbor
+arbor.init()  # Auto-detects GPUs, creates config, starts server in background
+
+from openai import OpenAI
+client = OpenAI(base_url="http://127.0.0.1:7453/v1", api_key="not-needed")
+```
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Ziems/arbor/blob/main/examples/colab_quickstart.ipynb)
+
 ### 3️⃣ Optimize a DSPy Program
 
 Follow the DSPy tutorials here to see usage examples:
