@@ -6,6 +6,8 @@
 
 [![PyPI Downloads](https://static.pepy.tech/badge/arbor-ai/month)](https://pepy.tech/projects/arbor-ai)
 
+[![DSPy Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/ZAEGgxjPUe) [![Arbor Channel](https://img.shields.io/badge/Arbor%20Channel-Open-5865F2?logo=discord&logoColor=white)](https://discordapp.com/channels/1161519468141355160/1396547082839654430)
+
 ---
 
 ## 🚀 Installation
@@ -27,7 +29,29 @@ pip install flash-attn --no-build-isolation
 
 ## ⚡ Quick Start
 
-### 1️⃣ Start the Server
+### 1️⃣ Create a Config
+
+Arbor looks for a config at `~/.arbor/config.yaml` by default.
+
+- Auto-setup (recommended): run the server once and follow prompts. It will create `~/.arbor/config.yaml`.
+  ```bash
+  python -m arbor.cli serve
+  ```
+
+- Manual setup: create `~/.arbor/config.yaml` with at least GPU IDs. You may omit `storage_path` to use the default (`~/.arbor/storage` locally or `/root/.arbor/storage` in Docker).
+
+  Example:
+  ```yaml
+  # ~/.arbor/config.yaml
+  # Optional: use absolute path; omit to use default
+  # storage_path: /home/<your-user>/.arbor/storage
+  inference:
+    gpu_ids: [0]
+  training:
+    gpu_ids: [1, 2]
+  ```
+
+### 2️⃣ Start the Server
 
 **CLI:**
 
@@ -35,18 +59,21 @@ pip install flash-attn --no-build-isolation
 python -m arbor.cli serve
 ```
 
-On the first run you'll be asked which GPUs will be used for training and which for inference. For more that one GPU, separate the ids by comma: `1, 2`. Your config file will be saved in `~/.arbor/config.yaml` should you want to edit these configs in the future.
+**Docker (GPU):**
 
-### 2️⃣ Optimize a DSPy Program
+```bash
+docker run --gpus all -p 7453:7453 -v ~/.arbor:/root/.arbor arbor-ai
+```
+
+- This mounts your local `~/.arbor` (which contains `config.yaml` and `storage/`) into the container at `/root/.arbor` and exposes the default port `7453`.
+- If your config uses an absolute path like `/home/<user>/.arbor/storage`, either:
+  - mount that same path into the container, or
+  - update `storage_path` in `~/.arbor/config.yaml` to `/root/.arbor/storage`.
+
+### 3️⃣ Optimize a DSPy Program
 
 Follow the DSPy tutorials here to see usage examples:
 [DSPy RL Optimization Examples](https://dspy.ai/tutorials/rl_papillon/)
-
-### 3️⃣ Monitor your GPU usage
-
-```bash
-python -m arbor.server.monitor.cli
-```
 
 ---
 
@@ -68,6 +95,15 @@ nvcc --version
 ```
 
 If you don't have admin permissions, you can often install nvcc using conda.
+
+---
+
+## Community
+
+- Join our Discord for help, updates, and discussion: [DSPy Discord](https://discord.gg/ZAEGgxjPUe)
+- Arbor-specific channel in the DSPy Discord: [Arbor Channel](https://discordapp.com/channels/1161519468141355160/1396547082839654430)
+
+---
 
 ## 🙏 Acknowledgements
 

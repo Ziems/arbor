@@ -4,6 +4,9 @@
 - [ ] Submit requested GPUs in Inference and Jobs Launch
 - [ ] DPO Script
 - [ ] Finish Writing Tests
+- [ ] Get colab working
+- [ ] Make script for testing GPU training
+- [ ] Resume training run
 
 ## Much Later
 - [ ] Have Job Queuing Based on Required Resources
