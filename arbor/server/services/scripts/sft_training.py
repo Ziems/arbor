@@ -83,6 +83,8 @@ def main():
 
             if "wandb_kwargs" in arbor_train_args and arbor_train_args["wandb_kwargs"]:
                 wandb.init(**arbor_train_args["wandb_kwargs"])
+        else:
+            trl_train_args["report_to"] = "none"
 
         training_args = SFTConfig(
             output_dir=trl_train_args["output_dir"],
