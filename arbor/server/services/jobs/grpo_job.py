@@ -184,6 +184,14 @@ class GRPOJob(Job):
             my_env["WANDB_SILENT"] = "true"
             my_env["WANDB_DISABLED"] = "true"
 
+        # Configure ZMQ for better stability and error handling
+        my_env["ZMQ_MAX_SOCKETS"] = "1024"
+        my_env["ZMQ_IO_THREADS"] = "1"
+        # Increase file descriptor limits to prevent resource exhaustion
+        my_env["RLIMIT_NOFILE"] = "4096"
+        # Set ZMQ socket options for better error handling
+        my_env["ZMQ_LINGER"] = "0"
+
         # Setup mock environment if needed
         my_env = setup_mock_environment(my_env)
 
