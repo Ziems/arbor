@@ -13,7 +13,7 @@ from arbor.server.api.models.schemas import (
 )
 from arbor.server.core.config import Config
 from arbor.server.services.comms.comms import ArborServerCommsHandler
-from arbor.server.services.jobs.job import Job
+from arbor.server.services.jobs.job import Job, JobArtifact
 from arbor.server.services.managers.file_manager import FileManager
 from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
@@ -25,25 +25,17 @@ logger = get_logger(__name__)
 
 class FileTrainJob(Job):
     def __init__(self, config: Config, gpu_manager=None):
-        super().__init__()
-        self.config = config
+        # Training jobs need logs, models, and checkpoints
+        super().__init__(
+            config,
+            artifacts=[JobArtifact.LOGS, JobArtifact.MODEL, JobArtifact.CHECKPOINTS],
+        )
         self.gpu_manager = gpu_manager
         self.model = None
         self.training_file = None
         self.fine_tuned_model = None
         self.allocated_gpus = None
         self.process_runner: Optional[AccelerateProcessRunner] = None
-
-    def _make_output_dir(self, request: FineTuneRequest):
-        model_name = request.model.split("/")[-1].lower()
-        suffix = (
-            request.suffix
-            if request.suffix is not None
-            else "".join(random.choices(string.ascii_letters + string.digits, k=6))
-        )
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        name = f"ft:{model_name}:{suffix}:{timestamp}"
-        return name, str(Path(self.config.storage_path).resolve() / "models" / name)
 
     def _prepare_training_file(
         self, request: FineTuneRequest, file_manager: FileManager, format_type: str
@@ -71,7 +63,7 @@ class FileTrainJob(Job):
         return data_path
 
     def find_train_args_sft(self, request: FineTuneRequest, file_manager: FileManager):
-        name, output_dir = self._make_output_dir(request)
+        output_dir = self._make_model_dir()  # Use base class method
         data_path = self._prepare_training_file(request, file_manager, "sft")
 
         default_train_kwargs = {
@@ -96,7 +88,7 @@ class FileTrainJob(Job):
         return train_kwargs, arbor_train_kwargs
 
     def find_train_args_dpo(self, request: FineTuneRequest, file_manager: FileManager):
-        name, output_dir = self._make_output_dir(request)
+        output_dir = self._make_model_dir()  # Use base class method
         data_path = self._prepare_training_file(request, file_manager, "dpo")
 
         default_train_kwargs = {
@@ -201,18 +193,10 @@ class FileTrainJob(Job):
             json.dumps(arbor_train_kwargs),
         ]
 
-        # Enhanced log callback that adds logs to job events
-        def enhanced_log_callback(line: str):
-            # Log to standard logger
-            logger.info(f"[{train_type.upper()} LOG] {line}")
-
-            # Also add as job event for API access
-            from arbor.server.services.jobs.job import JobEvent
-
-            event = JobEvent(
-                level="info", message=line, data={"source": "training_log"}
-            )
-            self.add_event(event)
+        # Override log file with train type specific name
+        log_dir = self._make_log_dir()
+        self.log_file_path = os.path.join(log_dir, f"{train_type}_training.log")
+        log_callback = self.create_log_callback(train_type.upper())
 
         self.training_process = self.process_runner.start_training(
             script_path=script_path,
@@ -221,7 +205,7 @@ class FileTrainJob(Job):
             script_args=script_args,
             accelerate_config=self.config.accelerate_config,
             env=my_env,
-            log_callback=enhanced_log_callback,
+            log_callback=log_callback,
         )
 
         self.server_comms_handler.wait_for_clients(num_processes)

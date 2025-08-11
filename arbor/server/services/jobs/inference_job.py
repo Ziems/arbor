@@ -4,6 +4,7 @@ import signal
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import psutil
@@ -32,8 +33,9 @@ logger = get_logger(__name__)
 
 class InferenceJob(Job):
     def __init__(self, config: Config):
-        super().__init__()
-        self.config = config
+        super().__init__(
+            config
+        )  # Default artifacts=[JobArtifact.LOGS] is perfect for inference jobs
         self.process_runner: Optional[InferenceProcessRunner] = None
         self.launch_config: InferenceLaunchConfig = None
         self.last_activity = None
@@ -85,7 +87,7 @@ class InferenceJob(Job):
         process = self.process_runner.start_inference_server(
             command,
             env=my_env,
-            log_callback=lambda line: logger.info(f"[vLLM LOG] {line}"),
+            log_callback=self.create_log_callback("INFERENCE"),
         )
 
         logger.info(f"vLLM server process started with PID {process.pid}.")

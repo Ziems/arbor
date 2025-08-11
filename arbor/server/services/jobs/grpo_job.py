@@ -19,7 +19,7 @@ from arbor.server.core.config import Config
 from arbor.server.services.comms.comms import ArborServerCommsHandler
 from arbor.server.services.jobs.inference_job import InferenceJob
 from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
-from arbor.server.services.jobs.job import Job
+from arbor.server.services.jobs.job import Job, JobArtifact
 from arbor.server.services.managers.inference_manager import InferenceManager
 from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
@@ -34,8 +34,17 @@ class GRPOJob(Job):
         self, config: Config, request: GRPOInitializeRequest, gpu_manager=None
     ):
         id = self._make_job_id(request)
-        super().__init__(id=id)
-        self.config = config
+        # GRPO jobs need all artifact types - logs, models, checkpoints, and metrics
+        super().__init__(
+            config,
+            id=id,
+            artifacts=[
+                JobArtifact.LOGS,
+                JobArtifact.MODEL,
+                JobArtifact.CHECKPOINTS,
+                JobArtifact.METRICS,
+            ],
+        )
         self.gpu_manager = gpu_manager
         self.training_process = None
         self.base_model = None
@@ -60,12 +69,9 @@ class GRPOJob(Job):
         timestamp = datetime.now().strftime("%Y%m%d")
         return f"grpo:{model}:{suffix}:{timestamp}"
 
-    def _make_output_dir(self, request: GRPOInitializeRequest):
-        return str(Path(self.config.storage_path).resolve() / "models" / self.id)
-
     def find_training_args(self, request: GRPOInitializeRequest) -> dict:
         """Process the config request and return training arguments."""
-        output_dir = self._make_output_dir(request)
+        output_dir = self._make_model_dir()  # Use base class method
 
         # Here are defaults for training. We can adjust them if we disagree w the huggingface defaults
         default_train_kwargs = {"output_dir": output_dir, "grpo_flavor": "grpo"}
@@ -146,6 +152,12 @@ class GRPOJob(Job):
             inference_launch_config,
         )
 
+        # Set up logging paths for both GRPO and inference jobs
+        log_dir = self._make_log_dir()
+        self.log_file_path = os.path.join(log_dir, "grpo_training.log")
+        if self.inference_job:
+            self.inference_job.log_file_path = os.path.join(log_dir, "inference.log")
+
         # Initialize ZMQ socket manager - no need for connection acceptance thread anymore
         self.server_comms_handler = ArborServerCommsHandler()
 
@@ -213,7 +225,7 @@ class GRPOJob(Job):
             script_args=script_args,
             accelerate_config=self.config.accelerate_config,
             env=my_env,
-            log_callback=lambda line: logger.info(f"[GRPO LOG] {line}"),
+            log_callback=self.create_log_callback("GRPO"),
         )
 
         # Start status handling thread
