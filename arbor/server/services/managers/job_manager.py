@@ -36,7 +36,7 @@ class JobManager(BaseManager):
         return self.jobs[job_id]
 
     def create_job(self) -> Job:
-        job = Job()
+        job = Job(self.config)
         self.jobs[job.id] = job
         return job
 
