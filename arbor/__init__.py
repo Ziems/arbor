@@ -13,6 +13,15 @@ except Exception:
     __version__ = "unknown"
 
 # Colab/Jupyter integration (Ray-like interface)
-from arbor.colab import get_client, init, shutdown, start, status, stop
+from arbor.colab import get_client, init, shutdown, start, status, stop, watch_job
 
-__all__ = ["__version__", "init", "shutdown", "status", "get_client", "start", "stop"]
+__all__ = [
+    "__version__",
+    "init",
+    "shutdown",
+    "status",
+    "get_client",
+    "start",
+    "stop",
+    "watch_job",
+]
