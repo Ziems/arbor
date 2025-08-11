@@ -68,6 +68,12 @@ server_info = arbor.init()
 # Get pre-configured OpenAI client
 client = arbor.get_client()
 
+# Start training job
+job = client.fine_tuning.jobs.create(...)
+
+# Watch job with real-time logs (new!)
+arbor.watch_job(job.id)
+
 # Check server status
 status = arbor.status()
 
@@ -158,4 +164,5 @@ arbor.shutdown()
 - **Background execution**: Server runs in daemon thread, survives cell execution
 - **Auto-cleanup**: Server shuts down when notebook session ends
 - **Pre-configured clients**: `arbor.get_client()` returns ready-to-use OpenAI client
+- **Real-time log monitoring**: `arbor.watch_job()` streams training logs live
 - **Colab-specific defaults**: Storage in `/content/.arbor`, security-focused host binding

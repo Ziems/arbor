@@ -271,6 +271,109 @@ def get_client():
         raise ImportError("OpenAI package required. Install with: pip install openai")
 
 
+def watch_job(
+    job_id: str, max_time: int = 1800, update_interval: int = 10, show_logs: bool = True
+):
+    """
+    Watch a training job with real-time progress updates.
+
+    Args:
+        job_id: ID of the job to watch
+        max_time: Maximum time to watch in seconds (default: 30 min)
+        update_interval: How often to check for updates in seconds
+        show_logs: Whether to show training logs in real-time
+
+    Example:
+        >>> job = client.fine_tuning.jobs.create(...)
+        >>> arbor.watch_job(job.id)
+    """
+    if _arbor_server is None:
+        raise RuntimeError("Arbor server not running. Call arbor.init() first.")
+
+    try:
+        from datetime import datetime
+
+        import requests
+
+        base_url = _server_config["base_url"]
+        session = requests.Session()
+
+        print(f"👁️  Watching job {job_id}")
+        print(f"⏰ Max watch time: {max_time//60} minutes")
+        print("=" * 60)
+
+        start_time = time.time()
+        last_event_count = 0
+        last_status = None
+
+        while (time.time() - start_time) < max_time:
+            try:
+                # Get job status
+                status_resp = session.get(f"{base_url}/fine_tuning/jobs/{job_id}")
+                status_resp.raise_for_status()
+                status_data = status_resp.json()
+                current_status = status_data.get("status", "unknown")
+
+                # Show status changes
+                if current_status != last_status:
+                    timestamp = datetime.now().strftime("%H:%M:%S")
+                    status_icon = {
+                        "queued": "⏳",
+                        "running": "🏃",
+                        "succeeded": "✅",
+                        "failed": "❌",
+                        "cancelled": "🛑",
+                    }.get(current_status, "📊")
+                    print(
+                        f"[{timestamp}] {status_icon} Status: {current_status.upper()}"
+                    )
+                    last_status = current_status
+
+                # Show logs if enabled
+                if show_logs:
+                    events_resp = session.get(
+                        f"{base_url}/fine_tuning/jobs/{job_id}/events"
+                    )
+                    events_resp.raise_for_status()
+                    events = events_resp.json()["data"]
+
+                    # Show new log events
+                    new_events = events[last_event_count:]
+                    for event in new_events:
+                        # Only show training logs, skip other events
+                        if event.get("data", {}).get("source") == "training_log":
+                            timestamp = datetime.now().strftime("%H:%M:%S")
+                            print(f"[{timestamp}] 🔧 {event['message']}")
+
+                    last_event_count = len(events)
+
+                # Check if finished
+                if current_status in ["succeeded", "failed", "cancelled"]:
+                    final_icon = {"succeeded": "🎉", "failed": "💥", "cancelled": "🛑"}[
+                        current_status
+                    ]
+                    print(f"\n{final_icon} Job {current_status.upper()}!")
+
+                    if current_status == "succeeded" and status_data.get(
+                        "fine_tuned_model"
+                    ):
+                        print(f"🎯 Fine-tuned model: {status_data['fine_tuned_model']}")
+
+                    break
+
+                time.sleep(update_interval)
+
+            except Exception as e:
+                print(f"⚠️  Error checking job status: {e}")
+                time.sleep(update_interval)
+
+        else:
+            print(f"\n⏰ Stopped watching after {max_time//60} minutes")
+
+    except ImportError:
+        raise ImportError("requests package required for job watching")
+
+
 # Convenience alias for Ray-like interface
 def start(*args, **kwargs):
     """Alias for init() - Ray-like interface."""

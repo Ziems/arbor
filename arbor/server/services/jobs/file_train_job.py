@@ -201,6 +201,19 @@ class FileTrainJob(Job):
             json.dumps(arbor_train_kwargs),
         ]
 
+        # Enhanced log callback that adds logs to job events
+        def enhanced_log_callback(line: str):
+            # Log to standard logger
+            logger.info(f"[{train_type.upper()} LOG] {line}")
+
+            # Also add as job event for API access
+            from arbor.server.services.jobs.job import JobEvent
+
+            event = JobEvent(
+                level="info", message=line, data={"source": "training_log"}
+            )
+            self.add_event(event)
+
         self.training_process = self.process_runner.start_training(
             script_path=script_path,
             num_processes=num_processes,
@@ -208,7 +221,7 @@ class FileTrainJob(Job):
             script_args=script_args,
             accelerate_config=self.config.accelerate_config,
             env=my_env,
-            log_callback=lambda line: logger.info(f"[{train_type.upper()} LOG] {line}"),
+            log_callback=enhanced_log_callback,
         )
 
         self.server_comms_handler.wait_for_clients(num_processes)
