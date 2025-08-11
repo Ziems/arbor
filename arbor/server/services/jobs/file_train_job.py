@@ -155,8 +155,15 @@ class FileTrainJob(Job):
         # Use allocated GPUs instead of all config GPUs
         gpu_ids_str = ",".join(map(str, self.allocated_gpus))
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
-        # WandB can block the training process for login, so we silence it
-        my_env["WANDB_SILENT"] = "true"
+
+        # Handle WandB configuration
+        if trl_train_kwargs.get("report_to") == "wandb":
+            # WandB is explicitly requested, just silence login prompts
+            my_env["WANDB_SILENT"] = "true"
+        else:
+            # WandB not requested, disable it completely to avoid login errors
+            my_env["WANDB_SILENT"] = "true"
+            my_env["WANDB_DISABLED"] = "true"
 
         # Setup mock environment if needed
         my_env = setup_mock_environment(my_env)
