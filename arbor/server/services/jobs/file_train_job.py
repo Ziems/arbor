@@ -9,6 +9,7 @@ from typing import Literal, Optional
 
 from arbor.server.api.models.schemas import (
     FineTuneRequest,
+    JobStatus,
     JobStatusModel,
 )
 from arbor.server.core.config import Config
@@ -225,14 +226,66 @@ class FileTrainJob(Job):
 
         self.server_comms_handler.wait_for_clients(num_processes)
 
+        # Set job to running status
+        self.status = JobStatus.RUNNING
+
+        # Start monitoring thread for process completion
+        import threading
+
+        self.completion_thread = threading.Thread(
+            target=self._monitor_completion,
+            args=(trl_train_kwargs["output_dir"],),
+            daemon=True,
+        )
+        self.completion_thread.start()
+
+    def _monitor_completion(self, output_dir: str):
+        """Monitor training process completion and update job status."""
+        try:
+            # Wait for process to complete
+            exit_code = self.process_runner.wait()
+
+            if exit_code == 0:
+                # Training completed successfully
+                logger.info(f"Training completed successfully for {self.id}")
+                self.status = JobStatus.SUCCEEDED
+                # Set the fine-tuned model path
+                self.fine_tuned_model = f"{self.id}_model"
+
+                # Log completion event
+                self.log(
+                    "Training completed successfully",
+                    extra_data={"exit_code": 0, "output_dir": output_dir},
+                    create_event=True,
+                )
+            else:
+                # Training failed
+                logger.error(
+                    f"Training failed for {self.id} with exit code {exit_code}"
+                )
+                self.status = JobStatus.FAILED
+
+                # Log failure event
+                self.log(
+                    f"Training failed with exit code {exit_code}",
+                    level="error",
+                    extra_data={"exit_code": exit_code},
+                    create_event=True,
+                )
+
+        except Exception as e:
+            logger.error(f"Error monitoring completion for {self.id}: {e}")
+            self.status = JobStatus.FAILED
+            self.log(
+                f"Completion monitoring error: {e}", level="error", create_event=True
+            )
+
     def _handle_status_updates(self):
         for status in self.server_comms_handler.receive_status():
             logger.debug(f"Received status update: {status}")
 
     def cancel(self):
         """Cancel the training job"""
-        from arbor.server.api.models.schemas import JobStatus
-
         # Call parent cancel method to check status and set CANCELLED
         super().cancel()
 
