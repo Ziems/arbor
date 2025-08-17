@@ -28,11 +28,15 @@ def gpu_manager(config):
 @pytest.fixture
 def grpo_request():
     """Create a test GRPO request."""
+    from arbor.server.api.models.schemas import GRPOGPUConfig, MultiGPUConfig
+
     return GRPOInitializeRequest(
         model="test-model",
-        num_training_gpus=2,
-        num_inference_gpus=1,
         grpo_flavor="grpo",
+        gpu_config=GRPOGPUConfig(
+            type="multi",
+            multi=MultiGPUConfig(num_training_gpus=2, num_inference_gpus=1),
+        ),
     )
 
 
@@ -48,21 +52,28 @@ def test_grpo_request_defaults():
     """Test that GRPO request has correct defaults for GPU allocation."""
     request = GRPOInitializeRequest(model="test-model", grpo_flavor="grpo")
 
-    assert request.num_training_gpus == 1
-    assert request.num_inference_gpus == 1
+    # Default gpu_config should be single GPU with sharing enabled
+    assert request.gpu_config.type == "single"
+    assert request.gpu_config.single.shared_memory is True
+    assert request.gpu_config.multi is None
 
 
 def test_grpo_request_custom_gpus():
-    """Test GRPO request with custom GPU allocation."""
+    """Test GRPO request with custom multi-GPU allocation."""
+    from arbor.server.api.models.schemas import GRPOGPUConfig, MultiGPUConfig
+
     request = GRPOInitializeRequest(
         model="test-model",
-        num_training_gpus=3,
-        num_inference_gpus=2,
         grpo_flavor="grpo",
+        gpu_config=GRPOGPUConfig(
+            type="multi",
+            multi=MultiGPUConfig(num_training_gpus=3, num_inference_gpus=2),
+        ),
     )
 
-    assert request.num_training_gpus == 3
-    assert request.num_inference_gpus == 2
+    assert request.gpu_config.type == "multi"
+    assert request.gpu_config.multi.num_training_gpus == 3
+    assert request.gpu_config.multi.num_inference_gpus == 2
 
 
 def test_grpo_job_gpu_allocation(
@@ -72,16 +83,20 @@ def test_grpo_job_gpu_allocation(
     # Create GRPO job with GPU manager
     grpo_job = GRPOJob(config, grpo_request, gpu_manager=gpu_manager)
 
+    # Get GPU counts from the new structure
+    num_inference_gpus = grpo_request.gpu_config.multi.num_inference_gpus
+    num_training_gpus = grpo_request.gpu_config.multi.num_training_gpus
+    total_gpus = num_inference_gpus + num_training_gpus
+
     # Test GPU allocation logic directly without full initialization
-    total_gpus = grpo_request.num_inference_gpus + grpo_request.num_training_gpus
     allocated_gpus = gpu_manager.allocate_gpus(grpo_job.id, total_gpus)
 
     # Verify correct number of GPUs allocated
     assert len(allocated_gpus) == 3  # 2 training + 1 inference
 
     # Test GPU splitting logic
-    inference_gpus = allocated_gpus[: grpo_request.num_inference_gpus]
-    training_gpus = allocated_gpus[grpo_request.num_inference_gpus :]
+    inference_gpus = allocated_gpus[:num_inference_gpus]
+    training_gpus = allocated_gpus[num_inference_gpus:]
 
     assert len(inference_gpus) == 1
     assert len(training_gpus) == 2
@@ -102,7 +117,10 @@ def test_grpo_job_insufficient_gpus(config, grpo_request, mock_inference_manager
     # Request needs 3 GPUs (2 training + 1 inference) but only 2 available
     grpo_job = GRPOJob(limited_config, grpo_request, gpu_manager=gpu_manager)
 
-    total_gpus = grpo_request.num_inference_gpus + grpo_request.num_training_gpus
+    total_gpus = (
+        grpo_request.gpu_config.multi.num_inference_gpus
+        + grpo_request.gpu_config.multi.num_training_gpus
+    )
 
     with pytest.raises(GPUAllocationError) as exc_info:
         gpu_manager.allocate_gpus(grpo_job.id, total_gpus)
@@ -155,7 +173,10 @@ def test_grpo_job_cleanup_releases_gpus(config, gpu_manager, grpo_request):
     grpo_job = GRPOJob(config, grpo_request, gpu_manager=gpu_manager)
 
     # Manually allocate GPUs (simulating what initialize would do)
-    total_gpus = grpo_request.num_inference_gpus + grpo_request.num_training_gpus
+    total_gpus = (
+        grpo_request.gpu_config.multi.num_inference_gpus
+        + grpo_request.gpu_config.multi.num_training_gpus
+    )
     gpu_manager.allocate_gpus(grpo_job.id, total_gpus)
 
     # Verify GPUs are allocated
@@ -172,14 +193,24 @@ def test_grpo_job_cleanup_releases_gpus(config, gpu_manager, grpo_request):
 def test_multiple_grpo_jobs_gpu_conflicts(config, gpu_manager, mock_inference_manager):
     """Test that multiple GRPO jobs handle GPU conflicts correctly."""
     # Create first GRPO job that uses 3 GPUs
+    from arbor.server.api.models.schemas import GRPOGPUConfig, MultiGPUConfig
+
     request1 = GRPOInitializeRequest(
-        model="model1", num_training_gpus=2, num_inference_gpus=1, grpo_flavor="grpo"
+        model="model1",
+        grpo_flavor="grpo",
+        gpu_config=GRPOGPUConfig(
+            type="multi",
+            multi=MultiGPUConfig(num_training_gpus=2, num_inference_gpus=1),
+        ),
     )
 
     grpo_job1 = GRPOJob(config, request1, gpu_manager=gpu_manager)
 
     # Allocate GPUs for first job (3 out of 4 GPUs)
-    total_gpus1 = request1.num_inference_gpus + request1.num_training_gpus
+    total_gpus1 = (
+        request1.gpu_config.multi.num_inference_gpus
+        + request1.gpu_config.multi.num_training_gpus
+    )
     allocated1 = gpu_manager.allocate_gpus(grpo_job1.id, total_gpus1)
 
     # Verify 3 GPUs are allocated
@@ -188,11 +219,19 @@ def test_multiple_grpo_jobs_gpu_conflicts(config, gpu_manager, mock_inference_ma
 
     # Create second GRPO job that needs 2 GPUs (should fail with only 1 remaining)
     request2 = GRPOInitializeRequest(
-        model="model2", num_training_gpus=1, num_inference_gpus=1, grpo_flavor="grpo"
+        model="model2",
+        grpo_flavor="grpo",
+        gpu_config=GRPOGPUConfig(
+            type="multi",
+            multi=MultiGPUConfig(num_training_gpus=1, num_inference_gpus=1),
+        ),
     )
 
     grpo_job2 = GRPOJob(config, request2, gpu_manager=gpu_manager)
-    total_gpus2 = request2.num_inference_gpus + request2.num_training_gpus
+    total_gpus2 = (
+        request2.gpu_config.multi.num_inference_gpus
+        + request2.gpu_config.multi.num_training_gpus
+    )
 
     # This should fail (needs 2 GPUs but only 1 available)
     with pytest.raises(GPUAllocationError):
@@ -235,11 +274,17 @@ def test_grpo_gpu_allocation_scenarios(
     config = Config(gpu_ids=list(range(total_gpus)))
     gpu_manager = GPUManager(config)
 
+    from arbor.server.api.models.schemas import GRPOGPUConfig, MultiGPUConfig
+
     request = GRPOInitializeRequest(
         model="test-model",
-        num_training_gpus=num_training,
-        num_inference_gpus=num_inference,
         grpo_flavor="grpo",
+        gpu_config=GRPOGPUConfig(
+            type="multi",
+            multi=MultiGPUConfig(
+                num_training_gpus=num_training, num_inference_gpus=num_inference
+            ),
+        ),
     )
 
     grpo_job = GRPOJob(config, request, gpu_manager=gpu_manager)
