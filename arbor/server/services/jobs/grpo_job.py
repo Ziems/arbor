@@ -116,7 +116,6 @@ class GRPOJob(Job):
             "lora",
             "wandb_kwargs",
             "grpo_flavor",
-            "gpu_config",
         ]
         arbor_train_kwargs = {
             key: train_kwargs[key] for key in arbor_keys if key in train_kwargs
@@ -136,10 +135,8 @@ class GRPOJob(Job):
         if not self.gpu_manager:
             raise RuntimeError("GPU manager is required for GRPO")
 
-        # Check GPU configuration
-        gpu_config = arbor_train_kwargs.get("gpu_config")
-        if not gpu_config:
-            raise ValueError("gpu_config is required in train_kwargs")
+        # Check GPU configuration directly from request
+        gpu_config = request.gpu_config
 
         if (
             gpu_config.type == "single"
