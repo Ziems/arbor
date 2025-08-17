@@ -11,6 +11,7 @@ import coolname
 
 from arbor.server.api.models.schemas import (
     GRPOCheckpointRequest,
+    GRPOGPUConfig,
     GRPOInitializeRequest,
     GRPOStatus,
     GRPOStepRequest,
@@ -110,7 +111,13 @@ class GRPOJob(Job):
             key: train_kwargs[key] for key in trl_keys if key in train_kwargs
         }
 
-        arbor_keys = ["max_context_length", "lora", "wandb_kwargs", "grpo_flavor"]
+        arbor_keys = [
+            "max_context_length",
+            "lora",
+            "wandb_kwargs",
+            "grpo_flavor",
+            "gpu_config",
+        ]
         arbor_train_kwargs = {
             key: train_kwargs[key] for key in arbor_keys if key in train_kwargs
         }
@@ -125,26 +132,63 @@ class GRPOJob(Job):
             self.train_kwargs
         )
 
-        # Allocate total GPUs needed and split them
+        # Allocate GPUs based on sharing configuration
         if not self.gpu_manager:
             raise RuntimeError("GPU manager is required for GRPO")
 
-        total_gpus = request.num_inference_gpus + request.num_training_gpus
-        allocated_gpus = self.gpu_manager.allocate_gpus(self.id, total_gpus)
+        # Check GPU configuration
+        gpu_config = arbor_train_kwargs.get("gpu_config")
+        if not gpu_config:
+            raise ValueError("gpu_config is required in train_kwargs")
 
-        # Split the allocated GPUs
-        inference_gpus = allocated_gpus[: request.num_inference_gpus]
-        training_gpus = allocated_gpus[request.num_inference_gpus :]
+        if (
+            gpu_config.type == "single"
+            and gpu_config.single
+            and gpu_config.single.shared_memory
+        ):
+            enable_sharing = True
+            # Set defaults for single GPU sharing
+            num_inference_gpus = 1
+            num_training_gpus = 1
+        elif gpu_config.type == "multi" and gpu_config.multi:
+            enable_sharing = False
+            # Use config GPU counts
+            num_inference_gpus = gpu_config.multi.num_inference_gpus
+            num_training_gpus = gpu_config.multi.num_training_gpus
+        else:
+            enable_sharing = True
+            # Default to single GPU for each
+            num_inference_gpus = 1
+            num_training_gpus = 1
 
-        logger.info(
-            f"Allocated {total_gpus} GPUs for GRPO job {self.id}: inference={inference_gpus}, training={training_gpus}"
-        )
+        # Allocate GPUs based on configuration
+        if enable_sharing:
+            # Single GPU shared between inference and training
+            inference_gpus = self.gpu_manager.allocate_gpus(self.id, 1)
+            training_gpus = inference_gpus  # Same GPU
+            logger.info(
+                f"Allocated shared GPU {inference_gpus[0]} for GRPO job {self.id}"
+            )
+        else:
+            # Separate GPUs for inference and training
+            total_gpus = num_inference_gpus + num_training_gpus
+            all_gpus = self.gpu_manager.allocate_gpus(self.id, total_gpus)
+            inference_gpus = all_gpus[:num_inference_gpus]
+            training_gpus = all_gpus[num_inference_gpus:]
+            logger.info(
+                f"Allocated {total_gpus} GPUs for GRPO job {self.id}: inference={inference_gpus}, training={training_gpus}"
+            )
 
         inference_launch_config = InferenceLaunchConfig(
             max_context_length=arbor_train_kwargs.get("max_context_length", None),
             gpu_ids=inference_gpus,
             is_grpo=True,
             grpo_job_id=self.id,
+            # GPU sharing configuration
+            enable_gpu_sharing=enable_sharing,
+            gpu_memory_utilization=(
+                0.45 if enable_sharing else 0.9
+            ),  # 45% for VLLM when sharing
         )
         logger.info("Launching inference server...")
         self.inference_job = inference_manager.launch_job(
@@ -174,6 +218,12 @@ class GRPOJob(Job):
         gpu_ids_str = ",".join(map(str, training_gpus))
 
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
+
+        # Log GPU memory configuration
+        if enable_sharing:
+            logger.info(
+                f"GPU memory sharing enabled: VLLM ~45%, Training ~50% on GPU {training_gpus[0]}"
+            )
 
         # Handle WandB configuration
         if trl_train_kwargs.get("report_to") == "wandb":
