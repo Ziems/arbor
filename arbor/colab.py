@@ -94,7 +94,7 @@ def init(
 
         >>> # Use with OpenAI client
         >>> from openai import OpenAI
-        >>> client = OpenAI(base_url="http://127.0.0.1:7453/v1", api_key="not-needed")
+        >>> client = OpenAI(base_url="http://127.0.0.1:7453/v1/", api_key="not-needed")
     """
     global _arbor_server, _server_thread, _server_config
 
@@ -183,7 +183,7 @@ training:
                 os.path.join(storage_path, "config.yaml") if auto_config else None
             ),
             "gpu_ids": gpu_ids,
-            "base_url": f"http://{host}:{port}/v1",
+            "base_url": f"http://{host}:{port}/v1/",
         }
 
         if not silent:
@@ -238,7 +238,7 @@ def status() -> Optional[Dict[str, Any]]:
 
     Example:
         >>> arbor.status()
-        {'host': '127.0.0.1', 'port': 7453, 'base_url': 'http://127.0.0.1:7453/v1'}
+        {'host': '127.0.0.1', 'port': 7453, 'base_url': 'http://127.0.0.1:7453/v1/'}
     """
     if _arbor_server is None:
         return None
