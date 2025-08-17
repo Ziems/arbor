@@ -216,11 +216,18 @@ class GRPOJob(Job):
 
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
 
-        # Log GPU memory configuration
+        # Configure GPU memory sharing and NCCL
         if enable_sharing:
             logger.info(
                 f"GPU memory sharing enabled: VLLM ~45%, Training ~50% on GPU {training_gpus[0]}"
             )
+            # Add NCCL environment variables for better compatibility with shared GPU
+            my_env["NCCL_DEBUG"] = "WARN"
+            my_env["NCCL_P2P_DISABLE"] = "1"  # Disable P2P for single GPU
+            my_env["NCCL_SHM_DISABLE"] = "1"  # Disable shared memory for single GPU
+            my_env["NCCL_NET_GDR_LEVEL"] = "0"  # Disable GPU Direct RDMA
+            my_env["NCCL_SOCKET_IFNAME"] = "lo"  # Use loopback for single GPU
+            my_env["NCCL_IB_DISABLE"] = "1"  # Disable InfiniBand for cloud environments
 
         # Handle WandB configuration
         if trl_train_kwargs.get("report_to") == "wandb":
@@ -401,8 +408,6 @@ class GRPOJob(Job):
 
     def cancel(self):
         """Cancel the GRPO training job"""
-        from arbor.server.api.models.schemas import JobStatus
-
         # Call parent cancel method to check status and set CANCELLED
         super().cancel()
 
