@@ -1,19 +1,16 @@
-- [x] Test GRPO w/ Jobs Framework
-- [ ] Test dspy.GRPO w/ Jobs Framework
 - [ ] Cancel jobs from monitor
 - [ ] Allow monitor to be multi-node
 - [ ] Integrate monitor with DSPy
-- [x] Test training 30B model
 - [ ] Submit requested GPUs in Inference and Jobs Launch
-- [x] DPO Script
 - [ ] Make file train manager actually track jobs in dict (and cleanup properly)
 - [ ] Finish writing tests
-- [ ] Get colab working
 - [ ] Resume crashed training job
 - [ ] Test GRPO Checkpointing and Saving
 - [ ] GPU Training barebones test script
 - [ ] Update tutorial in README.md
 - [ ] Put back launch endpoint
+- [ ] Update GPUs to default to 3/4 inference 1/4 training
+- [ ] Setup Docs
 
 ## Much Later
 - [ ] Have Job Queuing Based on Required Resources

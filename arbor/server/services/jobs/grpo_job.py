@@ -138,54 +138,24 @@ class GRPOJob(Job):
         # Check GPU configuration directly from request
         gpu_config = request.gpu_config
 
-        if (
-            gpu_config.type == "single"
-            and gpu_config.single
-            and gpu_config.single.shared_memory
-        ):
-            enable_sharing = True
-            # Set defaults for single GPU sharing
-            num_inference_gpus = 1
-            num_training_gpus = 1
-        elif gpu_config.type == "multi" and gpu_config.multi:
-            enable_sharing = False
-            # Use config GPU counts
-            num_inference_gpus = gpu_config.multi.num_inference_gpus
-            num_training_gpus = gpu_config.multi.num_training_gpus
-        else:
-            enable_sharing = True
-            # Default to single GPU for each
-            num_inference_gpus = 1
-            num_training_gpus = 1
+        # Use config GPU counts
+        num_inference_gpus = gpu_config.multi.num_inference_gpus
+        num_training_gpus = gpu_config.multi.num_training_gpus
 
-        # Allocate GPUs based on configuration
-        if enable_sharing:
-            # Single GPU shared between inference and training
-            inference_gpus = self.gpu_manager.allocate_gpus(self.id, 1)
-            training_gpus = inference_gpus  # Same GPU
-            logger.info(
-                f"Allocated shared GPU {inference_gpus[0]} for GRPO job {self.id}"
-            )
-        else:
-            # Separate GPUs for inference and training
-            total_gpus = num_inference_gpus + num_training_gpus
-            all_gpus = self.gpu_manager.allocate_gpus(self.id, total_gpus)
-            inference_gpus = all_gpus[:num_inference_gpus]
-            training_gpus = all_gpus[num_inference_gpus:]
-            logger.info(
-                f"Allocated {total_gpus} GPUs for GRPO job {self.id}: inference={inference_gpus}, training={training_gpus}"
-            )
+        # Allocate separate GPUs for inference and training
+        total_gpus = num_inference_gpus + num_training_gpus
+        all_gpus = self.gpu_manager.allocate_gpus(self.id, total_gpus)
+        inference_gpus = all_gpus[:num_inference_gpus]
+        training_gpus = all_gpus[num_inference_gpus:]
+        logger.info(
+            f"Allocated {total_gpus} GPUs for GRPO job {self.id}: inference={inference_gpus}, training={training_gpus}"
+        )
 
         inference_launch_config = InferenceLaunchConfig(
             max_context_length=arbor_train_kwargs.get("max_context_length", None),
             gpu_ids=inference_gpus,
             is_grpo=True,
             grpo_job_id=self.id,
-            # GPU sharing configuration
-            enable_gpu_sharing=enable_sharing,
-            gpu_memory_utilization=(
-                0.45 if enable_sharing else 0.9
-            ),  # 45% for VLLM when sharing
         )
         logger.info("Launching inference server...")
         self.inference_job = inference_manager.launch_job(
@@ -216,19 +186,6 @@ class GRPOJob(Job):
 
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
 
-        # Configure GPU memory sharing and NCCL
-        if enable_sharing:
-            logger.info(
-                f"GPU memory sharing enabled: VLLM ~45%, Training ~50% on GPU {training_gpus[0]}"
-            )
-            # Add NCCL environment variables for better compatibility with shared GPU
-            my_env["NCCL_DEBUG"] = "WARN"
-            my_env["NCCL_P2P_DISABLE"] = "1"  # Disable P2P for single GPU
-            my_env["NCCL_SHM_DISABLE"] = "1"  # Disable shared memory for single GPU
-            my_env["NCCL_NET_GDR_LEVEL"] = "0"  # Disable GPU Direct RDMA
-            my_env["NCCL_SOCKET_IFNAME"] = "lo"  # Use loopback for single GPU
-            my_env["NCCL_IB_DISABLE"] = "1"  # Disable InfiniBand for cloud environments
-
         # Handle WandB configuration
         if trl_train_kwargs.get("report_to") == "wandb":
             # WandB is explicitly requested, just silence login prompts
@@ -236,7 +193,7 @@ class GRPOJob(Job):
         else:
             # WandB not requested, disable it completely to avoid login errors
             my_env["WANDB_SILENT"] = "true"
-            my_env["WANDB_DISABLED"] = "true"
+            trl_train_kwargs["report_to"] = "none"
 
         # Configure ZMQ for better stability and error handling
         my_env["ZMQ_MAX_SOCKETS"] = "1024"

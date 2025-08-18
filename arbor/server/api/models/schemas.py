@@ -182,19 +182,14 @@ class ChatCompletionModel(BaseModel):
 
 
 ### GRPO
-class SingleGPUConfig(BaseModel):
-    shared_memory: bool
-
-
 class MultiGPUConfig(BaseModel):
     num_inference_gpus: int
     num_training_gpus: int  # Number of GPUs to use for training
 
 
 class GRPOGPUConfig(BaseModel):
-    type: Literal["single", "multi"]
-    single: Optional[SingleGPUConfig] = None
-    multi: Optional[MultiGPUConfig] = None
+    type: Literal["multi"]
+    multi: MultiGPUConfig
 
 
 class GRPOStatus(BaseModel):
@@ -236,7 +231,7 @@ class GRPOInitializeRequest(BaseModel):
     generation_batch_size: Optional[int] = None
     # GPU allocation
     gpu_config: GRPOGPUConfig = GRPOGPUConfig(
-        type="single", single=SingleGPUConfig(shared_memory=True)
+        type="multi", multi=MultiGPUConfig(num_inference_gpus=1, num_training_gpus=1)
     )
 
 

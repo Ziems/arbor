@@ -52,10 +52,10 @@ def test_grpo_request_defaults():
     """Test that GRPO request has correct defaults for GPU allocation."""
     request = GRPOInitializeRequest(model="test-model", grpo_flavor="grpo")
 
-    # Default gpu_config should be single GPU with sharing enabled
-    assert request.gpu_config.type == "single"
-    assert request.gpu_config.single.shared_memory is True
-    assert request.gpu_config.multi is None
+    # Default gpu_config should be multi GPU with 1 inference and 1 training GPU
+    assert request.gpu_config.type == "multi"
+    assert request.gpu_config.multi.num_inference_gpus == 1
+    assert request.gpu_config.multi.num_training_gpus == 1
 
 
 def test_grpo_request_custom_gpus():

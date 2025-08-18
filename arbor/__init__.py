@@ -12,13 +12,23 @@ except PackageNotFoundError:
 except Exception:
     __version__ = "unknown"
 
-# Colab/Jupyter integration (Ray-like interface)
-from arbor.colab import get_client, init, shutdown, start, status, stop, watch_job
+# Client utilities (Ray-like interface for notebooks and interactive environments)
+from arbor.client import (
+    get_client,
+    init,
+    shutdown,
+    shutdown_job,
+    start,
+    status,
+    stop,
+    watch_job,
+)
 
 __all__ = [
     "__version__",
     "init",
     "shutdown",
+    "shutdown_job",
     "status",
     "get_client",
     "start",
