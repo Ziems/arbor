@@ -4,6 +4,11 @@ import dspy
 from datasets import load_dataset
 from dspy.datasets import DataLoader
 
+import arbor
+
+# Start Arbor server (auto-detects GPUs, starts in background)
+arbor.init()
+
 CLASSES = (
     load_dataset("PolyAI/banking77", split="train", trust_remote_code=True)
     .features["label"]
@@ -36,9 +41,8 @@ classify = dspy.ChainOfThought(f"text -> label: Literal{TOP_CLASSES}")
 
 from dspy.clients.lm_local_arbor import ArborProvider
 
-port = 7453
-arbor_api_base = f"http://localhost:{port}/v1/"
-api_key = "arbor"
+# Get Arbor server info from init()
+server_info = arbor.status()
 provider = ArborProvider()
 
 student_lm_name = "Qwen/Qwen2.5-1.5B-Instruct"
@@ -49,8 +53,8 @@ student_lm = dspy.LM(
     model=f"openai/arbor:{student_lm_name}",
     provider=provider,
     temperature=0.7,
-    api_base=arbor_api_base,
-    api_key=api_key,
+    api_base=server_info["base_url"],
+    api_key="arbor",
 )
 
 student_classify = classify.deepcopy()

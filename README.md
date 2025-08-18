@@ -12,80 +12,148 @@
 
 ## 🚀 Installation
 
-Install Arbor via pip:
+Install Arbor via uv (recommended) or pip:
 
 ```bash
-pip install -U arbor-ai
+uv pip install -U arbor-ai
+# or: pip install -U arbor-ai
 ```
 
 Optionally, you can also install flash attention to speed up inference. <br/>
 This can take 15+ minutes to install on some setups:
 
 ```bash
-pip install flash-attn --no-build-isolation
+uv pip install flash-attn --no-build-isolation
+# or: pip install flash-attn --no-build-isolation
 ```
 
 ---
 
 ## ⚡ Quick Start
 
-### 1️⃣ Create a Config
-
-Arbor looks for a config at `~/.arbor/config.yaml` by default.
-
-- Auto-setup (recommended): run the server once and follow prompts. It will create `~/.arbor/config.yaml`.
-  ```bash
-  python -m arbor.cli serve
-  ```
-
-- Manual setup: create `~/.arbor/config.yaml` with at least GPU IDs. You may omit `storage_path` to use the default (`~/.arbor/storage` locally or `/root/.arbor/storage` in Docker).
-
-  Example:
-  ```yaml
-  # ~/.arbor/config.yaml
-  # Optional: use absolute path; omit to use default
-  # storage_path: /home/<your-user>/.arbor/storage
-  inference:
-    gpu_ids: [0]
-  training:
-    gpu_ids: [1, 2]
-  ```
-
-### 2️⃣ Start the Server
-
-**CLI:**
-
-```bash
-python -m arbor.cli serve
-```
-
-**Docker (GPU):**
-
-```bash
-docker run --gpus all -p 7453:7453 -v ~/.arbor:/root/.arbor arbor-ai
-```
-
-- This mounts your local `~/.arbor` (which contains `config.yaml` and `storage/`) into the container at `/root/.arbor` and exposes the default port `7453`.
-- If your config uses an absolute path like `/home/<user>/.arbor/storage`, either:
-  - mount that same path into the container, or
-  - update `storage_path` in `~/.arbor/config.yaml` to `/root/.arbor/storage`.
-
-**Google Colab/Notebook:**
+### Optimize a DSPy Program with RL
 
 ```python
 import arbor
-arbor.init()  # Auto-detects GPUs, creates config, starts server in background
+import dspy
+import random
 
-from openai import OpenAI
-client = OpenAI(base_url="http://127.0.0.1:7453/v1", api_key="not-needed")
+# Start Arbor server (auto-detects GPUs, starts in background)
+arbor.init()
+
+# Sample classification data
+data = [
+    dspy.Example(text="I want to transfer money", label="transfer").with_inputs("text"),
+    dspy.Example(text="What is my balance?", label="balance").with_inputs("text"),
+    dspy.Example(text="I lost my credit card", label="card_issues").with_inputs("text"),
+    # ... more examples
+]
+
+# Split into train/validation
+random.Random(42).shuffle(data)
+trainset, valset = data[:6], data[6:]
+
+# Define classification task
+CLASSES = ["transfer", "balance", "card_issues", "pin_change"]
+classify = dspy.ChainOfThought(f"text -> label: Literal{CLASSES}")
+
+# Set up DSPy with Arbor backend
+from dspy.clients.lm_local_arbor import ArborProvider
+provider = ArborProvider()
+student_lm = dspy.LM(
+    model="openai/arbor:Qwen/Qwen2-0.5B-Instruct",
+    provider=provider,
+    api_base="http://127.0.0.1:7453/v1/",
+    api_key="arbor"
+)
+
+student_classify = classify.deepcopy()
+student_classify.set_lm(student_lm)
+
+# Optimize with GRPO (requires 2+ GPUs)
+from dspy.teleprompt.grpo import GRPO
+from dspy.clients.utils_finetune import MultiGPUConfig
+
+compiler = GRPO(
+    metric=lambda x, y: x.label == y.label,
+    gpu_config=MultiGPUConfig(num_inference_gpus=1, num_training_gpus=1)
+)
+
+# Run optimization
+optimized_classify = compiler.compile(
+    student=student_classify,
+    trainset=trainset,
+    valset=valset
+)
+
+# Your classifier is now optimized with RL! 🎉
 ```
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Ziems/arbor/blob/main/examples/colab_quickstart.ipynb)
 
-### 3️⃣ Optimize a DSPy Program
+### Traditional Fine-tuning (SFT & DPO)
 
-Follow the DSPy tutorials here to see usage examples:
-[DSPy RL Optimization Examples](https://dspy.ai/tutorials/rl_papillon/)
+Arbor also supports standard fine-tuning with OpenAI-compatible API:
+
+```python
+import arbor
+from openai import OpenAI
+
+# Start Arbor
+arbor.init()
+client = arbor.get_client()
+
+# Upload training data
+with open("sft_data.jsonl", "rb") as f:
+    file = client.files.create(file=f, purpose="fine-tune")
+
+# SFT (Supervised Fine-Tuning)
+job = client.fine_tuning.jobs.create(
+    model="Qwen/Qwen2-0.5B-Instruct",
+    training_file=file.id,
+    method={"type": "sft"}
+)
+
+# DPO (Direct Preference Optimization)
+job = client.fine_tuning.jobs.create(
+    model="Qwen/Qwen2-0.5B-Instruct",
+    training_file=file.id,
+    method={"type": "dpo"}
+)
+
+# Monitor training
+arbor.watch_job(job.id)
+```
+
+### Remote GPU Setup (Alternative)
+
+For remote servers or custom configurations, use the CLI approach:
+
+**1. Create config at `~/.arbor/config.yaml`:**
+```yaml
+inference:
+  gpu_ids: [0]
+training:
+  gpu_ids: [1, 2]
+```
+
+**2. Start server:**
+```bash
+uv run arbor serve
+```
+
+**3. Connect from remote:**
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://your-server:7453/v1", api_key="not-needed")
+```
+
+**Docker deployment:**
+```bash
+docker run --gpus all -p 7453:7453 -v ~/.arbor:/root/.arbor arbor-ai
+```
+
+**Full tutorials:** [DSPy RL Optimization Examples](https://dspy.ai/tutorials/rl_papillon/)
 
 ---
 
@@ -127,6 +195,24 @@ Arbor builds on the shoulders of great work. We extend our thanks to:
 ## 📚 Citation
 
 If you use this code in your research, please cite:
+
+```bibtex
+@article{ziems2025multi,
+  title={Multi-module GRPO: Composing policy gradients and prompt optimization for language model programs},
+  author={Ziems, Noah and Soylu, Dilara and Agrawal, Lakshya A and Miller, Isaac and Lai, Liheng and Qian, Chen and Song, Kaiqiang and Jiang, Meng and Klein, Dan and Zaharia, Matei and others},
+  journal={arXiv preprint arXiv:2508.04660},
+  year={2025}
+}
+```
+
+```bibtex
+@article{agrawal2025gepa,
+  title={GEPA: Reflective Prompt Evolution Can Outperform Reinforcement Learning},
+  author={Agrawal, Lakshya A and Tan, Shangyin and Soylu, Dilara and Ziems, Noah and Khare, Rishi and Opsahl-Ong, Krista and Singhvi, Arnav and Shandilya, Herumb and Ryan, Michael J and Jiang, Meng and others},
+  journal={arXiv preprint arXiv:2507.19457},
+  year={2025}
+}
+```
 
 ```bibtex
 @misc{ziems2025arbor,
