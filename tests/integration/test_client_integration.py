@@ -210,9 +210,11 @@ class TestClientIntegration:
                 with open(config_path, "r") as f:
                     config_content = f.read()
                     assert "storage_path:" in config_content
-                    assert "gpu_ids: [0, 1]" in config_content
                     assert "inference:" in config_content
                     assert "training:" in config_content
+                    # With [0, 1], should split: inference=[0], training=[1]
+                    assert "gpu_ids: [0]" in config_content  # inference gets first half
+                    assert "gpu_ids: [1]" in config_content  # training gets second half
 
             finally:
                 arbor.shutdown()

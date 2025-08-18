@@ -482,6 +482,16 @@ def setup_logging(
     Returns:
         Dictionary with logging configuration details
     """
+    import os
+    import tempfile
+
+    # Use a persistent log directory during tests to avoid cleanup issues
+    if "PYTEST_CURRENT_TEST" in os.environ or "pytest" in sys.modules:
+        if log_dir is None or (log_dir and "/tmp" in str(log_dir)):
+            # Use a stable temp directory that won't get cleaned up during tests
+            stable_temp_dir = Path(tempfile.gettempdir()) / "arbor_test_logs"
+            stable_temp_dir.mkdir(exist_ok=True)
+            log_dir = stable_temp_dir
 
     # Set debug level if debug mode is enabled
     if debug_mode:

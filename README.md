@@ -70,7 +70,7 @@ docker run --gpus all -p 7453:7453 -v ~/.arbor:/root/.arbor arbor-ai
   - mount that same path into the container, or
   - update `storage_path` in `~/.arbor/config.yaml` to `/root/.arbor/storage`.
 
-**Google Colab/Jupyter:**
+**Google Colab/Notebook:**
 
 ```python
 import arbor

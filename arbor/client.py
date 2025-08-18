@@ -47,11 +47,6 @@ def is_notebook_environment() -> bool:
         return False
 
 
-def is_jupyter_environment() -> bool:
-    """Check if running in any Jupyter environment. Alias for is_notebook_environment()."""
-    return is_notebook_environment()
-
-
 def is_port_available(port: int) -> bool:
     """Check if a port is available for binding."""
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
@@ -115,7 +110,6 @@ def init(
 
     # Environment detection
     in_colab = is_colab_environment()
-    in_jupyter = is_jupyter_environment()
 
     # Auto-configure defaults based on environment
     if port is None:
@@ -152,12 +146,27 @@ def init(
     if auto_config:
         config_path = os.path.join(storage_path, "config.yaml")
         if not os.path.exists(config_path):
+            # Split GPUs half and half between inference and training
+            all_gpus = gpu_ids or []
+            if len(all_gpus) >= 2:
+                mid_point = len(all_gpus) // 2
+                inference_gpus = all_gpus[:mid_point]
+                training_gpus = all_gpus[mid_point:]
+            elif len(all_gpus) == 1:
+                # Single GPU - use for inference only to avoid conflicts
+                inference_gpus = all_gpus
+                training_gpus = []
+            else:
+                # No GPUs specified
+                inference_gpus = []
+                training_gpus = []
+
             config_content = f"""
 storage_path: {os.path.join(storage_path, "storage")}
 inference:
-  gpu_ids: {gpu_ids or []}
+  gpu_ids: {inference_gpus}
 training:
-  gpu_ids: {gpu_ids or []}
+  gpu_ids: {training_gpus}
 """
             os.makedirs(os.path.dirname(config_path), exist_ok=True)
             with open(config_path, "w") as f:
