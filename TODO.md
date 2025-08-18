@@ -9,7 +9,6 @@
 - [ ] GPU Training barebones test script
 - [ ] Update tutorial in README.md
 - [ ] Put back launch endpoint
-- [ ] Update GPUs to default to 3/4 inference 1/4 training
 - [ ] Setup Docs
 
 ## Much Later
