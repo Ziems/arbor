@@ -164,7 +164,7 @@ class FileTrainJob(Job):
         else:
             # WandB not requested, disable it completely to avoid login errors
             my_env["WANDB_SILENT"] = "true"
-            my_env["WANDB_DISABLED"] = "true"
+            trl_train_kwargs["report_to"] = "none"
 
         # Configure ZMQ for better stability and error handling
         my_env["ZMQ_MAX_SOCKETS"] = "1024"
