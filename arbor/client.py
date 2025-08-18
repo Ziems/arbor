@@ -1,8 +1,10 @@
 """
-Colab integration utilities for running Arbor in background processes.
+Client utilities for running Arbor in interactive environments.
 
 This module provides Ray-like functionality for starting and managing Arbor
-servers in Google Colab and Jupyter notebook environments.
+servers in notebook environments (Jupyter, Colab, etc.) and other interactive
+Python sessions. It includes convenience functions for server management,
+job monitoring, and OpenAI client integration.
 """
 
 import os
@@ -34,8 +36,8 @@ def is_colab_environment() -> bool:
         return False
 
 
-def is_jupyter_environment() -> bool:
-    """Check if running in any Jupyter environment."""
+def is_notebook_environment() -> bool:
+    """Check if running in any notebook environment (Jupyter, Colab, etc.)."""
     try:
         from IPython import get_ipython
 
@@ -43,6 +45,11 @@ def is_jupyter_environment() -> bool:
         return ipython is not None and hasattr(ipython, "kernel")
     except ImportError:
         return False
+
+
+def is_jupyter_environment() -> bool:
+    """Check if running in any Jupyter environment. Alias for is_notebook_environment()."""
+    return is_notebook_environment()
 
 
 def is_port_available(port: int) -> bool:
@@ -109,9 +116,6 @@ def init(
     # Environment detection
     in_colab = is_colab_environment()
     in_jupyter = is_jupyter_environment()
-
-    if not in_jupyter and not silent:
-        warnings.warn("Arbor.init() is designed for Jupyter/Colab environments")
 
     # Auto-configure defaults based on environment
     if port is None:
@@ -269,6 +273,82 @@ def get_client():
         return OpenAI(base_url=_server_config["base_url"], api_key="not-needed")
     except ImportError:
         raise ImportError("OpenAI package required. Install with: pip install openai")
+
+
+def shutdown_job(job_identifier: str):
+    """
+    Shutdown a job by job ID (for training jobs) or model name (for inference jobs).
+
+    Args:
+        job_identifier: Either a job ID (for training jobs) or model name (for inference jobs)
+
+    Examples:
+        >>> # Shutdown a training job
+        >>> arbor.shutdown_job("ftjob:gpt-3.5:training:20241201")
+
+        >>> # Shutdown inference for a specific model
+        >>> arbor.shutdown_job("HuggingFaceTB/SmolLM2-135M-Instruct")
+    """
+    if _arbor_server is None:
+        raise RuntimeError("Arbor server not running. Call arbor.init() first.")
+
+    try:
+        import requests
+        from openai import OpenAI
+
+        base_url = _server_config["base_url"]
+        client = OpenAI(base_url=base_url, api_key="not-needed")
+
+        # Try to determine if this is a job ID or model name
+        if job_identifier.startswith(("ftjob:", "grpo:")):
+            # This looks like a job ID - try to cancel the training job
+            try:
+                response = client.fine_tuning.jobs.cancel(job_identifier)
+                print(f"🛑 Cancelled training job: {job_identifier}")
+                print(f"   Status: {response.status}")
+                print(
+                    "   Associated inference servers and GPU resources have been freed"
+                )
+                return {
+                    "type": "training_job",
+                    "status": "cancelled",
+                    "job_id": job_identifier,
+                }
+            except Exception as e:
+                print(f"❌ Failed to cancel training job {job_identifier}: {e}")
+                raise
+        else:
+            # This looks like a model name - shutdown inference for this model
+            # For now, we'll shutdown all inference servers since there's no per-model endpoint
+            try:
+                response = requests.post(f"{base_url}chat/kill")
+                if response.status_code == 200:
+                    result = response.json()
+                    print(f"🛑 Shut down inference servers")
+                    print(f"   Model: {job_identifier}")
+                    print("   GPU resources have been freed")
+                    return {
+                        "type": "inference_job",
+                        "status": "terminated",
+                        "model": job_identifier,
+                    }
+                else:
+                    print(
+                        f"❌ Failed to shutdown inference servers: {response.status_code}"
+                    )
+                    print(f"   Response: {response.text}")
+                    raise RuntimeError(
+                        f"Failed to shutdown inference: {response.status_code}"
+                    )
+            except requests.exceptions.RequestException as e:
+                print(
+                    f"❌ Failed to shutdown inference for model {job_identifier}: {e}"
+                )
+                raise
+
+    except Exception as e:
+        logger.error(f"Failed to shutdown job {job_identifier}: {e}")
+        raise RuntimeError(f"Failed to shutdown job {job_identifier}: {e}")
 
 
 def watch_job(
