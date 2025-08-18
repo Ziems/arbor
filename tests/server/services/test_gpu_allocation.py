@@ -1,5 +1,7 @@
 """
-Tests for basic GPU allocation functionality.
+Tests for basic GPU allocation functionality between inference and training jobs.
+
+This tests the standard multi-GPU allocation system, not memory sharing.
 """
 
 import tempfile
