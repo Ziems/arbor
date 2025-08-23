@@ -98,6 +98,9 @@ exclude_lines = [
     "@(abc\\.)?abstractmethod",
 ]
 
+[tool.uv]
+package = true
+
 [project.urls]
 Homepage = "https://github.com/Ziems/arbor"
 Issues = "https://github.com/Ziems/arbor/issues"
