@@ -153,7 +153,15 @@ client = OpenAI(base_url="http://your-server:7453/v1", api_key="not-needed")
 docker run --gpus all -p 7453:7453 -v ~/.arbor:/root/.arbor arbor-ai
 ```
 
-**Full tutorials:** [DSPy RL Optimization Examples](https://dspy.ai/tutorials/rl_papillon/)
+---
+
+### Accelerate Configuration
+
+For advanced distributed training setups, you can specify a custom [Hugging Face Accelerate](https://huggingface.co/docs/accelerate/) config in your `~/.arbor/config.yaml`:
+
+```yaml
+accelerate_config: "/path/to/your/accelerate_config.yaml"
+```
 
 ---
 
