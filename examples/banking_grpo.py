@@ -2,6 +2,7 @@ import random
 
 import dspy
 from datasets import load_dataset
+from dspy.clients.utils_finetune import MultiGPUConfig
 from dspy.datasets import DataLoader
 
 import arbor
