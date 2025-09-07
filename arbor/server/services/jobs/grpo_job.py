@@ -269,12 +269,18 @@ class GRPOJob(Job):
                 logger.debug(f"Received status update: {status}")
                 if status["status"] == "weight_update_start":
                     # Block inference calls by incrementing counter
-                    # self.inference_job.start_weight_update()
-                    pass
+                    logger.info("Blocking inference calls...")
+                    logger.info(
+                        "Inferece jobs remaining: %d", self.inference_job._is_updating
+                    )
+                    self.inference_job.start_weight_update()
                 elif status["status"] == "weight_update_complete":
                     # Decrement counter to potentially allow inference calls again
-                    # self.inference_job.complete_weight_update()
-                    pass
+                    logger.info("Allowing inference calls...")
+                    logger.info(
+                        "Inferece jobs remaining: %d", self.inference_job._is_updating
+                    )
+                    self.inference_job.complete_weight_update()
                 elif status["status"] == "model_saved":
                     logger.info("Updating inference model...")
                     # There is a case where this status is sent multiple times

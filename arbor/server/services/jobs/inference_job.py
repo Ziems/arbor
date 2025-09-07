@@ -163,6 +163,7 @@ class InferenceJob(Job):
         # Check if weights are being updated
         while self._is_updating:
             # weights are being updated...waiting
+            logger.info("Weights are being updated...waiting")
             await asyncio.sleep(1)  # Small sleep to prevent busy waiting
 
         # Update last_activity timestamp
