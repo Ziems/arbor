@@ -67,15 +67,15 @@ class ProcessRunner:
 
                 line = line.strip()
                 if line:
-                    # Always log to our logger
-                    logger.info(f"[{self.job_id}] {line}")
-
-                    # Call custom callback if provided
+                    # Call custom callback if provided, otherwise log to our logger
                     if log_callback:
                         try:
                             log_callback(line)
                         except Exception as e:
                             logger.error(f"Error in log callback: {e}")
+                    else:
+                        # Only log directly if no callback is provided
+                        logger.info(f"[{self.job_id}] {line}")
 
         self.log_thread = threading.Thread(target=stream_logs, daemon=True)
         self.log_thread.start()
