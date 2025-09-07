@@ -1,31 +1,50 @@
-# adapted from Will Brown's verifiers library (https://github.com/willccbb/verifiers)
 import asyncio
 import os
 import signal
-import time
 from argparse import Namespace
 from typing import Sequence
 
-import torch
-import uvloop
-from fastapi import Request
-from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator
-from vllm.distributed.parallel_state import get_world_group
-from vllm.distributed.utils import StatelessProcessGroup
-from vllm.engine.arg_utils import AsyncEngineArgs
-from vllm.engine.async_llm_engine import AsyncLLMEngine
-from vllm.entrypoints.launcher import serve_http
-from vllm.entrypoints.openai.api_server import (
-    build_app,
-    create_server_socket,
-    init_app_state,
-)
-from vllm.entrypoints.openai.cli_args import (
-    make_arg_parser,
-    validate_parsed_serve_args,
-)
-from vllm.usage.usage_lib import UsageContext
-from vllm.utils import FlexibleArgumentParser, set_ulimit
+try:
+    import torch  # type: ignore
+except ImportError:
+    print("torch is not installed. Please install it with `uv pip install torch`.")
+    exit(1)
+
+try:
+    import uvloop  # type: ignore
+except ImportError:
+    print("uvloop is not installed. Please install it with `uv pip install uvloop`.")
+    exit(1)
+
+try:
+    from fastapi import Request  # type: ignore
+except ImportError:
+    print("fastapi is not installed. Please install it with `uv pip install fastapi`.")
+    exit(1)
+
+try:
+    from vllm.distributed.device_communicators.pynccl import (  # type: ignore
+        PyNcclCommunicator,
+    )
+    from vllm.distributed.parallel_state import get_world_group  # type: ignore
+    from vllm.distributed.utils import StatelessProcessGroup  # type: ignore
+    from vllm.engine.arg_utils import AsyncEngineArgs  # type: ignore
+    from vllm.engine.async_llm_engine import AsyncLLMEngine  # type: ignore
+    from vllm.entrypoints.launcher import serve_http  # type: ignore
+    from vllm.entrypoints.openai.api_server import (  # type: ignore
+        build_app,
+        create_server_socket,
+        init_app_state,
+    )
+    from vllm.entrypoints.openai.cli_args import (  # type: ignore
+        make_arg_parser,
+        validate_parsed_serve_args,
+    )
+    from vllm.usage.usage_lib import UsageContext  # type: ignore
+    from vllm.utils import FlexibleArgumentParser, set_ulimit  # type: ignore
+except ImportError:
+    print("vLLM is not installed. Please install it with `pip install vllm`.")
+    exit(1)
 
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 
@@ -76,17 +95,15 @@ class WeightSyncWorkerExtension:
         self.pynccl_comm = PyNcclCommunicator(pg, device=self.device)  # type: ignore
         self.client_rank = world_size - 1
 
-    def update_named_param(
-        self, name: str, dtype_str: str, shape: Sequence[int]
-    ) -> None:
+    def update_named_param(self, name: str, dtype: str, shape: Sequence[int]) -> None:
         """
         Receives updated weights from the client process and updates the named parameter in the model.
 
         Args:
             name (`str`):
                 Name of the weight tensor being updated.
-            dtype_str (`str`):
-                String representation of the data type (e.g., `"torch.float32"`).
+            torch_dtype (`str`):
+                Data type of the weight tensor (e.g., `torch.float32`).
             shape (`Sequence[int]`):
                 Shape of the weight tensor.
         """
@@ -95,9 +112,8 @@ class WeightSyncWorkerExtension:
                 "Communicator not initialized. Call `init_communicator` first."
             )
 
-        # Reconstruct the dtype from the string representation
-        dtype = getattr(torch, dtype_str.split(".")[-1])
-        weight = torch.empty(shape, dtype=dtype, device=self.device)  # type: ignore
+        torch_dtype = getattr(torch, dtype.split(".")[-1])
+        weight = torch.empty(shape, dtype=torch_dtype, device=self.device)  # type: ignore
         self.pynccl_comm.broadcast(weight, src=self.client_rank)  # type: ignore
         self.pynccl_comm.group.barrier()
         self.model_runner.model.load_weights(weights=[(name, weight)])  # type: ignore
@@ -162,7 +178,6 @@ async def run_server(args: Namespace):
         host = data.get("host")
         port = data.get("port")
         world_size = data.get("world_size")
-        # fire and forget
         create_background_task(
             engine.collective_rpc("init_communicator", args=(host, port, world_size))
         )
@@ -184,15 +199,14 @@ async def run_server(args: Namespace):
         """
         data = await request.json()
         name = data.get("name")
-        dtype_str = data.get("dtype")
+        dtype = data.get("dtype")
         shape = data.get("shape")
-
         shape_tuple = tuple(shape)
 
         async def throttled_update():
             async with weight_update_semaphore:
                 await engine.collective_rpc(
-                    "update_named_param", args=(name, dtype_str, shape_tuple)
+                    "update_named_param", args=(name, dtype, shape_tuple)
                 )
 
         # fire and forget with throttling
@@ -205,10 +219,14 @@ async def run_server(args: Namespace):
         create_background_task(engine.reset_prefix_cache())
         return {"status": "ok"}
 
+    @app.post("/get_num_background_tasks")
+    async def get_num_background_tasks():
+        return {"num_background_tasks": len(background_tasks)}
+
     @app.post("/close_communicator")
     async def close_communicator(request: Request):
         # fire and forget
-        create_background_task(engine.collective_rpc("close_communicator"))
+        await engine.collective_rpc("close_communicator")
         return {"status": "ok"}
 
     vllm_config = await engine.get_vllm_config()
@@ -240,7 +258,7 @@ def main():
         description="vLLM OpenAI-compatible server with weight synchronization"
     )
     parser = make_arg_parser(parser)
-    args = parser.parse_args()
+    args = parser.parse_args() or Namespace()
     validate_parsed_serve_args(args)
     print(args)
     uvloop.run(run_server(args))

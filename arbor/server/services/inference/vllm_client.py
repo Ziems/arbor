@@ -268,7 +268,7 @@ class VLLMClient:
         # Add timeout to prevent hanging on HTTP request
         try:
             response = self.session.post(
-                url, json={"name": name, "dtype": dtype, "shape": shape}, timeout=300.0
+                url, json={"name": name, "dtype": dtype, "shape": shape}, timeout=30.0
             )
         except requests.exceptions.Timeout:
             logger.error(f"Timeout waiting for server response for {name} after 300s")

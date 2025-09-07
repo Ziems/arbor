@@ -34,7 +34,7 @@ logger = get_logger(__name__)
 class InferenceJob(Job):
     def __init__(self, config: Config):
         super().__init__(
-            config
+            config, prefix="infer"
         )  # Default artifacts=[JobArtifact.LOGS] is perfect for inference jobs
         self.process_runner: Optional[InferenceProcessRunner] = None
         self.launch_config: InferenceLaunchConfig = None
