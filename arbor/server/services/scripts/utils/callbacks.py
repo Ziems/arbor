@@ -26,9 +26,9 @@ class WeightUpdateCallback(TrainerCallback):
         self.ingestion_monitor.set_last_step_time()
         if self.comms_handler and self.comms_handler.is_main_process and self.trainer:
             if state.global_step != self.trainer._last_loaded_step:
-                print("Updating inference model...")
+                logger.info("Updating inference model...")
                 self.comms_handler.send_status({"status": "weight_update_start"})
                 self.trainer._move_model_to_vllm()
                 self.trainer._last_loaded_step = state.global_step
                 self.comms_handler.send_status({"status": "weight_update_complete"})
-                print("Inference model updated")
+                logger.info("Inference model updated")
