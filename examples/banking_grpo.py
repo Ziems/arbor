@@ -54,7 +54,7 @@ student_lm = dspy.LM(
     model=f"openai/arbor:{student_lm_name}",
     provider=provider,
     temperature=0.7,
-    #api_base='http://localhost:7453/v1/',
+    # api_base='http://localhost:7453/v1/',
     api_base=server_info["base_url"],
     api_key="arbor",
 )

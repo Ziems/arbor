@@ -161,18 +161,20 @@ class InferenceJob(Job):
     async def run_inference(self, request_json: dict):
         requested_model = request_json["model"]
         request_json["model"] = self.launched_model_name
-        
+
         # Check if weights are being updated BEFORE incrementing counter
         # This prevents new requests from starting during weight updates
         if self._is_updating:
             # weights are being updated...waiting for new requests
-            logger.info("Weights are being updated...waiting for new requests to be allowed")
+            logger.info(
+                "Weights are being updated...waiting for new requests to be allowed"
+            )
             while self._is_updating:
                 await asyncio.sleep(1)  # Small sleep to prevent busy waiting
-        
+
         # Increment active request counter - at this point we know we're allowed to proceed
         self._active_requests += 1
-        
+
         try:
             # Update last_activity timestamp
             self.last_activity = datetime.now()

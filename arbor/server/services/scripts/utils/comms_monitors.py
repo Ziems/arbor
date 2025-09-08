@@ -17,7 +17,7 @@ class CommandMonitor:
         trainer: Trainer,
         base_model_name: str,
         ingestion_monitor: Optional["IngestionMonitor"] = None,
-        weight_update_callback = None,
+        weight_update_callback=None,
     ):
         self.comms_handler = comms_handler
         self.trainer = trainer
