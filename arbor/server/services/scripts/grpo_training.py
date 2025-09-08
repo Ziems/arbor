@@ -576,6 +576,7 @@ def main():
             trainer=trainer,
             base_model_name=args.model,
             ingestion_monitor=ingestion_monitor,
+            weight_update_callback=weight_update_callback,
         )
         command_monitor.start()
 

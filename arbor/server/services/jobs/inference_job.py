@@ -46,6 +46,7 @@ class InferenceJob(Job):
         self.group_port = None
         self.vllm_client = None
         self._is_updating = 0  # Counter for weight updates in progress
+        self._active_requests = 0  # Counter for currently active inference requests
         self.launched_model_name = (
             None  # the name of the model that was originally launched
         )
@@ -160,22 +161,32 @@ class InferenceJob(Job):
     async def run_inference(self, request_json: dict):
         requested_model = request_json["model"]
         request_json["model"] = self.launched_model_name
-        # Check if weights are being updated
-        while self._is_updating:
-            # weights are being updated...waiting
-            logger.info("Weights are being updated...waiting")
-            await asyncio.sleep(1)  # Small sleep to prevent busy waiting
+        
+        # Check if weights are being updated BEFORE incrementing counter
+        # This prevents new requests from starting during weight updates
+        if self._is_updating:
+            # weights are being updated...waiting for new requests
+            logger.info("Weights are being updated...waiting for new requests to be allowed")
+            while self._is_updating:
+                await asyncio.sleep(1)  # Small sleep to prevent busy waiting
+        
+        # Increment active request counter - at this point we know we're allowed to proceed
+        self._active_requests += 1
+        
+        try:
+            # Update last_activity timestamp
+            self.last_activity = datetime.now()
 
-        # Update last_activity timestamp
-        self.last_activity = datetime.now()
-
-        if self.process is None:
-            raise RuntimeError("Server is not running. Please launch it first.")
-        response = await self.vllm_client.chat(json_body=request_json)
-        response["model"] = (
-            requested_model  # Set the model back to the original requested model
-        )
-        return response
+            if self.process is None:
+                raise RuntimeError("Server is not running. Please launch it first.")
+            response = await self.vllm_client.chat(json_body=request_json)
+            response["model"] = (
+                requested_model  # Set the model back to the original requested model
+            )
+            return response
+        finally:
+            # Always decrement active request counter, even if an exception occurs
+            self._active_requests -= 1
 
     def start_weight_update(self):
         """Block inference during weight updates"""
@@ -189,6 +200,16 @@ class InferenceJob(Job):
     def is_updating(self):
         """Check if any weight updates are in progress"""
         return self._is_updating > 0
+
+    @property
+    def has_active_requests(self):
+        """Check if there are any active inference requests"""
+        return self._active_requests > 0
+
+    @property
+    def active_request_count(self):
+        """Get the number of currently active inference requests"""
+        return self._active_requests
 
 
 def wait_for_server(base_url: str, timeout: int = None) -> None:

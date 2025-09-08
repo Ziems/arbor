@@ -267,19 +267,39 @@ class GRPOJob(Job):
         try:
             for status in self.server_comms_handler.receive_status():
                 logger.debug(f"Received status update: {status}")
-                if status["status"] == "weight_update_start":
-                    # Block inference calls by incrementing counter
-                    logger.info("Blocking inference calls...")
-                    logger.info(
-                        "Inferece jobs remaining: %d", self.inference_job._is_updating
-                    )
+                if status["status"] == "weight_update_request":
+                    # Training is requesting to start a weight update
+                    logger.info("Received weight update request from training...")
+                    logger.info("Blocking new inference calls...")
                     self.inference_job.start_weight_update()
+                    
+                    # Wait for all existing inference requests to complete
+                    logger.info("Waiting for existing inference requests to complete...")
+                    max_wait_time = 30  # Maximum time to wait for existing requests
+                    wait_start = time.time()
+                    last_log_time = wait_start
+                    
+                    while self.inference_job.has_active_requests:
+                        active_count = self.inference_job.active_request_count
+                        
+                        # Only log every 10 seconds to reduce spam
+                        current_time = time.time()
+                        if current_time - last_log_time >= 10:
+                            logger.info(f"Waiting for {active_count} active inference requests to complete...")
+                            last_log_time = current_time
+                        
+                        if current_time - wait_start > max_wait_time:
+                            logger.warning(f"Timeout waiting for inference requests to complete after {max_wait_time}s, proceeding anyway...")
+                            break
+                            
+                        time.sleep(0.5)  # Check every 500ms
+                    
+                    logger.info("All inference requests completed, sending ready signal to training...")
+                    self.server_comms_handler.send_command({"command": "weight_update_ready"})
+                    
                 elif status["status"] == "weight_update_complete":
-                    # Decrement counter to potentially allow inference calls again
-                    logger.info("Allowing inference calls...")
-                    logger.info(
-                        "Inferece jobs remaining: %d", self.inference_job._is_updating
-                    )
+                    # Training has completed the weight update
+                    logger.info("Weight update completed, allowing new inference calls...")
                     self.inference_job.complete_weight_update()
                 elif status["status"] == "model_saved":
                     logger.info("Updating inference model...")

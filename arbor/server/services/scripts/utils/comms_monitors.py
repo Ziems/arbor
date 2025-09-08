@@ -17,6 +17,7 @@ class CommandMonitor:
         trainer: Trainer,
         base_model_name: str,
         ingestion_monitor: Optional["IngestionMonitor"] = None,
+        weight_update_callback = None,
     ):
         self.comms_handler = comms_handler
         self.trainer = trainer
@@ -25,6 +26,7 @@ class CommandMonitor:
             target=self._monitor_commands, daemon=True
         )
         self.ingestion_monitor = ingestion_monitor
+        self.weight_update_callback = weight_update_callback
 
     def start(self):
         self.command_thread.start()
@@ -159,6 +161,10 @@ class CommandMonitor:
                             "output_dir": self.trainer.args.output_dir,
                         }
                     )
+                elif command.get("command") == "weight_update_ready":
+                    # Forward to weight update callback
+                    if self.weight_update_callback:
+                        self.weight_update_callback.on_command_received(command)
                 elif command.get("command") == "terminate":
                     print("TERMINATED")
                     self.trainer.accelerator.end_training()

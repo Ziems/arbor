@@ -22,7 +22,7 @@ kwargs = dict(
     trust_remote_code=True,
 )
 
-TOP_CLASSES = CLASSES[:]
+TOP_CLASSES = CLASSES[:10]
 
 raw_data = [
     dspy.Example(x, label=CLASSES[x.label]).with_inputs("text")
@@ -54,6 +54,7 @@ student_lm = dspy.LM(
     model=f"openai/arbor:{student_lm_name}",
     provider=provider,
     temperature=0.7,
+    #api_base='http://localhost:7453/v1/',
     api_base=server_info["base_url"],
     api_key="arbor",
 )
@@ -91,7 +92,7 @@ compiler = GRPO(
     use_train_as_val=False,
     num_steps_for_val=10,
     train_kwargs=train_kwargs,
-    gpu_config=MultiGPUConfig(num_inference_gpus=1, num_training_gpus=1),
+    gpu_config=MultiGPUConfig(num_inference_gpus=1, num_training_gpus=3),
 )
 
 classify_ft = compiler.compile(
