@@ -188,15 +188,27 @@ class ArborGRPOTrainer(GRPOTrainer):
             completion_ids = completion_ids[:, : self.max_completion_length]
             completion_mask = completion_mask[:, : self.max_completion_length]
 
-        # Keeping this for when we switch to vllm
-        # if self.state.global_step != self._last_loaded_step:
-        #     self._move_model_to_vllm()
-        #     self._last_loaded_step = self.state.global_step
+        prompt_ids = gather_object(prompt_ids)
+        prompt_mask = gather_object(prompt_mask)
+        completion_ids = gather_object(completion_ids)
+        completion_mask = gather_object(completion_mask)
 
-        prompt_ids = broadcast_object_list(prompt_ids)
-        prompt_mask = broadcast_object_list(prompt_mask)
-        completion_ids = broadcast_object_list(completion_ids)
-        completion_mask = broadcast_object_list(completion_mask)
+        prompt_ids = broadcast_object_list(prompt_ids, from_process=0)
+        prompt_mask = broadcast_object_list(prompt_mask, from_process=0)
+        completion_ids = broadcast_object_list(completion_ids, from_process=0)
+        completion_mask = broadcast_object_list(completion_mask, from_process=0)
+
+        prompt_ids = [tensor.to(device) for tensor in prompt_ids]
+        prompt_mask = [tensor.to(device) for tensor in prompt_mask]
+        completion_ids = [tensor.to(device) for tensor in completion_ids]
+        completion_mask = [tensor.to(device) for tensor in completion_mask]
+
+        prompt_ids = pad(prompt_ids, padding_value=self.processing_class.pad_token_id)
+        prompt_mask = pad(prompt_mask, padding_value=0)
+        completion_ids = pad(
+            completion_ids, padding_value=self.processing_class.pad_token_id
+        )
+        completion_mask = pad(completion_mask, padding_value=0)
 
         process_slice = slice(
             self.accelerator.process_index * len(batch),
@@ -359,70 +371,24 @@ class WeightUpdateCallback(TrainerCallback):
         self.trainer = trainer
 
     def on_step_end(self, args, state, control, **kwargs):
-        if self.comms_handler and self.comms_handler.is_main_process and self.trainer:
-            if state.global_step != self.trainer._last_loaded_step:
-                print("Updating inference model...")
-                self.comms_handler.send_status({"status": "weight_update_start"})
+        if self.trainer and self.comms_handler:
+            if self.comms_handler.is_main_process:
+                if state.global_step != self.trainer._last_loaded_step:
+                    print("Updating inference model...")
+                    self.comms_handler.send_status({"status": "weight_update_start"})
 
-                # Add retry logic for weight updates
-                max_weight_update_retries = 3
-                weight_update_retry_delay = 5.0  # seconds
+            self.trainer._move_model_to_vllm()
+            self.trainer._last_loaded_step = state.global_step
+            print("[DEBUG] Weight update successful, sending completion status")
 
-                for attempt in range(max_weight_update_retries):
-                    try:
-                        self.trainer._move_model_to_vllm()
-                        self.trainer._last_loaded_step = state.global_step
-                        print(
-                            "[DEBUG] Weight update successful, sending completion status"
-                        )
-                        self.comms_handler.send_status(
-                            {"status": "weight_update_complete"}
-                        )
-                        break  # Success - exit retry loop
+            # All processes synchronize after weight update
+            self.trainer.accelerator.wait_for_everyone()
 
-                    except Exception as e:
-                        error_msg = str(e)
-                        print(
-                            f"[WEIGHT_UPDATE] Attempt {attempt + 1}/{max_weight_update_retries} failed: {error_msg}"
-                        )
-
-                        # Check if this is a recoverable NCCL/communication error
-                        if any(
-                            keyword in error_msg.lower()
-                            for keyword in [
-                                "nccl",
-                                "failed to recv",
-                                "connection",
-                                "network",
-                                "timeout",
-                                "barrier",
-                                "communicator",
-                            ]
-                        ):
-                            if attempt < max_weight_update_retries - 1:
-                                print(
-                                    f"[WEIGHT_UPDATE] Retrying weight update in {weight_update_retry_delay}s..."
-                                )
-                                time.sleep(weight_update_retry_delay)
-                                continue
-                            else:
-                                print(
-                                    f"[WEIGHT_UPDATE] All retry attempts failed. Skipping weight update for step {state.global_step}"
-                                )
-                                # Send failure status but don't crash the training
-                                self.comms_handler.send_status(
-                                    {
-                                        "status": "weight_update_failed",
-                                        "error": error_msg,
-                                        "step": state.global_step,
-                                    }
-                                )
-                                # Don't update _last_loaded_step so we'll try again next time
-                                break
-                        else:
-                            # Non-recoverable error, re-raise
-                            print(f"[WEIGHT_UPDATE] Non-recoverable error: {error_msg}")
-                            raise
+            # Only the main process signals completion to server
+            if self.comms_handler.is_main_process:
+                # Step 4: Signal completion to allow inference to resume
+                self.comms_handler.send_status({"status": "weight_update_complete"})
+                print("Weight update complete, inference can resume")
 
 
 class BlockingQueueDataset(Dataset):
