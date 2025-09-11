@@ -7,7 +7,7 @@ from dspy.datasets import DataLoader
 
 import arbor
 
-# Start Arbor server (auto-detects GPUs, starts in background)
+# Start Arbor server (starts in background)
 arbor.init()
 
 CLASSES = (
