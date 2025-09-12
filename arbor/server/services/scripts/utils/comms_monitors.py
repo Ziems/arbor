@@ -38,18 +38,19 @@ class CommandMonitor:
         try:
             for command in self.comms_handler.receive_command():
                 print(f"Main process received command: {command}")
-                if (
-                    command.get("command") == "save_model"
-                    and self.trainer.accelerator.is_main_process
-                ):
+                if command.get("command") == "save_model":
                     print(
-                        f"[Training Script] Instructed to save model at {self.trainer.args.output_dir}"
+                        f"[Training Script] Process {getattr(self.trainer.accelerator, 'process_index', 0)} instructed to save model at {self.trainer.args.output_dir}"
                     )
+
+                    # Wait for ingestion to finish (all processes should wait)
                     while self.ingestion_monitor and (
                         self.ingestion_monitor.time_since_last_step() <= 10
                         or self.ingestion_monitor.time_since_last_queue_pop() <= 10
                     ):
-                        print(f"Waiting for steps to finish")
+                        print(
+                            f"Process {getattr(self.trainer.accelerator, 'process_index', 0)}: Waiting for steps to finish"
+                        )
                         if self.ingestion_monitor:
                             print(
                                 f"Time since last step: {self.ingestion_monitor.time_since_last_step():.1f} (needs to be >= 10)"
@@ -58,33 +59,57 @@ class CommandMonitor:
                                 f"Time since last queue pop: {self.ingestion_monitor.time_since_last_queue_pop():.1f} (needs to be >= 10)"
                             )
                         time.sleep(5)
-                    print("[Training Script] Saving model...")
+
+                    print(
+                        f"[Training Script] Process {getattr(self.trainer.accelerator, 'process_index', 0)} saving model..."
+                    )
+
+                    # For DeepSpeed and distributed training, all processes need to participate in save_model
+                    # The trainer.save_model() method handles the coordination internally
                     if self.trainer.peft_config:
                         self.trainer.save_model(
                             output_dir=self.trainer.args.output_dir + "/adapter/"
                         )
-                        _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
-                            self.trainer.args.output_dir + "/adapter/",
-                            config=self.trainer.peft_config,
-                        )
-                        merged_model = _model_to_merge.merge_and_unload()
-                        merged_model.save_pretrained(
-                            self.trainer.args.output_dir,
-                            safe_serialization=True,
-                        )
-                        self.trainer.processing_class.save_pretrained(
-                            self.trainer.args.output_dir
-                        )
+
+                        # Wait for all processes to finish saving before merge (DeepSpeed requirement)
+                        if hasattr(self.trainer.accelerator, "wait_for_everyone"):
+                            self.trainer.accelerator.wait_for_everyone()
+
+                        # Only main process does the merge and unload to avoid conflicts
+                        if getattr(self.trainer.accelerator, "is_main_process", True):
+                            print(
+                                "[Training Script] Main process performing PEFT merge..."
+                            )
+                            _model_to_merge = AutoPeftModelForCausalLM.from_pretrained(
+                                self.trainer.args.output_dir + "/adapter/",
+                                config=self.trainer.peft_config,
+                            )
+                            merged_model = _model_to_merge.merge_and_unload()
+                            merged_model.save_pretrained(
+                                self.trainer.args.output_dir,
+                                safe_serialization=True,
+                            )
+                            self.trainer.processing_class.save_pretrained(
+                                self.trainer.args.output_dir
+                            )
                     else:
+                        # For non-PEFT models, let all processes participate in saving
+                        # This is critical for DeepSpeed which needs all processes to save their shards
                         self.trainer.save_model()
 
-                    print("[Training Script] Model saved")
-                    self.comms_handler.send_status(
-                        {
-                            "status": "model_saved",
-                            "output_dir": self.trainer.args.output_dir,
-                        }
-                    )
+                        # Wait for all processes to complete saving
+                        if hasattr(self.trainer.accelerator, "wait_for_everyone"):
+                            self.trainer.accelerator.wait_for_everyone()
+
+                    # Only main process sends status to avoid duplicate messages
+                    if getattr(self.trainer.accelerator, "is_main_process", True):
+                        print("[Training Script] Model saved successfully")
+                        self.comms_handler.send_status(
+                            {
+                                "status": "model_saved",
+                                "output_dir": self.trainer.args.output_dir,
+                            }
+                        )
                 elif command.get("command") == "save_checkpoint":
                     print(
                         f"[Training Script] Instructed to save checkpoint {command.get('checkpoint_name')}"

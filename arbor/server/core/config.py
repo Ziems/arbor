@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import yaml
 from pydantic import BaseModel
@@ -58,3 +58,58 @@ class Config(BaseModel):
         (storage_dir / "logs").mkdir(exist_ok=True)
         (storage_dir / "models").mkdir(exist_ok=True)
         (storage_dir / "uploads").mkdir(exist_ok=True)
+
+    def get_system_versions(self) -> Dict[str, any]:
+        """Get system version information."""
+        import platform
+        import sys
+
+        versions = {
+            "python": {
+                "version": sys.version.split()[0],
+                "implementation": platform.python_implementation(),
+            },
+            "system": {
+                "platform": platform.platform(),
+                "machine": platform.machine(),
+                "processor": platform.processor(),
+            },
+        }
+
+        # Try to get package versions for key dependencies
+        try:
+            import torch
+
+            versions["pytorch"] = torch.__version__
+        except ImportError:
+            pass
+
+        try:
+            import transformers
+
+            versions["transformers"] = transformers.__version__
+        except ImportError:
+            pass
+
+        try:
+            import accelerate
+
+            versions["accelerate"] = accelerate.__version__
+        except ImportError:
+            pass
+
+        try:
+            import pydantic
+
+            versions["pydantic"] = pydantic.__version__
+        except ImportError:
+            pass
+
+        try:
+            import fastapi
+
+            versions["fastapi"] = fastapi.__version__
+        except ImportError:
+            pass
+
+        return versions
