@@ -122,9 +122,9 @@ class WeightUpdateCallback(TrainerCallback):
 
     def on_save(
         self,
-        args: TrainingArguments,
-        state: TrainerState,
-        control: TrainerControl,
+        args,  #: TrainingArguments,
+        state,  #: TrainerState,
+        control,  #: TrainerControl,
         **kwargs,
     ):
         self.comms_handler.send_status(

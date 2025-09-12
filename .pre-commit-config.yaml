@@ -1,3 +1,4 @@
+fail_fast: true
 repos:
   # Code formatting and import organization
   - repo: https://github.com/psf/black
