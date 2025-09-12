@@ -65,6 +65,8 @@ class ArborGRPOTrainer(GRPOTrainer):
         peft_config: Optional["PeftConfig"] = None,
         comms_handler: Optional[ArborScriptCommsHandler] = None,
         vllm_group_port: Optional[int] = None,
+        save_model_dir: Optional[str] = None,
+        checkpoint_dir: Optional[str] = None,
         **kwargs,
     ):
         super().__init__(
@@ -82,6 +84,9 @@ class ArborGRPOTrainer(GRPOTrainer):
         self.peft_config = peft_config
         self.scale_rewards = scale_rewards
         self.comms_handler = comms_handler
+        self.save_model_dir = save_model_dir
+        self.checkpoint_dir = checkpoint_dir
+        self.last_checkpoint_name = None
 
         self.vllm_client = None
         args.use_vllm = True
@@ -532,8 +537,7 @@ def main():
             shuffle_dataset=False,
             vllm_server_port=args.vllm_port,
             **trl_train_args,
-            save_strategy="steps",
-            save_steps=10,
+            save_strategy="no",
         )
 
         # Create ingestion monitor
@@ -554,6 +558,8 @@ def main():
             callbacks=[LastStepTimeCallback(ingestion_monitor), weight_update_callback],
             peft_config=lora_config,
             vllm_group_port=args.vllm_group_port,
+            save_model_dir=arbor_train_args["output_dir"],
+            checkpoint_dir=arbor_train_args["output_dir"] + "/checkpoints",
         )
         # Create client handler
         comms_handler = ArborScriptCommsHandler(
