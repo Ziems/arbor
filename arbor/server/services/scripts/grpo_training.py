@@ -532,6 +532,8 @@ def main():
             shuffle_dataset=False,
             vllm_server_port=args.vllm_port,
             **trl_train_args,
+            save_strategy="steps",
+            save_steps=10,
         )
 
         # Create ingestion monitor
