@@ -558,8 +558,8 @@ def main():
             callbacks=[LastStepTimeCallback(ingestion_monitor), weight_update_callback],
             peft_config=lora_config,
             vllm_group_port=args.vllm_group_port,
-            save_model_dir=arbor_train_args["output_dir"],
-            checkpoint_dir=arbor_train_args["output_dir"] + "/checkpoints",
+            save_model_dir=trl_train_args["output_dir"],
+            checkpoint_dir=trl_train_args["output_dir"] + "/checkpoints",
         )
         # Create client handler
         comms_handler = ArborScriptCommsHandler(
