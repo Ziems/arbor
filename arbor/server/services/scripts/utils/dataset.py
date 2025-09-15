@@ -82,7 +82,7 @@ class BlockingRotatingQueueDataset(TorchDataset):
         return data
 
     def __getitem__(self, idx):
-        print(f"Getting item {idx}")
+        logger.debug(f"Getting item {idx}")
         data = self.get_cached_data(idx)
 
         if data is None:
