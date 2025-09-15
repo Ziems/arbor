@@ -229,7 +229,7 @@ class InferenceJob(Job):
                     "Adding requests:" in line,
                     "Processed prompts:" in line,
                     line.strip().startswith("INFO:")
-                    and ("POST /v1/" in line or "GET /v1/" in line),  # HTTP requests
+                    and (' - "' in line and 'HTTP/1.1" ' in line),  # All HTTP requests
                     "est. speed input:" in line,
                     "est. speed output:" in line,
                     "%" in line
