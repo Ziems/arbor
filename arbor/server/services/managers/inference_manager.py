@@ -18,7 +18,7 @@ class InferenceManager(BaseManager):
     # TODO: request_json should be checked for launch_model_config or something
     async def route_inference(self, request_json: dict):
         model = request_json["model"]
-        self.logger.info(f"Running inference for model {model}")
+        self.logger.debug(f"Running inference for model {model}")
 
         # If model isnt launched, launch it
         # TODO: Check that there are GPUs available. If not, do hot swap or something.
