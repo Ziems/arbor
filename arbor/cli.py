@@ -114,7 +114,9 @@ def start_server(host="0.0.0.0", port=7453, storage_path="./storage", timeout=10
 
     app = create_app(storage_path)
     # configure_uvicorn_logging()
-    config = uvicorn.Config(app, host=host, port=port, log_level="info")
+    config = uvicorn.Config(
+        app, host=host, port=port, log_level="info", access_log=False
+    )
     server = uvicorn.Server(config)
 
     def run_server():
@@ -167,7 +169,7 @@ def serve(host, port, arbor_config):
 
         # Temporarily disable custom uvicorn logging configuration
         # configure_uvicorn_logging()
-        uvicorn.run(app, host=host, port=port)
+        uvicorn.run(app, host=host, port=port, access_log=False)
     except KeyboardInterrupt:
         click.echo("Server shutdown completed.")
     except Exception as e:

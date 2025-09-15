@@ -250,7 +250,11 @@ async def run_server(args: Namespace):
     signal.signal(signal.SIGTERM, signal_handler)
 
     config = uvicorn.Config(
-        app=app, host=args.host or "0.0.0.0", port=args.port, log_level="info"
+        app=app,
+        host=args.host or "0.0.0.0",
+        port=args.port,
+        log_level="info",
+        access_log=False,
     )
     server = uvicorn.Server(config)
 

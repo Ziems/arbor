@@ -55,6 +55,7 @@ def live_server_url(tmp_path_factory):
             "host": "127.0.0.1",
             "port": port,
             "log_level": "error",  # Suppress logs during testing
+            "access_log": False,  # Disable access logging
         },
         daemon=True,
     )
