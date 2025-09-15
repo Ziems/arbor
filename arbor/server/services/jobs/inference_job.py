@@ -105,7 +105,7 @@ class InferenceJob(Job):
         process = self.process_runner.start_inference_server(
             command,
             env=my_env,
-            log_callback=self.create_log_callback("INFERENCE"),
+            log_callback=self.create_filtered_log_callback("INFERENCE"),
         )
 
         logger.info(f"vLLM server process started with PID {process.pid}.")
@@ -212,6 +212,58 @@ class InferenceJob(Job):
     def active_request_count(self):
         """Get the number of currently active inference requests"""
         return self._active_requests
+
+    def create_filtered_log_callback(self, job_type: str = "INFERENCE"):
+        """Create a log callback that filters out verbose inference logs from terminal output"""
+        import json
+        from datetime import datetime
+
+        def filtered_callback(line: str):
+            timestamp = datetime.now()
+            timestamp_iso = timestamp.isoformat()
+
+            # Filter out verbose logs from terminal output
+            should_suppress = any(
+                [
+                    "it/s" in line,  # Progress bars
+                    "Adding requests:" in line,
+                    "Processed prompts:" in line,
+                    line.strip().startswith("INFO:")
+                    and ("POST /v1/" in line or "GET /v1/" in line),  # HTTP requests
+                    "est. speed input:" in line,
+                    "est. speed output:" in line,
+                    "%" in line
+                    and ("█" in line or "░" in line),  # Progress bar characters
+                ]
+            )
+
+            # Only log non-verbose messages to terminal
+            if not should_suppress:
+                logger.info(f"[{job_type} LOG] {line}")
+
+            # Always save to log file (if path is set)
+            if self.log_file_path:
+                try:
+                    os.makedirs(os.path.dirname(self.log_file_path), exist_ok=True)
+
+                    log_entry = {
+                        "timestamp": timestamp_iso,
+                        "level": "info",
+                        "job_id": self.id,
+                        "job_type": job_type,
+                        "message": line,
+                        "source": "training_log",
+                    }
+
+                    with open(self.log_file_path, "a", encoding="utf-8") as log_file:
+                        log_file.write(json.dumps(log_entry) + "\n")
+                        log_file.flush()
+                except Exception as e:
+                    logger.error(
+                        f"Failed to write to log file {self.log_file_path}: {e}"
+                    )
+
+        return filtered_callback
 
 
 def wait_for_server(base_url: str, timeout: int = None) -> None:
