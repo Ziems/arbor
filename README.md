@@ -89,9 +89,10 @@ optimized_classify = compiler.compile(
 # Your classifier is now optimized with RL! 🎉
 ```
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Ziems/arbor/blob/main/examples/colab_quickstart.ipynb)
 
 ### Traditional Fine-tuning (SFT & DPO)
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Ziems/arbor/blob/main/examples/colab_quickstart.ipynb)
 
 Arbor also supports standard fine-tuning with OpenAI-compatible API:
 
