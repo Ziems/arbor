@@ -1,7 +1,7 @@
 [project]
 name = "arbor-ai"
-version = "0.2.5"
-description = "A framework for fine-tuning and managing language models"
+version = "0.2.6"
+description = "A framework for fine-tuning DSPy programs and managing language models"
 authors = [
     {name = "Noah Ziems", email = "nziems2@nd.edu"}
 ]
@@ -24,10 +24,10 @@ dependencies = [
     "pyyaml>=6.0.2",
     "wandb",
     "httpx",
-    "coolname", # Used for generating slugs in job ids
+    "coolname",
     "jq>=1.8.0",
     "textual",
-    "verifiers", # Lots of our code is adopted from Will Brown's Verifiers library, so we give credit here
+    "verifiers",
 ]
 
 [project.scripts]
