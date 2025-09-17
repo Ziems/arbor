@@ -16,7 +16,6 @@ def test_config_defaults():
     config = Config()
 
     assert config.storage_path == str(Path.home() / ".arbor" / "storage")
-    # Don't assert gpu_ids as it may vary based on auto-detection
     assert config.accelerate_config is None
     assert config.inactivity_timeout == 30
 
