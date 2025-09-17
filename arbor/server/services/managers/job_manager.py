@@ -25,6 +25,13 @@ class JobManager(BaseManager):
                 job.terminate()
             except Exception as e:
                 self.logger.error(f"Error cleaning up job {job_id}: {e}")
+                # Ensure GPU cleanup even if terminate fails
+                try:
+                    job._ensure_gpu_cleanup()
+                except Exception as cleanup_error:
+                    self.logger.error(
+                        f"Error during GPU cleanup for job {job_id}: {cleanup_error}"
+                    )
 
         self.jobs.clear()
         self._cleanup_called = True

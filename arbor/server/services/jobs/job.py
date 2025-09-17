@@ -276,6 +276,13 @@ class Job:
 
         self.status = JobStatus.CANCELLED
 
+    def _ensure_gpu_cleanup(self):
+        """
+        Base GPU cleanup method. Override in subclasses that allocate GPUs.
+        This is called automatically when jobs fail or crash.
+        """
+        pass
+
     def to_status_model(self) -> JobStatusModel:
         """Convert this job to a JobStatusModel for API responses."""
         return JobStatusModel(

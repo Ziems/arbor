@@ -35,13 +35,6 @@ arbor = "arbor.cli:cli"
 
 [dependency-groups]
 dev = [
-    "black",
-    "pre-commit",
-    "isort",
-    "pytest",
-    "openai"
-]
-minimal = [
     # Core server dependencies without heavy ML libs (used for development on Mac)
     "fastapi",
     "uvicorn",

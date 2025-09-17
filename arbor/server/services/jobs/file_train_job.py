@@ -279,6 +279,9 @@ class FileTrainJob(Job):
             self.log(
                 f"Completion monitoring error: {e}", level="error", create_event=True
             )
+        finally:
+            # Always ensure GPU cleanup happens, even if job crashes
+            self._ensure_gpu_cleanup()
 
     def _handle_status_updates(self):
         for status in self.server_comms_handler.receive_status():
@@ -319,6 +322,12 @@ class FileTrainJob(Job):
                 logger.error(f"Error cleaning up comms handler: {e}")
 
         # Release allocated GPUs
+        self._ensure_gpu_cleanup()
+
+        logger.info(f"FileTrainJob {self.id} termination completed")
+
+    def _ensure_gpu_cleanup(self):
+        """Ensure GPUs are released, even if called multiple times."""
         if self.gpu_manager and self.allocated_gpus:
             try:
                 self.gpu_manager.release_gpus(self.id)
@@ -327,9 +336,7 @@ class FileTrainJob(Job):
                 )
                 self.allocated_gpus = None
             except Exception as e:
-                logger.error(f"Error releasing GPUs: {e}")
-
-        logger.info(f"FileTrainJob {self.id} termination completed")
+                logger.error(f"Error releasing GPUs during cleanup: {e}")
 
     def to_status_model(self) -> JobStatusModel:
         print("To status model", self.model, self.training_file, self.fine_tuned_model)

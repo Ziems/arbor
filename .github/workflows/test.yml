@@ -31,12 +31,12 @@ jobs:
         # Create .python-version file for uv
         echo "${{ matrix.python-version }}" > .python-version
 
-        # Install minimal dependencies for testing
-        uv sync --only-group minimal
+        # Install dev dependencies for testing
+        uv sync --only-group dev
 
     - name: Run unit tests with coverage
       run: |
-        ARBOR_MOCK_GPU=1 uv run --only-group minimal pytest tests/server/ tests/test_gpu_mocking.py \
+        ARBOR_MOCK_GPU=1 uv run --only-group dev pytest tests/server/ tests/test_gpu_mocking.py \
           --cov=arbor \
           --cov-report=term-missing \
           --cov-report=xml \
@@ -47,7 +47,7 @@ jobs:
 
     - name: Run integration tests
       run: |
-        ARBOR_MOCK_GPU=1 uv run --only-group minimal pytest tests/integration/ \
+        ARBOR_MOCK_GPU=1 uv run --only-group dev pytest tests/integration/ \
           -v \
           --tb=short \
           --timeout=120 \
@@ -79,13 +79,13 @@ jobs:
 
     - name: Install dependencies
       run: |
-        uv sync --only-group minimal
+        uv sync --only-group dev
 
     - name: Run Black
-      run: uv run --only-group minimal black --check .
+      run: uv run --only-group dev black --check .
 
     - name: Run isort
-      run: uv run --only-group minimal isort --check-only --profile black .
+      run: uv run --only-group dev isort --check-only --profile black .
 
     - name: Validate configuration files
       run: |

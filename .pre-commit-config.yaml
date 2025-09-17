@@ -31,7 +31,7 @@ repos:
     hooks:
       - id: pytest-unit-tests
         name: Run unit tests with coverage
-        entry: bash -c "ARBOR_MOCK_GPU=1 uv run --only-group minimal pytest tests/server/ tests/test_gpu_mocking.py --cov=arbor --cov-report=term-missing --cov-report=html --cov-fail-under=30 -v --tb=short --timeout=45"
+        entry: bash -c "ARBOR_MOCK_GPU=1 uv run --only-group dev pytest tests/server/ tests/test_gpu_mocking.py --cov=arbor --cov-report=term-missing --cov-report=html --cov-fail-under=30 -v --tb=short --timeout=45"
         language: system
         types: [python]
         pass_filenames: false
@@ -39,7 +39,7 @@ repos:
 
       - id: pytest-integration-tests
         name: Run integration tests
-        entry: bash -c "ARBOR_MOCK_GPU=1 uv run --only-group minimal pytest tests/integration/ -v --tb=short --timeout=90 -k 'not test_openai_cancel_fine_tune_job'"
+        entry: bash -c "ARBOR_MOCK_GPU=1 uv run --only-group dev pytest tests/integration/ -v --tb=short --timeout=90 -k 'not test_openai_cancel_fine_tune_job'"
         language: system
         types: [python]
         pass_filenames: false

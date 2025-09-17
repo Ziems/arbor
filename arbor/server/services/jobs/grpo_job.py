@@ -339,6 +339,9 @@ class GRPOJob(Job):
             except:
                 pass
 
+            # Always ensure GPU cleanup happens, even if job crashes
+            self._ensure_gpu_cleanup()
+
     def validate_batch(self, batch):
         if not isinstance(batch, list):
             raise ValueError("Batch must be a list")
@@ -496,9 +499,7 @@ class GRPOJob(Job):
                 self.inference_job.terminate()
 
             # Release GPUs
-            if self.gpu_manager:
-                self.gpu_manager.release_gpus(self.id)
-                logger.info(f"Released GPUs for GRPO job {self.id}")
+            self._ensure_gpu_cleanup()
 
             # Reinitialize in case we want to start a new training run
             self.training_process = None
@@ -515,6 +516,15 @@ class GRPOJob(Job):
             self.server_comms_handler = None
             self.status_thread = None
             self.data_count = 0
+
+    def _ensure_gpu_cleanup(self):
+        """Ensure GPUs are released, even if called multiple times."""
+        if self.gpu_manager:
+            try:
+                self.gpu_manager.release_gpus(self.id)
+                logger.info(f"Released GPUs for GRPO job {self.id}")
+            except Exception as e:
+                logger.error(f"Error releasing GPUs during cleanup: {e}")
 
     def get_status(self) -> GRPOStatus:
         return GRPOStatus(

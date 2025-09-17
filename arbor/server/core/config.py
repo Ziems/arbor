@@ -5,12 +5,34 @@ import yaml
 from pydantic import BaseModel
 
 
+def detect_available_gpus() -> List[int]:
+    """
+    Auto-detect available GPUs using PyTorch.
+
+    Returns:
+        List of available GPU IDs, empty list if no GPUs or PyTorch not available
+    """
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            gpu_ids = list(range(torch.cuda.device_count()))
+            print(f"Auto-detected {len(gpu_ids)} GPU(s): {gpu_ids}")
+            return gpu_ids
+        else:
+            print("No GPUs detected")
+            return []
+    except ImportError:
+        print("PyTorch not available")
+        return []
+
+
 class Config(BaseModel):
     """Simplified Arbor configuration."""
 
     # Basic settings
     storage_path: str = str(Path.home() / ".arbor" / "storage")
-    gpu_ids: List[int] = [0, 1, 2]
+    gpu_ids: List[int] = []
 
     # Training settings
     accelerate_config: Optional[str] = None
@@ -39,15 +61,25 @@ class Config(BaseModel):
                 with open(config_path, "r") as f:
                     data = yaml.safe_load(f) or {}
                 config = cls(**data)
+
+                # Auto-detect GPUs if none specified in config
+                if not config.gpu_ids:
+                    config.gpu_ids = detect_available_gpus()
+
                 config._ensure_storage_path()
                 return config
             except Exception as e:
                 # If config file is invalid, use defaults and warn
                 print(f"Warning: Invalid config file {config_path}: {e}")
-                print("Using default configuration")
+                print("Using default configuration with auto-detected GPUs")
 
-        # Use defaults
+        # Use defaults with auto-detected GPUs
         config = cls()
+
+        # Auto-detect GPUs if none specified in defaults
+        if not config.gpu_ids:
+            config.gpu_ids = detect_available_gpus()
+
         config._ensure_storage_path()
         return config
 

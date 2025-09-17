@@ -16,7 +16,7 @@ def test_config_defaults():
     config = Config()
 
     assert config.storage_path == str(Path.home() / ".arbor" / "storage")
-    assert config.gpu_ids == [0, 1, 2]
+    # Don't assert gpu_ids as it may vary based on auto-detection
     assert config.accelerate_config is None
     assert config.inactivity_timeout == 30
 
@@ -88,9 +88,8 @@ def test_config_load_nonexistent_file():
     """Test loading config from nonexistent file uses defaults."""
     config = Config.load("/nonexistent/config.yaml")
 
-    # Should use all defaults
+    # Should use all defaults with auto-detected GPUs
     assert config.storage_path == str(Path.home() / ".arbor" / "storage")
-    assert config.gpu_ids == [0, 1, 2]
     assert config.accelerate_config is None
     assert config.inactivity_timeout == 30
 
@@ -106,7 +105,6 @@ def test_config_load_invalid_yaml():
         config = Config.load(temp_path)
 
         assert config.storage_path == str(Path.home() / ".arbor" / "storage")
-        assert config.gpu_ids == [0, 1, 2]
     finally:
         Path(temp_path).unlink()
 
@@ -122,7 +120,6 @@ def test_config_load_empty_yaml():
 
         # Should use all defaults
         assert config.storage_path == str(Path.home() / ".arbor" / "storage")
-        assert config.gpu_ids == [0, 1, 2]
     finally:
         Path(temp_path).unlink()
 

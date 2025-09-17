@@ -25,8 +25,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --only-group minimal
+          uv sync --only-group dev
 
       - name: Run pre-commit checks
         run: |
-          uv run --only-group minimal pre-commit run --all-files
+          uv run --only-group dev pre-commit run --all-files

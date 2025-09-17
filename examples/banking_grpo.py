@@ -8,7 +8,7 @@ from dspy.datasets import DataLoader
 import arbor
 
 # Start Arbor server (starts in background)
-arbor.init()
+arbor_server_info = arbor.init()
 
 CLASSES = (
     load_dataset("PolyAI/banking77", split="train", trust_remote_code=True)
@@ -43,7 +43,6 @@ classify = dspy.ChainOfThought(f"text -> label: Literal{TOP_CLASSES}")
 from dspy.clients.lm_local_arbor import ArborProvider
 
 # Get Arbor server info from init()
-server_info = arbor.status()
 provider = ArborProvider()
 
 student_lm_name = "Qwen/Qwen2.5-1.5B-Instruct"
@@ -53,9 +52,9 @@ student_lm_name = "Qwen/Qwen2.5-1.5B-Instruct"
 student_lm = dspy.LM(
     model=f"openai/arbor:{student_lm_name}",
     provider=provider,
-    temperature=0.7,
+    temperature=1.0,
     # api_base='http://localhost:7453/v1/',
-    api_base=server_info["base_url"],
+    api_base=arbor_server_info["base_url"],
     api_key="arbor",
 )
 
@@ -83,7 +82,6 @@ train_kwargs = {
 
 compiler = GRPO(
     metric=metric,
-    multitask=True,
     num_dspy_examples_per_grpo_step=4,
     num_rollouts_per_grpo_step=4,
     exclude_demos=True,
@@ -92,7 +90,7 @@ compiler = GRPO(
     use_train_as_val=False,
     num_steps_for_val=10,
     train_kwargs=train_kwargs,
-    gpu_config=MultiGPUConfig(num_inference_gpus=1, num_training_gpus=3),
+    gpu_config=MultiGPUConfig(num_inference_gpus=1, num_training_gpus=1),
 )
 
 classify_ft = compiler.compile(
