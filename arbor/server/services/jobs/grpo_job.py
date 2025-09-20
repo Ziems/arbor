@@ -419,26 +419,26 @@ class GRPOJob(Job):
         Args:
             save_model: Whether to save the model before terminating
         """
-        if save_model:
-            logger.info("Terminating with model saving...")
-            time.sleep(5)
+        # if save_model:
+        #     logger.info("Terminating with model saving...")
+        #     time.sleep(5)
 
-            while (
-                self.inference_job and self.inference_job.is_updating
-            ):  # Use the property instead of direct access
-                logger.info(
-                    "Waiting for final weight updates to finish before saving..."
-                )
-                time.sleep(5)
+        #     while (
+        #         self.inference_job and self.inference_job.is_updating
+        #     ):  # Use the property instead of direct access
+        #         logger.info(
+        #             "Waiting for final weight updates to finish before saving..."
+        #         )
+        #         time.sleep(5)
 
-            logger.info("Sending save model command")
-            self.saving_model = True
-            self.server_comms_handler.send_command({"command": "save_model"})
-            while self.saving_model:
-                logger.info("Waiting for final model to be saved...")
-                time.sleep(5)
-        else:
-            logger.info("Terminating without model saving...")
+        #     logger.info("Sending save model command")
+        #     self.saving_model = True
+        #     self.server_comms_handler.send_command({"command": "save_model"})
+        #     while self.saving_model:
+        #         logger.info("Waiting for final model to be saved...")
+        #         time.sleep(5)
+        # else:
+        #     logger.info("Terminating without model saving...")
 
         # Send termination command if we have comms
         if self.server_comms_handler:
@@ -465,11 +465,11 @@ class GRPOJob(Job):
         self.cleanup_termination()
 
         if save_model and self.train_kwargs and "output_dir" in self.train_kwargs:
-            output_dir = self.train_kwargs["output_dir"]
-            logger.info(f"Training completed. Model saved to {output_dir}")
-            logger.info(f"Training logs and checkpoints are stored in: {output_dir}")
-            if not os.path.exists(output_dir):
-                logger.warning(f"Output directory {output_dir} does not exist")
+            # output_dir = self.train_kwargs["output_dir"]
+            # logger.info(f"Training completed. Model saved to {output_dir}")
+            # logger.info(f"Training logs and checkpoints are stored in: {output_dir}")
+            # if not os.path.exists(output_dir):
+            #     logger.warning(f"Output directory {output_dir} does not exist")
             self.train_kwargs = None
         else:
             logger.info(
