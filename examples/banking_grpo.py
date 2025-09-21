@@ -47,10 +47,10 @@ from dspy.clients.lm_local_arbor import ArborProvider
 # Get Arbor server info from init()
 provider = ArborProvider()
 
-#student_lm_name = "Qwen/Qwen2.5-1.5B-Instruct"
+# student_lm_name = "Qwen/Qwen2.5-1.5B-Instruct"
 student_lm_name = "Qwen/Qwen2.5-7B-Instruct"
-#student_lm_name = "Qwen/Qwen2.5-14B-Instruct"
-#student_lm_name = "Qwen/Qwen2.5-32B-Instruct"
+# student_lm_name = "Qwen/Qwen2.5-14B-Instruct"
+# student_lm_name = "Qwen/Qwen2.5-32B-Instruct"
 student_lm = dspy.LM(
     model=f"openai/arbor:{student_lm_name}",
     provider=provider,
@@ -68,7 +68,7 @@ from dspy.teleprompt.grpo import GRPO
 
 train_kwargs = {
     "per_device_train_batch_size": 1,
-    "temperature": 1.0, 
+    "temperature": 1.0,
     "beta": 0.02,
     "learning_rate": 5e-6,
     "gradient_checkpointing": True,
@@ -101,7 +101,9 @@ classify_ft = compiler.compile(
     valset=devset,
 )
 
-import pdb; pdb.set_trace()
+import pdb
+
+pdb.set_trace()
 
 evaluate = dspy.Evaluate(
     devset=testset,
@@ -111,4 +113,6 @@ evaluate = dspy.Evaluate(
     num_threads=16,
 )
 
-import pdb; pdb.set_trace()
+import pdb
+
+pdb.set_trace()
