@@ -28,6 +28,7 @@ dependencies = [
     "jq>=1.8.0",
     "textual",
     "verifiers",
+    "deepspeed>=0.17.6",
 ]
 
 [project.scripts]
