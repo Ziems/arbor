@@ -1,6 +1,6 @@
 [project]
 name = "arbor-ai"
-version = "0.2.6"
+version = "0.2.7"
 description = "A framework for optimizing DSPy programs"
 authors = [
     {name = "Noah Ziems", email = "nziems2@nd.edu"}
