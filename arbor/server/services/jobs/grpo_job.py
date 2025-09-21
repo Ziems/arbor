@@ -348,8 +348,7 @@ class GRPOJob(Job):
                         "batch_id": item_id,
                         "timestamp": time.time(),
                     }
-                    # Add to pending set with copy of data (make hashable)
-                    self.pending_data.add((item_id, frozenset(item.items())))
+                    self.pending_data.add(item_id)
 
             self.server_comms_handler.send_data(group)
             self.batch_count += 1
@@ -564,15 +563,12 @@ class GRPOJob(Job):
         if processed_data and isinstance(processed_data, dict):
             batch_id = processed_data.get("_metadata", {}).get("batch_id")
             if batch_id is not None:
-                # Remove all items with matching batch_id from pending set
-                initial_count = len(self.pending_data)
-                self.pending_data = {
-                    item for item in self.pending_data if item[0] != batch_id
-                }
-                removed_count = initial_count - len(self.pending_data)
-                logger.debug(
-                    f"Removed {removed_count} items with batch_id {batch_id} from pending set"
-                )
+                # Remove the batch_id from pending set
+                if batch_id in self.pending_data:
+                    self.pending_data.remove(batch_id)
+                    logger.debug(f"Removed batch_id {batch_id} from pending set")
+                else:
+                    logger.warning(f"batch_id {batch_id} not found in pending set")
             else:
                 logger.warning("Processed data missing metadata batch_id")
         else:
