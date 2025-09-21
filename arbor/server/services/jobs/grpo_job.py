@@ -348,8 +348,8 @@ class GRPOJob(Job):
                         "batch_id": item_id,
                         "timestamp": time.time(),
                     }
-                    # Add to pending set with copy of data
-                    self.pending_data.add((item_id, dict(item)))
+                    # Add to pending set with copy of data (make hashable)
+                    self.pending_data.add((item_id, frozenset(item.items())))
 
             self.server_comms_handler.send_data(group)
             self.batch_count += 1
