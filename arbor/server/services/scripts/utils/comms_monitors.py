@@ -41,7 +41,7 @@ class CommandMonitor:
                 print(f"Main process received command: {command}")
                 if command.get("command") == "save_model":
                     self.trainer.args.output_dir = self.trainer.save_model_dir
-                    self.trainer.state.should_save = True
+                    self.trainer.control.should_save = True
                 elif command.get("command") == "save_checkpoint":
                     self.trainer.args.output_dir = (
                         self.trainer.checkpoint_dir
