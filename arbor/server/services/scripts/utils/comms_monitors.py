@@ -6,6 +6,7 @@ from typing import Callable, Optional
 
 from peft import AutoPeftModelForCausalLM
 from transformers import Trainer
+from trl.trainer.grpo_trainer import GRPOTrainer
 
 from arbor.server.services.comms.comms import ArborScriptCommsHandler
 
@@ -14,7 +15,7 @@ class CommandMonitor:
     def __init__(
         self,
         comms_handler: ArborScriptCommsHandler,
-        trainer: Trainer,
+        trainer: GRPOTrainer,
         base_model_name: str,
         ingestion_monitor: Optional["IngestionMonitor"] = None,
         weight_update_callback=None,
@@ -46,7 +47,7 @@ class CommandMonitor:
                         self.trainer.checkpoint_dir
                         + f"/{command.get('checkpoint_name')}/"
                     )
-                    self.trainer.state.should_save = True
+                    self.trainer.control.should_save = True
                     self.trainer.last_checkpoint_name = command.get("checkpoint_name")
 
                 elif command.get("command") == "weight_update_ready":
