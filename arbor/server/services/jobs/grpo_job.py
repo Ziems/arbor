@@ -52,6 +52,7 @@ class GRPOJob(Job):
         self.train_kwargs = None
         self.server_comms_handler = None
         self.status_thread = None
+        self.saving_checkpoint = False
         self.saving_model = False
         self.terminating = False
         self.inference_job: InferenceJob = None
@@ -322,6 +323,7 @@ class GRPOJob(Job):
                     logger.info("Received checkpoint saved status")
                     self.checkpoints[status["checkpoint_name"]] = status["output_dir"]
                     self.last_checkpoint = status["checkpoint_name"]
+                    self.saving_checkpoint = False
                     logger.info("Checkpoint saved")
                 elif status["status"] == "error":
                     error_msg = status.get("error", "Unknown error")
@@ -371,6 +373,12 @@ class GRPOJob(Job):
             )
 
     def grpo_step(self, request: GRPOStepRequest) -> str:
+        while self.saving_checkpoint:
+            logger.info(
+                "Saving checkpoint, pausing GRPO steps until checkpoint is saved..."
+            )
+            time.sleep(5)
+
         self.validate_batch(request.batch)
 
         try:
@@ -390,9 +398,13 @@ class GRPOJob(Job):
             logger.info("Waiting for weight updates to finish before checkpointing...")
             time.sleep(5)
 
+        self.saving_checkpoint = True
         self.server_comms_handler.send_command(
             {"command": "save_checkpoint", "checkpoint_name": request.checkpoint_name}
         )
+        while self.saving_checkpoint:
+            logger.info("Waiting for checkpoint to be saved...")
+            time.sleep(5)
 
     def cancel(self):
         """Cancel the GRPO training job"""
