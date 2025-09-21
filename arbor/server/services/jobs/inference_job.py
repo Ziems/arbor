@@ -93,7 +93,7 @@ class InferenceJob(Job):
 
         n_gpus = len(launch_config.gpu_ids)
         vllm_module = get_vllm_serve_module()
-        command = f"{sys.executable} -m {vllm_module} --model {self.launched_model_name} --port {self.port} --gpu-memory-utilization 0.9 --enable_prefix_caching"  # --data-parallel-size {n_gpus} --enable_prefix_caching"
+        command = f"{sys.executable} -m {vllm_module} --model {self.launched_model_name} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching"
 
         if launch_config.max_context_length:
             command += f" --max_model_len {launch_config.max_context_length}"

@@ -538,6 +538,7 @@ def main():
             vllm_server_port=args.vllm_port,
             **trl_train_args,
             save_strategy="no",
+            use_liger_loss=True,
         )
 
         # Create ingestion monitor
