@@ -495,16 +495,16 @@ def main():
 
         # TODO: These assertions should be done in some better way
         assert "output_dir" in trl_train_args, "output_dir is required"
-        if "gradient_checkpointing_kwargs" in trl_train_args and arbor_train_args.get(
-            "lora", False
-        ):
-            logger.info(
-                "Setting gradient_checkpointing_kwargs to use_reentrant=False for LORA training"
-            )
-            trl_train_args["gradient_checkpointing_kwargs"] = {
-                **(trl_train_args.get("gradient_checkpointing_kwargs") or {}),
-                "use_reentrant": False,
-            }
+        # if "gradient_checkpointing_kwargs" in trl_train_args and arbor_train_args.get(
+        #     "lora", False
+        # ):
+        #     logger.info(
+        #         "Setting gradient_checkpointing_kwargs to use_reentrant=False for LORA training"
+        #     )
+        #     trl_train_args["gradient_checkpointing_kwargs"] = {
+        #         **(trl_train_args.get("gradient_checkpointing_kwargs") or {}),
+        #         "use_reentrant": False,
+        #     }
 
         lora_config = None
         if arbor_train_args.get("lora", False):
