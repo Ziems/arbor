@@ -51,7 +51,7 @@ class GRPOJob(Job):
         self.base_model = None
         self.train_kwargs = None
         self.server_comms_handler = None
-        self.status_thread = None
+        self.event_thread = None
         self.saving_checkpoint = False
         self.saving_model = False
         self.terminating = False
@@ -60,8 +60,9 @@ class GRPOJob(Job):
 
         self.checkpoints = {}
         self.last_checkpoint = None
-        self.data_count = 0
+        self.batch_count = 0
         self.last_inference_update = 0
+        self.pending_data = set()
 
     def _make_job_id(self, request: GRPOInitializeRequest):
         slug = coolname.generate_slug(2)
@@ -223,8 +224,8 @@ class GRPOJob(Job):
             self.server_comms_handler.host,
             "--command_port",
             str(self.server_comms_handler.command_port),
-            "--status_port",
-            str(self.server_comms_handler.status_port),
+            "--event_port",
+            str(self.server_comms_handler.event_port),
             "--data_port",
             str(self.server_comms_handler.data_port),
             "--broadcast_port",
@@ -255,84 +256,39 @@ class GRPOJob(Job):
         )
 
         # Start status handling thread
-        self.status_thread = threading.Thread(
-            target=self._handle_status_updates, args=(), daemon=True
+        self.event_thread = threading.Thread(
+            target=self._handle_event_updates, args=(), daemon=True
         )
-        self.status_thread.start()
+        self.event_thread.start()
         self.server_comms_handler.wait_for_clients(num_processes)
 
-    def _handle_status_updates(self):
-        """Handle status updates from training process using ZMQ SUB socket"""
-        logger.info("Starting status update handler...")
+    def _handle_event_updates(self):
+        """Handle event updates from training process using ZMQ SUB socket"""
+        logger.info("Starting event update handler...")
         try:
-            for status in self.server_comms_handler.receive_status():
-                logger.debug(f"Received status update: {status}")
-                if status["status"] == "weight_update_request":
-                    # Training is requesting to start a weight update
-                    logger.info("Received weight update request from training...")
-                    logger.info("Blocking new inference calls...")
-                    self.inference_job.start_weight_update()
+            for event in self.server_comms_handler.receive_event():
+                event_type = event.get("type")
+                logger.debug(f"Received event: {event}")
+                if event_type == "weight_update_request":
+                    self._handle_weight_update_request_event(event)
 
-                    # Wait for all existing inference requests to complete
-                    logger.info(
-                        "Waiting for existing inference requests to complete..."
-                    )
-                    max_wait_time = 30  # Maximum time to wait for existing requests
-                    wait_start = time.time()
-                    last_log_time = wait_start
-
-                    while self.inference_job.has_active_requests:
-                        active_count = self.inference_job.active_request_count
-
-                        # Only log every 10 seconds to reduce spam
-                        current_time = time.time()
-                        if current_time - last_log_time >= 10:
-                            logger.info(
-                                f"Waiting for {active_count} active inference requests to complete..."
-                            )
-                            last_log_time = current_time
-
-                        if current_time - wait_start > max_wait_time:
-                            logger.warning(
-                                f"Timeout waiting for inference requests to complete after {max_wait_time}s, proceeding anyway..."
-                            )
-                            break
-
-                        time.sleep(0.5)  # Check every 500ms
-
-                    logger.info(
-                        "All inference requests completed, sending ready signal to training..."
-                    )
-                    self.server_comms_handler.send_command(
-                        {"command": "weight_update_ready"}
-                    )
-
-                elif status["status"] == "weight_update_complete":
+                elif event_type == "weight_update_complete":
                     # Training has completed the weight update
-                    logger.info(
-                        "Weight update completed, allowing new inference calls..."
-                    )
-                    self.inference_job.complete_weight_update()
-                elif status["status"] == "model_saved":
-                    logger.info("Updating inference model...")
-                    # There is a case where this status is sent multiple times
-                    # We need to make sure we only update the model once
-                    self.saving_model = False
-                    logger.info("Model update complete")
-                elif status["status"] == "checkpoint_saved":
-                    logger.info("Received checkpoint saved status")
-                    self.checkpoints[status["checkpoint_name"]] = status["output_dir"]
-                    self.last_checkpoint = status["checkpoint_name"]
-                    self.saving_checkpoint = False
-                    logger.info("Checkpoint saved")
-                elif status["status"] == "error":
-                    error_msg = status.get("error", "Unknown error")
-                    logger.error(f"Training error: {error_msg}")
-                elif status["status"] == "terminated":
-                    self.terminating = False
-                    logger.info("Training process terminated")
-        except Exception as e:
-            logger.error(f"Error in status update handler: {e}")
+                    self._handle_weight_update_complete_event(event)
+
+                elif event_type == "checkpoint_saved":
+                    self._handle_checkpoint_saved_event(event)
+
+                elif event_type == "data_processed":
+                    self._handle_data_processed_event(event)
+
+                elif event_type == "error":
+                    self._handle_error_event(event)
+
+                elif event_type == "terminated":
+                    self._handle_terminated_event(event)
+                else:
+                    logger.warning(f"Received unknown event: {event}")
             # Make sure to allow inference if there's an error
             try:
                 self.inference_job.complete_weight_update()
@@ -341,6 +297,8 @@ class GRPOJob(Job):
 
             # Always ensure GPU cleanup happens, even if job crashes
             self._ensure_gpu_cleanup()
+        except Exception as e:
+            logger.error(f"Error handling status updates: {e}")
 
     def validate_batch(self, batch):
         if not isinstance(batch, list):
@@ -381,11 +339,29 @@ class GRPOJob(Job):
 
         self.validate_batch(request.batch)
 
-        try:
+        def _handle_group_data(group: list[dict]):
+            # Add metadata to each item in the group
+            for idx, item in enumerate(group):
+                if isinstance(item, dict):
+                    item_id = f"{self.batch_count}"
+                    item["_metadata"] = {
+                        "batch_id": item_id,
+                        "timestamp": time.time(),
+                    }
+                    # Add to pending set with copy of data
+                    self.pending_data.add((item_id, dict(item)))
 
-            # Send the batch to the training process
-            self.server_comms_handler.send_data(request.batch)
-            self.data_count += 1
+            self.server_comms_handler.send_data(group)
+            self.batch_count += 1
+
+        try:
+            if isinstance(request.batch[0], list):
+                # Handle List[List[dict]] case
+                for group in request.batch:
+                    _handle_group_data(group)
+            else:
+                # Handle List[dict] case
+                _handle_group_data(request.batch)
 
         except Exception as e:
             logger.error(f"Failed to send batch to training process: {e}")
@@ -505,8 +481,8 @@ class GRPOJob(Job):
             self.training_process = None
             self.process_runner = None
             self.server_comms_handler = None
-            self.status_thread = None
-            self.data_count = 0
+            self.event_thread = None
+            self.batch_count = 0
             logger.info("Cleanup completed successfully")
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
@@ -514,8 +490,8 @@ class GRPOJob(Job):
             self.training_process = None
             self.process_runner = None
             self.server_comms_handler = None
-            self.status_thread = None
-            self.data_count = 0
+            self.event_thread = None
+            self.batch_count = 0
 
     def _ensure_gpu_cleanup(self):
         """Ensure GPUs are released, even if called multiple times."""
@@ -534,3 +510,78 @@ class GRPOJob(Job):
             checkpoints=self.checkpoints,
             last_checkpoint=self.last_checkpoint,
         )
+
+    def _handle_weight_update_request_event(self, event: dict):
+        # Training is requesting to start a weight update
+        logger.debug("Received weight update request from training...")
+        logger.debug("Blocking new inference calls...")
+        self.inference_job.start_weight_update()
+
+        # Wait for all existing inference requests to complete
+        logger.debug("Waiting for existing inference requests to complete...")
+        max_wait_time = 30  # Maximum time to wait for existing requests
+        wait_start = time.time()
+        last_log_time = wait_start
+
+        while self.inference_job.has_active_requests:
+            active_count = self.inference_job.active_request_count
+
+            # Only log every 10 seconds to reduce spam
+            current_time = time.time()
+            if current_time - last_log_time >= 10:
+                logger.info(
+                    f"Waiting for {active_count} active inference requests to complete..."
+                )
+                last_log_time = current_time
+
+            if current_time - wait_start > max_wait_time:
+                logger.warning(
+                    f"Timeout waiting for inference requests to complete after {max_wait_time}s, proceeding anyway..."
+                )
+                break
+
+            time.sleep(0.5)  # Check every 500ms
+
+        logger.info(
+            "All inference requests completed, sending ready signal to training..."
+        )
+        self.server_comms_handler.send_command({"command": "weight_update_ready"})
+
+    def _handle_weight_update_complete_event(self, event: dict):
+        logger.debug("Weight update completed, allowing new inference calls...")
+        self.inference_job.complete_weight_update()
+
+    def _handle_checkpoint_saved_event(self, event: dict):
+        logger.info("Received checkpoint saved status")
+        self.checkpoints[event["checkpoint_name"]] = event["output_dir"]
+        self.last_checkpoint = event["checkpoint_name"]
+        self.saving_checkpoint = False
+        logger.info("Checkpoint saved")
+
+    def _handle_data_processed_event(self, event: dict):
+        # Extract the batch_id from the processed data
+        processed_data = event.get("processed_data")
+        if processed_data and isinstance(processed_data, dict):
+            batch_id = processed_data.get("_metadata", {}).get("batch_id")
+            if batch_id is not None:
+                # Remove all items with matching batch_id from pending set
+                initial_count = len(self.pending_data)
+                self.pending_data = {
+                    item for item in self.pending_data if item[0] != batch_id
+                }
+                removed_count = initial_count - len(self.pending_data)
+                logger.debug(
+                    f"Removed {removed_count} items with batch_id {batch_id} from pending set"
+                )
+            else:
+                logger.warning("Processed data missing metadata batch_id")
+        else:
+            logger.warning("Data processed event missing processed_data")
+
+    def _handle_error_event(self, event: dict):
+        error_msg = event.get("error", "Unknown error")
+        logger.error(f"Training error: {error_msg}")
+
+    def _handle_terminated_event(self, event: dict):
+        self.terminating = False
+        logger.info("Training process terminated")

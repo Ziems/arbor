@@ -135,9 +135,3 @@ class WeightUpdateCallback(TrainerCallback):
                 + f"/{self.trainer.last_checkpoint_name}/",
             }
         )
-        self.comms_handler.send_status(
-            {
-                "status": "model_saved",
-                "output_dir": self.trainer.save_model_dir,
-            }
-        )

@@ -1,21 +1,23 @@
 ###############################################################################
-# Initial Versions of this File Borrowed from Will Brown's Verifiers Library  #
+# Initial Versions of this File Adapted from Will Brown's Verifiers Library  #
 # https://github.com/willccbb/verifiers                                       #
 ###############################################################################
 
 import argparse
 import json
+import os
 import random
 import signal
 import sys
 import threading
 import time
+from contextlib import nullcontext
 from typing import Any, List, Optional, Union
 
 import torch
 import trl.extras.vllm_client
 import zmq
-from accelerate.utils import broadcast_object_list, gather, gather_object
+from accelerate.utils import broadcast_object_list, gather, gather_object, is_peft_model
 from datasets import Dataset, IterableDataset, load_dataset
 from peft import LoraConfig, PeftConfig
 from transformers import (
@@ -120,6 +122,24 @@ class ArborGRPOTrainer(GRPOTrainer):
     ) -> dict[str, Union[torch.Tensor, Any]]:
         device = self.accelerator.device
         mode = "train" if self.model.training else "eval"
+
+        metadatas = []
+        metadatas = [
+            example["_metadata"] for example in batch if "_metadata" in example
+        ]
+        # Write metadatas to jsonl file if there are any
+        if metadatas and self.accelerator.is_main_process:
+            # Create metadata directory if it doesn't exist
+            metadata_dir = os.path.join(self.save_model_dir, "metadata")
+            os.makedirs(metadata_dir, exist_ok=True)
+
+            # Write to jsonl file with timestamp
+            metadata_file = os.path.join(metadata_dir, f"metadata.jsonl")
+
+            with open(metadata_file, "a") as f:
+                for metadata in metadatas:
+                    json.dump(metadata, f)
+                    f.write("\n")
 
         # Process prompts and completions
         prompt_completion_texts = []
@@ -369,6 +389,8 @@ class ArborGRPOTrainer(GRPOTrainer):
         self._textual_logs["completion"].extend(gather_object(completions_text))
         self._textual_logs["advantages"].extend(all_process_advantages.tolist())
 
+        self.comms_handler.send_event({"type": "data_processed", "data": metadatas})
+
         return {
             "prompt_ids": prompt_ids,
             "prompt_mask": prompt_mask,
@@ -395,12 +417,11 @@ class LastStepTimeCallback(TrainerCallback):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--debug", action="store_true")
 
     pipe_args = parser.add_argument_group("Comms arguments")
     pipe_args.add_argument("--host", default="localhost")
     pipe_args.add_argument("--command_port", type=int, required=True)
-    pipe_args.add_argument("--status_port", type=int, required=True)
+    pipe_args.add_argument("--event_port", type=int, required=True)
     pipe_args.add_argument("--data_port", type=int, required=True)
     pipe_args.add_argument("--broadcast_port", type=int, required=True)
     pipe_args.add_argument("--handshake_port", type=int, required=True)
@@ -425,69 +446,6 @@ def main():
     )
 
     args = parser.parse_args()
-
-    if args.debug:
-        # python grpo_training.py --debug
-        #  --command_port 0 --status_port 0
-        #  --data_port 0 --broadcast_port 0
-        #  --handshake_port 0 --model Qwen/Qwen3-0.6B
-        #  --trl_train_kwargs '{"output_dir": ".", "report_to": "none"}'
-        server_comms_handler = ArborServerCommsHandler(
-            host=args.host,
-        )
-
-        args.command_port = server_comms_handler.command_port
-        args.status_port = server_comms_handler.status_port
-        args.data_port = server_comms_handler.data_port
-        args.broadcast_port = server_comms_handler.broadcast_port
-        args.handshake_port = server_comms_handler.handshake_port
-
-        handshake_thread = threading.Thread(
-            target=server_comms_handler.wait_for_clients, args=(1,), daemon=True
-        )
-        handshake_thread.start()
-
-        def debug_data_generator():
-            tldr_dataset = load_dataset("trl-lib/tldr", split="train")
-            idx = 0
-            for item in tldr_dataset:
-                input_messages = [{"role": "user", "content": item["prompt"]}]
-                completions = [
-                    {
-                        "role": "assistant",
-                        "content": "This is a test completion"
-                        + hex(random.randint(0, 0xFFFFFF))[2:],
-                    }
-                    for _ in range(8)
-                ]
-
-                rewards = [-abs(20 - len(c["content"])) for c in completions]
-                batch = []
-                for completion, reward in zip(completions, rewards):
-                    batch.append(
-                        {
-                            "messages": input_messages,
-                            "completion": completion,
-                            "reward": reward,
-                        }
-                    )
-                server_comms_handler.send_data(batch)
-                time.sleep(1)
-
-                if idx >= 25:
-                    server_comms_handler.send_command({"command": "save_model"})
-
-        debug_thread = threading.Thread(target=debug_data_generator, daemon=True)
-        debug_thread.start()
-
-        def status_listener():
-            # Need to set subscription for PUB/SUB pattern
-            server_comms_handler.status_socket.setsockopt_string(zmq.SUBSCRIBE, "")
-            for status in server_comms_handler.receive_status():
-                logger.info(f"Status: {status}")
-
-        status_listener_thread = threading.Thread(target=status_listener, daemon=True)
-        status_listener_thread.start()
 
     try:
         trl_train_args = {**(args.trl_train_kwargs or {})}
@@ -566,7 +524,7 @@ def main():
         comms_handler = ArborScriptCommsHandler(
             host=args.host,
             command_port=args.command_port,
-            status_port=args.status_port,
+            event_port=args.event_port,
             data_port=args.data_port,
             broadcast_port=args.broadcast_port,
             handshake_port=args.handshake_port,
@@ -613,7 +571,7 @@ def main():
         logger.info("\nReceived interrupt, shutting down...")
     except Exception as e:
         logger.error(f"Error: {e}")
-        comms_handler.send_status({"status": "error", "error": str(e)})
+        comms_handler.send_event({"type": "error", "error": str(e)})
         raise e
     finally:
         logger.info("Cleaning up resources...")

@@ -132,7 +132,7 @@ class TestGPUCleanupOnCrash:
 
         # Mock the comms handler to raise an exception
         job.server_comms_handler = MagicMock()
-        job.server_comms_handler.receive_status.side_effect = Exception(
+        job.server_comms_handler.receive_event.side_effect = Exception(
             "Simulated crash"
         )
 
@@ -140,7 +140,7 @@ class TestGPUCleanupOnCrash:
         job.inference_job = MagicMock()
 
         # Call the status handler which should handle the exception and clean up
-        job._handle_status_updates()
+        job._handle_event_updates()
 
         # Should complete without crashing
         assert True
