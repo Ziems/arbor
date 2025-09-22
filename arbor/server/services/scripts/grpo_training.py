@@ -538,8 +538,8 @@ def main():
             vllm_server_port=args.vllm_port,
             **trl_train_args,
             save_strategy="no",
-            use_liger_loss=True,
             save_only_model=True,
+            use_liger_loss=True,
             warmup_steps=10,
         )
 
