@@ -539,6 +539,8 @@ def main():
             **trl_train_args,
             save_strategy="no",
             use_liger_loss=True,
+            save_only_model=True,
+            warmup_steps=10,
         )
 
         # Create ingestion monitor

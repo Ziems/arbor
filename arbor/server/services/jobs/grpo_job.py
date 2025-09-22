@@ -399,8 +399,8 @@ class GRPOJob(Job):
             time.sleep(5)
 
         self.saving_checkpoint = True
-        self.server_comms_handler.send_command(
-            {"command": "save_checkpoint", "checkpoint_name": request.checkpoint_name}
+        self.server_comms_handler.send_broadcast(
+            {"type": "save_checkpoint", "checkpoint_name": request.checkpoint_name}
         )
         while self.saving_checkpoint:
             logger.info("Waiting for checkpoint to be saved...")
