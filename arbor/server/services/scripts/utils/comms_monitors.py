@@ -43,12 +43,12 @@ class CommandMonitor:
                     self.trainer.args.output_dir = self.trainer.save_model_dir
                     self.trainer.control.should_save = True
                 elif command.get("command") == "save_checkpoint":
-                    self.trainer.args.output_dir = (
-                        self.trainer.checkpoint_dir
-                        + f"/{command.get('checkpoint_name')}/"
-                    )
+                    # self.trainer.args.output_dir = (
+                    #     self.trainer.checkpoint_dir
+                    #     + f"/{command.get('checkpoint_name')}/"
+                    # )
                     self.trainer.control.should_save = True
-                    self.trainer.last_checkpoint_name = command.get("checkpoint_name")
+                    # self.trainer.last_checkpoint_name = command.get("checkpoint_name")
 
                 elif command.get("command") == "weight_update_ready":
                     # Forward to weight update callback

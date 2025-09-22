@@ -130,14 +130,13 @@ class WeightUpdateCallback(TrainerCallback):
         self.comms_handler.send_status(
             {
                 "status": "checkpoint_saved",
-                "checkpoint_name": self.trainer.last_checkpoint_name,
-                "output_dir": self.trainer.checkpoint_dir
-                + f"/{self.trainer.last_checkpoint_name}/",
+                # "checkpoint_name": self.trainer.last_checkpoint_name,
+                "output_dir": self.trainer.output_dir,
             }
         )
-        self.comms_handler.send_status(
-            {
-                "status": "model_saved",
-                "output_dir": self.trainer.save_model_dir,
-            }
-        )
+        # self.comms_handler.send_status(
+        #     {
+        #         "status": "model_saved",
+        #         "output_dir": self.trainer.save_model_dir,
+        #     }
+        # )

@@ -396,9 +396,9 @@ class GRPOJob(Job):
             logger.info("Waiting for weight updates to finish before checkpointing...")
             time.sleep(5)
 
-        # self.server_comms_handler.send_broadcast(
-        #     {"type": "save_checkpoint", "checkpoint_name": request.checkpoint_name}
-        # )
+        self.server_comms_handler.send_broadcast(
+            {"type": "save_checkpoint", "checkpoint_name": request.checkpoint_name}
+        )
 
     def cancel(self):
         """Cancel the GRPO training job"""
