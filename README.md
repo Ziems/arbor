@@ -132,10 +132,8 @@ For remote servers or custom configurations, use the CLI approach:
 
 **1. Create config at `~/.arbor/config.yaml`:**
 ```yaml
-inference:
-  gpu_ids: [0]
-training:
-  gpu_ids: [1, 2]
+gpu_ids: [0, 1, 2, 3]
+accelerate_config: '/home/nziems/.arbor/zero3.yaml'
 ```
 
 **2. Start server:**
