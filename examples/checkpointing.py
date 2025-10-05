@@ -6,7 +6,12 @@ import requests
 from datasets import load_dataset
 from openai import OpenAI
 
-arbor_port = 7453
+import arbor
+
+# Start Arbor server (starts in background)
+arbor_server_info = arbor.init()
+
+arbor_port = arbor_server_info["port"]
 
 client = OpenAI(
     base_url=f"http://127.0.0.1:{arbor_port}/v1",  # Using Arbor server
@@ -64,12 +69,12 @@ def terminate_grpo(
 
 
 def main():
-    def _reward_func(prompts, completions):
-
-        return [
-            -abs(20 - len(completion)) if completion is not None else -300
-            for completion in completions
-        ]
+    def _unique_letter_reward(completions: list[str]) -> float:
+        rewards = []
+        for completion in completions:
+            letters = [ch.lower() for ch in completion if ch.isalpha()]
+            rewards.append(float(len(set(letters))))
+        return rewards
 
     def _single_chat_completion(model, messages, temperature=0.7):
         """Function to handle a single chat completion request"""
@@ -79,7 +84,7 @@ def main():
         choice = response.choices[0]
         return {"content": choice.message.content, "role": choice.message.role}
 
-    dataset = load_dataset("trl-lib/tldr", split="train")
+    dataset = load_dataset("trl-lib/ultrafeedback-prompt", split="train", limit=1000)
     current_model = "Qwen/Qwen3-0.6B"
     initialize_response = initialize_grpo(model=current_model)
     current_model = initialize_response.json()["current_model"]
@@ -98,7 +103,7 @@ def main():
             completions.append(
                 {"content": choice.message.content, "role": choice.message.role}
             )
-        rewards = _reward_func(inputs["prompt"], [c["content"] for c in completions])
+        rewards = _unique_letter_reward([c["content"] for c in completions])
         print(rewards, sum(rewards) / len(rewards))
 
         batch = []
