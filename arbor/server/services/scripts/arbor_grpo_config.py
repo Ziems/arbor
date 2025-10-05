@@ -7,6 +7,8 @@ import transformers
 from packaging import version
 from transformers import TrainingArguments  # type: ignore
 
+from peft import LoraConfig
+
 
 @dataclass
 class ArborGRPOConfig(TrainingArguments):
@@ -349,6 +351,12 @@ class ArborGRPOConfig(TrainingArguments):
             "`'dr_grpo'`: Aggregates token-level losses by normalizing with a global constant. This method was "
             "introduced in the Dr. GRPO paper to eliminate length bias. The value of the constant corresponds to "
             "`max_completion_length`."
+        },
+    )
+    lora_config: Optional["LoraConfig"] = field(
+        default=None,
+        metadata={
+            "help": "Configuration for the LoRA adapter. If `None`, no LoRA adapter is used."
         },
     )
     mask_env_responses: bool = field(

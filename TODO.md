@@ -1,0 +1,2 @@
+- [ ] Resolve where inference job config should be
+- [ ] Redo logs

@@ -5,7 +5,7 @@ from typing import Any, Dict, Mapping, Optional
 
 import zmq
 
-from arbor.server.services.coms.async_batch_requester import BatchResult
+from arbor.server.services.comms.async_batch_requester import BatchResult
 
 LOGGER = logging.getLogger(__name__)
 

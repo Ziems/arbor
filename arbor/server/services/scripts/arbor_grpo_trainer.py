@@ -1,4 +1,7 @@
 import torch
+from arbor.server.services.comms.control_client import TrainerControlClient
+import json
+import argparse
 import wandb 
 import time
 import zmq
@@ -20,7 +23,7 @@ from trl.models.utils import _ForwardRedirection
 from transformers.trainer_utils import seed_worker
 import logging
 from trl.trainer.callbacks import SyncRefModelCallback
-from arbor.async_batch_requester import AsyncBatchRequester, BatchRequest, BatchResult
+from arbor.server.services.comms.async_batch_requester import AsyncBatchRequester, BatchRequest, BatchResult
 
 from arbor.async_dataloader_wrapper import AsyncDataLoaderWrapper
 from collections import defaultdict, deque
@@ -112,18 +115,13 @@ class ArborGRPOTrainer(Trainer):
     def __init__(
         self,
         model: str,
-        args: Optional[ArborGRPOConfig] = None,
+        args: ArborGRPOConfig,
         callbacks: Optional[list[TrainerCallback]] = None,
         optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
-        peft_config: Optional["PeftConfig"] = None,
     ):
         self.logger = logging.getLogger(__name__)
         self.logger.debug(f"Starting __init__")
-        self._control_server: Optional[_TrainerControlServer] = None
-        if args is None:
-            model_name = model if isinstance(model, str) else model.config._name_or_path
-            model_name = model_name.split("/")[-1]
-            args = ArborGRPOConfig(f"{model_name}-GRPO")
+        self._control_client: Optional[TrainerControlClient] = None
         
         # Trained model
         model_init_kwargs = args.model_init_kwargs or {}
@@ -144,8 +142,8 @@ class ArborGRPOTrainer(Trainer):
         architecture = getattr(transformers, config.architectures[0])
         model = architecture.from_pretrained(model_id, **model_init_kwargs)
 
-        if peft_config is not None or (is_peft_available() and isinstance(model, PeftModel)):
-            model = prepare_peft_model(model, peft_config, args)        
+        if args.lora_config is not None:
+            model = prepare_peft_model(model, args.lora_config, args)        
             # Override sync_ref_model if PEFT is used since ref_model will be None
             if args.sync_ref_model:
                 self.logger.warning(
@@ -240,7 +238,7 @@ class ArborGRPOTrainer(Trainer):
                 "`importance_sampling_level` to 'token'."
             )
         
-                # Multi-step
+        # Multi-step
         self.num_iterations = args.num_iterations  # = 𝜇 in the GRPO paper
         self.epsilon_low = args.epsilon
         self.epsilon_high = args.epsilon_high if args.epsilon_high is not None else args.epsilon
@@ -402,8 +400,8 @@ class ArborGRPOTrainer(Trainer):
             generation_timeout=args.async_generation_timeout,
         )
         if self.accelerator.is_main_process and args.control_endpoint:
-            self._control_server = _TrainerControlServer(self, args.control_endpoint)
-            self._control_server.start()
+            self._control_client = TrainerControlClient(self, args.control_endpoint)
+            self._control_client.start()
         logger.debug(f"Done with __init__")
     
     def get_train_dataloader(self):
@@ -518,8 +516,8 @@ class ArborGRPOTrainer(Trainer):
         # and broadcast the state to all processes
         is_generating = False
         if self.accelerator.is_main_process:
-            if self._control_server is not None:
-                is_generating = self._control_server.has_active_inference()
+            if self._control_client is not None:
+                is_generating = self._control_client.has_active_inference()
             else:
                 # Fallback to async requester queue if control server is unavailable
                 is_generating = self.async_requester.get_pending_count() > 0
@@ -540,8 +538,8 @@ class ArborGRPOTrainer(Trainer):
 
             # Check again and broadcast
             if self.accelerator.is_main_process:
-                if self._control_server is not None:
-                    is_generating = self._control_server.has_active_inference()
+                if self._control_client is not None:
+                    is_generating = self._control_client.has_active_inference()
                 else:
                     is_generating = self.async_requester.get_pending_count() > 0
             is_generating_list = [is_generating]
@@ -603,9 +601,9 @@ class ArborGRPOTrainer(Trainer):
         try:
             return super()._inner_training_loop(*args, **kwargs)
         finally:
-            if self.accelerator.is_main_process and self._control_server is not None:
-                self._control_server.stop()
-                self._control_server = None
+            if self.accelerator.is_main_process and self._control_client is not None:
+                self._control_client.stop()
+                self._control_client = None
             # Clean up async generator on all processes
             if (
                 self.async_requester and
@@ -1131,10 +1129,28 @@ class ArborGRPOTrainer(Trainer):
         self._metrics[mode]["completions/max_terminated_length"].append(
             float(max(term_lengths))
         )
-    
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--trainer_config_json", required=True)
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--command_port", type=int, required=True)
+    parser.add_argument("--vllm_server_port", type=int, required=True)
+    return parser.parse_args()
+
+def build_trainer_config(args: argparse.Namespace) -> ArborGRPOConfig:
+    cfg = json.loads(args.trainer_config_json)
+    return ArborGRPOConfig(**cfg)
+
         
 def main():
-    trainer = build_trainer(args)
+    args = parse_args()
+    trainer_config = build_trainer_config(args)
+    trainer = ArborGRPOTrainer(
+        model=args.model,
+        args=trainer_config,
+    )
 
     stop_flag = threading.Event()
     try:

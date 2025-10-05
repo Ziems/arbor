@@ -21,12 +21,13 @@ from arbor.server.services.jobs.inference_job import InferenceJob
 from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
 from arbor.server.services.jobs.job import Job, JobArtifact
 from arbor.server.services.managers.inference_manager import InferenceManager
+from arbor.server.services.scripts.arbor_grpo_config import ArborGRPOConfig
 from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
 from arbor.server.utils.mock_utils import get_script_path, setup_mock_environment
 from arbor.server.utils.process_runner import AccelerateProcessRunner
-
-from arbor.server.services.coms.control_server import TrainerControlServer
+from arbor.server.services.api.models.schemas import InferenceJobRequest
+from arbor.server.services.comms.control_server import TrainerControlServer
 
 logger = get_logger(__name__)
 
@@ -82,88 +83,59 @@ class GRPOJob(Job):
         train_kwargs = request.model_dump(exclude_unset=True)
         return {**default_train_kwargs, **(train_kwargs or {})}
 
-    def process_training_args(
-        self, train_kwargs: GRPOInitializeRequest
-    ) -> tuple[dict, dict]:
-        # NOTE: These also need to be in the GRPOConfigRequest
-        trl_keys = [
-            "output_dir",
-            "temperature",
-            "beta",
-            "num_iterations",
-            "num_generations",
-            "per_device_train_batch_size",
-            "learning_rate",
-            "gradient_accumulation_steps",
-            "gradient_checkpointing",
-            "lr_scheduler_type",
-            "max_prompt_length",
-            "max_completion_length",
-            "gradient_checkpointing_kwargs",
-            "bf16",
-            "scale_rewards",
-            "max_grad_norm",
-            "report_to",
-            "log_completions",
-            "logging_steps",
-            "generation_batch_size",
-            "mask_truncated_completions",
-        ]
-        trl_train_kwargs = {
-            key: train_kwargs[key] for key in trl_keys if key in train_kwargs
-        }
 
-        arbor_keys = [
-            "max_context_length",
-            "lora",
-            "wandb_kwargs",
-            "grpo_flavor",
-        ]
-        arbor_train_kwargs = {
-            key: train_kwargs[key] for key in arbor_keys if key in train_kwargs
-        }
+    def _build_trainer_config(
+        self, request: GRPOInitializeRequest, output_dir: str, vllm_port: int
+    ) -> ArborGRPOConfig:
+        if output_dir is None:
+            raise ValueError("output_dir is required to build ArborGRPOConfig")
+        
+        trainer_kwargs = request.trainer_config.model_dump(
+            exclude_unset=True,
+        )
+        wandb_kwargs = request.wandb_config.model_dump(
+            exclude_unset=True,
+        )
 
-        return trl_train_kwargs, arbor_train_kwargs
+        config = ArborGRPOConfig(**trainer_kwargs, **wandb_kwargs)
+
+        config.output_dir = output_dir
+        config.vllm_server_port = vllm_port
+        return config
+
 
     def initialize(
         self, request: GRPOInitializeRequest, inference_manager: InferenceManager
     ):
-        self.train_kwargs = self.find_training_args(request)
-        trl_train_kwargs, arbor_train_kwargs = self.process_training_args(
-            self.train_kwargs
-        )
+        def _allocate_gpus(gpu_config: GRPOGPUConfig):
+            if not self.gpu_manager:
+                raise RuntimeError("GPU manager is required for GRPO")
+            num_inference_gpus = gpu_config.multi.num_inference_gpus
+            num_training_gpus = gpu_config.multi.num_training_gpus
+            total_gpus = num_inference_gpus + num_training_gpus
+            all_gpus = self.gpu_manager.allocate_gpus(self.id, total_gpus)
+            inference_gpus = all_gpus[:num_inference_gpus]
+            training_gpus = all_gpus[num_inference_gpus:]
+            self.logger.info(
+                f"Allocated GPUs {inference_gpus} for inference and {training_gpus} for training"
+            )
+            return inference_gpus, training_gpus
 
-        # Allocate GPUs based on sharing configuration
-        if not self.gpu_manager:
-            raise RuntimeError("GPU manager is required for GRPO")
+        inference_gpus, training_gpus = _allocate_gpus(request.gpu_config)
 
-        # Check GPU configuration directly from request
-        gpu_config = request.gpu_config
+        def _launch_inference_job(inference_config: InferenceJobRequest, inference_gpus: list[int]):
+            # TODO: This "InferenceLaunchConfig"needs to be cleaned up to be more inline with the other config and request structures
+            inference_launch_config = InferenceLaunchConfig(
+                max_context_length=inference_config.max_context_length,
+                gpu_ids=inference_gpus,
+                is_grpo=True,
+                grpo_job_id=self.id,
+            )
+            logger.info("Launching inference server...")
+            return inference_manager.launch_job(request.model, inference_launch_config)
 
-        # Use config GPU counts
-        num_inference_gpus = gpu_config.multi.num_inference_gpus
-        num_training_gpus = gpu_config.multi.num_training_gpus
+        self.inference_job = _launch_inference_job(request.inference_config, inference_gpus)
 
-        # Allocate separate GPUs for inference and training
-        total_gpus = num_inference_gpus + num_training_gpus
-        all_gpus = self.gpu_manager.allocate_gpus(self.id, total_gpus)
-        inference_gpus = all_gpus[:num_inference_gpus]
-        training_gpus = all_gpus[num_inference_gpus:]
-        logger.info(
-            f"Allocated {total_gpus} GPUs for GRPO job {self.id}: inference={inference_gpus}, training={training_gpus}"
-        )
-
-        inference_launch_config = InferenceLaunchConfig(
-            max_context_length=arbor_train_kwargs.get("max_context_length", None),
-            gpu_ids=inference_gpus,
-            is_grpo=True,
-            grpo_job_id=self.id,
-        )
-        logger.info("Launching inference server...")
-        self.inference_job = inference_manager.launch_job(
-            request.model,
-            inference_launch_config,
-        )
 
         # Set up logging paths for both GRPO and inference jobs
         log_dir = self._make_log_dir()
@@ -179,7 +151,7 @@ class GRPOJob(Job):
         script_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"
         )
-        script_name = "grpo_training.py"
+        script_name = "arbor_grpo_trainer.py"
         script_path = get_script_path(script_name, script_dir)
 
         my_env = os.environ.copy()
@@ -189,13 +161,13 @@ class GRPOJob(Job):
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
 
         # Handle WandB configuration
-        if trl_train_kwargs.get("report_to") == "wandb":
+        if request.wandb_config is not None:
             # WandB is explicitly requested, just silence login prompts
             my_env["WANDB_SILENT"] = "true"
         else:
             # WandB not requested, disable it completely to avoid login errors
             my_env["WANDB_SILENT"] = "true"
-            trl_train_kwargs["report_to"] = "none"
+            request.wandb_config.project = "none"
 
         # Setup mock environment if needed
         my_env = setup_mock_environment(my_env)
@@ -210,38 +182,22 @@ class GRPOJob(Job):
         # Use clean process runner for GRPO training
         self.process_runner = AccelerateProcessRunner(self.id)
 
-        script_args = [
-            
-
-        ]
+        trainer_config: ArborGRPOConfig = self._build_trainer_config(
+            request, self.inference_job.port
+        )
+        trainer_config_json = json.dumps(
+            trainer_config.to_sanitized_dict(), separators=(",", ":")
+        )
 
         # Build script args directly (everything that goes after the script path)
         script_args = [
-            # Comms args
-            "--host",
-            self.server_comms_handler.host,
-            "--command_port",
-            str(self.server_comms_handler.command_port),
-            "--event_port",
-            str(self.server_comms_handler.event_port),
-            "--data_port",
-            str(self.server_comms_handler.data_port),
-            "--broadcast_port",
-            str(self.server_comms_handler.broadcast_port),
-            "--handshake_port",
-            str(self.server_comms_handler.handshake_port),
-            "--vllm_port",
-            str(self.inference_job.port),
-            "--vllm_group_port",
-            str(self.inference_job.group_port),
             # Training args
-            "--model",
-            request.model,
-            "--trl_train_kwargs",
-            json.dumps(trl_train_kwargs),
-            "--arbor_train_kwargs",
-            json.dumps(arbor_train_kwargs),
-        ]
+            "--model", request.model,
+            "--trainer_config_json", trainer_config_json,
+             # Comms args
+            "--vllm_server_port", str(self.inference_job.port),
+            "--command_port", str(self.server_comms_handler.command_port),
+       ]
 
         self.training_process = self.process_runner.start_training(
             script_path=script_path,
