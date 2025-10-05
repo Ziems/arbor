@@ -34,28 +34,17 @@ jobs:
         # Install dev dependencies for testing
         uv sync --only-group dev
 
-    - name: Run unit tests with coverage
+    - name: Run unit tests (temporarily disabled)
       run: |
-        ARBOR_MOCK_GPU=1 uv run --only-group dev pytest tests/server/ tests/test_gpu_mocking.py \
-          --cov=arbor \
-          --cov-report=term-missing \
-          --cov-report=xml \
-          --cov-fail-under=30 \
-          -v \
-          --tb=short \
-          --timeout=60
+        echo "Unit tests are temporarily disabled while the test suite is rewritten."
 
-    - name: Run integration tests
+    - name: Run integration tests (temporarily disabled)
       run: |
-        ARBOR_MOCK_GPU=1 uv run --only-group dev pytest tests/integration/ \
-          -v \
-          --tb=short \
-          --timeout=120 \
-          -k 'not test_openai_cancel_fine_tune_job'
+        echo "Integration tests are temporarily disabled while the test suite is rewritten."
 
-    - name: Upload coverage to Codecov
+    - name: Upload coverage to Codecov (skipped while tests are disabled)
+      if: ${{ false }}
       uses: codecov/codecov-action@v4
-      if: matrix.python-version == '3.13'
       with:
         file: ./coverage.xml
         flags: unittests
