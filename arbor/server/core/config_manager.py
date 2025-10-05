@@ -27,21 +27,17 @@ class ConfigManager:
 
     @staticmethod
     def get_config_template() -> Dict:
-        return {"inference": {"gpu_ids": [0]}, "training": {"gpu_ids": [1, 2]}}
+        return {"storage_path": str(Path.home() / ".arbor" / "storage")}
 
     @classmethod
     def update_config(
         cls,
-        inference_gpus: Optional[str] = None,
-        training_gpus: Optional[str] = None,
         config_path: Optional[str] = None,
     ) -> str:
         """Update existing config or create new one."""
 
         if config_path is None:
-            config_path = Config.use_default_config()
-            if config_path is None:
-                config_path = str(cls.get_default_config_path())
+            config_path = str(cls.get_default_config_path())
 
         config_file = Path(config_path)
         config_file.parent.mkdir(parents=True, exist_ok=True)
@@ -52,23 +48,6 @@ class ConfigManager:
                 config = yaml.safe_load(f) or {}
         else:
             config = cls.get_config_template()
-
-        # Update values given - convert string inputs to lists
-        if inference_gpus is not None:
-            if "inference" not in config:
-                config["inference"] = {}
-            # Convert string like "0" or "1,2" to list of integers
-            config["inference"]["gpu_ids"] = [
-                int(x.strip()) for x in str(inference_gpus).split(",")
-            ]
-
-        if training_gpus is not None:
-            if "training" not in config:
-                config["training"] = {}
-            # Convert string like "0" or "1,2" to list of integers
-            config["training"]["gpu_ids"] = [
-                int(x.strip()) for x in str(training_gpus).split(",")
-            ]
 
         temp_path = config_file.with_suffix(".tmp")
         try:
@@ -90,7 +69,7 @@ class ConfigManager:
                 return False, f"Config file does not exist: {config_path}"
 
             # If we do have a config file, try to see if it will load
-            Config.load_config_from_yaml(config_path)
+            Config.load(config_path)
             return True, "Config is valid"
 
         except Exception as e:

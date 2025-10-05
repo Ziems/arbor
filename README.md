@@ -132,8 +132,10 @@ For remote servers or custom configurations, use the CLI approach:
 
 **1. Create config at `~/.arbor/config.yaml`:**
 ```yaml
-gpu_ids: [0, 1, 2, 3]
+storage_path: ~/.arbor/storage
 ```
+
+The server will automatically detect available GPUs at startup.
 
 **2. Start server:**
 ```bash

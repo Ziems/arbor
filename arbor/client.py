@@ -11,7 +11,6 @@ import os
 import socket
 import threading
 import time
-import warnings
 from contextlib import closing
 from typing import Any, Dict, Optional
 
@@ -71,7 +70,6 @@ def init(
     host: str = "127.0.0.1",
     port: Optional[int] = None,
     storage_path: Optional[str] = None,
-    gpu_ids: Optional[list] = None,
     auto_config: bool = True,
     silent: bool = False,
 ) -> Dict[str, Any]:
@@ -82,7 +80,6 @@ def init(
         host: Host to bind server to (default: "127.0.0.1" for security)
         port: Port to bind to (default: auto-find starting from 7453)
         storage_path: Storage path for Arbor data (default: /content/.arbor in Colab)
-        gpu_ids: List of GPU IDs to use (default: auto-detect available GPUs)
         auto_config: Automatically create config if needed (default: True)
         silent: Suppress startup messages (default: False)
 
@@ -124,49 +121,12 @@ def init(
     # Ensure storage directory exists
     os.makedirs(storage_path, exist_ok=True)
 
-    # Auto-detect GPUs if not specified
-    if gpu_ids is None and auto_config:
-        try:
-            import torch
-
-            if torch.cuda.is_available():
-                gpu_ids = list(range(torch.cuda.device_count()))
-                if not silent:
-                    print(f"Auto-detected {len(gpu_ids)} GPU(s): {gpu_ids}")
-            else:
-                gpu_ids = []
-                if not silent:
-                    print("No GPUs detected, using CPU mode")
-        except ImportError:
-            gpu_ids = []
-            if not silent:
-                print("PyTorch not available, using CPU mode")
-
     # Create config file if auto_config is enabled
     if auto_config:
         config_path = os.path.join(storage_path, "config.yaml")
         if not os.path.exists(config_path):
-            # Split GPUs half and half between inference and training
-            all_gpus = gpu_ids or []
-            if len(all_gpus) >= 2:
-                mid_point = len(all_gpus) // 2
-                inference_gpus = all_gpus[:mid_point]
-                training_gpus = all_gpus[mid_point:]
-            elif len(all_gpus) == 1:
-                # Single GPU - use for inference only to avoid conflicts
-                inference_gpus = all_gpus
-                training_gpus = []
-            else:
-                # No GPUs specified
-                inference_gpus = []
-                training_gpus = []
-
             config_content = f"""
 storage_path: {os.path.join(storage_path, "storage")}
-inference:
-  gpu_ids: {inference_gpus}
-training:
-  gpu_ids: {training_gpus}
 """
             os.makedirs(os.path.dirname(config_path), exist_ok=True)
             with open(config_path, "w") as f:
@@ -195,7 +155,6 @@ training:
             "config_path": (
                 os.path.join(storage_path, "config.yaml") if auto_config else None
             ),
-            "gpu_ids": gpu_ids,
             "base_url": f"http://{host}:{port}/v1/",
         }
 
