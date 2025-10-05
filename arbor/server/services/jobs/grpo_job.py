@@ -17,7 +17,6 @@ from arbor.server.api.models.schemas import (
     GRPOStepRequest,
 )
 from arbor.server.core.config import Config
-from arbor.server.services.comms.comms import ArborServerCommsHandler
 from arbor.server.services.jobs.inference_job import InferenceJob
 from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
 from arbor.server.services.jobs.job import Job, JobArtifact
@@ -26,6 +25,8 @@ from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
 from arbor.server.utils.mock_utils import get_script_path, setup_mock_environment
 from arbor.server.utils.process_runner import AccelerateProcessRunner
+
+from arbor.server.services.coms.control_server import TrainerControlServer
 
 logger = get_logger(__name__)
 
@@ -171,14 +172,14 @@ class GRPOJob(Job):
             self.inference_job.log_file_path = os.path.join(log_dir, "inference.log")
 
         # Initialize ZMQ socket manager - no need for connection acceptance thread anymore
-        self.server_comms_handler = ArborServerCommsHandler()
+        self.trainer_controller = TrainerControlServer(
+            endpoint=f"tcp://{self.server_comms_handler.host}:{self.server_comms_handler.command_port}"
+        )
 
         script_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"
         )
-        script_name = {"mmgrpo": "mmgrpo_training.py", "grpo": "grpo_training.py"}[
-            arbor_train_kwargs["grpo_flavor"]
-        ]
+        script_name = "grpo_training.py"
         script_path = get_script_path(script_name, script_dir)
 
         my_env = os.environ.copy()
@@ -196,14 +197,6 @@ class GRPOJob(Job):
             my_env["WANDB_SILENT"] = "true"
             trl_train_kwargs["report_to"] = "none"
 
-        # Configure ZMQ for better stability and error handling
-        my_env["ZMQ_MAX_SOCKETS"] = "1024"
-        my_env["ZMQ_IO_THREADS"] = "1"
-        # Increase file descriptor limits to prevent resource exhaustion
-        my_env["RLIMIT_NOFILE"] = "4096"
-        # Set ZMQ socket options for better error handling
-        my_env["ZMQ_LINGER"] = "0"
-
         # Setup mock environment if needed
         my_env = setup_mock_environment(my_env)
 
@@ -216,6 +209,11 @@ class GRPOJob(Job):
 
         # Use clean process runner for GRPO training
         self.process_runner = AccelerateProcessRunner(self.id)
+
+        script_args = [
+            
+
+        ]
 
         # Build script args directly (everything that goes after the script path)
         script_args = [

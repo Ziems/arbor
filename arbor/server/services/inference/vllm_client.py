@@ -1,38 +1,23 @@
-# adapted from Will Brown's verifiers library (https://github.com/willccbb/verifiers)
-
-import asyncio
 import atexit
 import logging
 import time
-import traceback
-from typing import Optional
 
-import httpx
 import requests
-import torch
+import torch  # type: ignore
+from openai import AsyncOpenAI
 from requests import ConnectionError
 from requests.adapters import HTTPAdapter
-from torch import nn
-from trl.import_utils import is_requests_available, is_vllm_available
-from vllm.distributed.device_communicators.pynccl import PyNcclCommunicator
-from vllm.distributed.utils import StatelessProcessGroup
+from requests.exceptions import RequestException, Timeout
+from trl.import_utils import is_requests_available, is_vllm_available  # type: ignore
+from vllm.distributed.device_communicators.pynccl import (  # type: ignore
+    PyNcclCommunicator,
+)
+from vllm.distributed.utils import StatelessProcessGroup  # type: ignore
 
 logger = logging.getLogger(__name__)
 
-# Add these new constants near the top of the file
-MAX_INFERENCE_RETRIES = 3
-INFERENCE_RETRY_DELAY = 1.0  # seconds
-INFERENCE_BLOCKED_STATUS = 503  # HTTP status code to use when inference is blocked
 
-
-# Add this new custom exception
-class InferenceBlockedError(Exception):
-    """Raised when inference is blocked due to weight updates in progress."""
-
-    pass
-
-
-class VLLMClient:
+class VLLMClient(AsyncOpenAI):
     """
     A client class to interact with a vLLM server.
 
@@ -91,7 +76,7 @@ class VLLMClient:
                 "vLLM is not installed. Please install it with `pip install vllm`."
             )
 
-        self.base_url = f"http://{host}:{port}/v1"
+        super().__init__(base_url=f"http://{host}:{port}/v1", api_key="local")
         self.session = requests.Session()
         # Configure connection pooling to handle rapid requests better
         adapter = HTTPAdapter(
@@ -102,6 +87,8 @@ class VLLMClient:
 
         self.host = host
         self.server_port = port  # Renamed from server_port to port to match super init
+        self.server_url = f"http://{self.host}:{self.server_port}"
+
         self.group_port = group_port
         self.check_server(connection_timeout)  # check server and fail after timeout
 
@@ -116,27 +103,27 @@ class VLLMClient:
             total_timeout (`float`, *optional*, defaults to `0.0`):
                 Total timeout duration in seconds.
         """
-        url = f"http://{self.host}:{self.server_port}/health/"
+        url = f"{self.server_url}/health"
         start_time = time.time()  # Record the start time
 
         while True:
             try:
-                response = requests.get(url)  # type: ignore
-            except requests.exceptions.RequestException as exc:  # type: ignore
+                response = requests.get(url)
+            except RequestException as exc:
                 # Check if the total timeout duration has passed
                 elapsed_time = time.time() - start_time
                 if elapsed_time >= total_timeout:
-                    raise ConnectionError(  # type: ignore
+                    raise ConnectionError(
                         f"The vLLM server can't be reached at {self.host}:{self.server_port} after {total_timeout} "
                         "seconds. Make sure the server is running by running `trl vllm-serve`."
                     ) from exc
             else:
                 if response.status_code == 200:
-                    logger.debug("Server is up!")
+                    logger.info("Server is up!")
                     return None
 
-            # Retry logic: wait before tryng again
-            logger.debug(
+            # Retry logic: wait before trying again
+            logger.info(
                 f"Server is not up yet. Retrying in {retry_interval} seconds..."
             )
             time.sleep(retry_interval)
@@ -145,50 +132,39 @@ class VLLMClient:
         """
         Initializes the weight update group in a distributed setup for model synchronization.
         """
-        logger.info(f"[VLLM_CLIENT] Starting init_communicator")
 
         # Get the world size from the server
-        url = f"http://{self.host}:{self.server_port}/get_world_size/"
-        logger.info(f"[VLLM_CLIENT] Getting world size from {url}")
+        url = f"{self.server_url}/get_world_size"
         try:
             response = requests.get(url)
-            logger.info(
-                f"[VLLM_CLIENT] World size response: status={response.status_code}"
-            )
         except Exception as e:
-            logger.error(f"[VLLM_CLIENT] Failed to get world size: {e}")
+            logger.error(f"Failed to get world size: {e}")
             raise
 
         if response.status_code == 200:
             vllm_world_size = response.json()["world_size"]
-            logger.info(f"[VLLM_CLIENT] vLLM world size: {vllm_world_size}")
+            logger.info(f"vLLM world size: {vllm_world_size}")
         else:
             raise Exception(f"Request failed: {response.status_code}, {response.text}")
 
         world_size = vllm_world_size + 1  # add the client to the world
         self.rank = vllm_world_size  # the client's rank is the last process
-        logger.info(
-            f"[VLLM_CLIENT] Client rank: {self.rank}, total world size: {world_size}"
-        )
+        logger.info(f"Client rank: {self.rank}, total world size: {world_size}")
 
         # Initialize weight update group
-        url = f"http://{self.host}:{self.server_port}/init_communicator/"
-        logger.info(f"[VLLM_CLIENT] Sending init_communicator request to {url}")
-        # In the server side, the host is set to 0.0.0.0
+        url = f"{self.server_url}/init_communicator"
+        # Send the actual host address for the StatelessProcessGroup connection
         try:
             response = self.session.post(
                 url,
                 json={
-                    "host": "0.0.0.0",
+                    "host": self.host,
                     "port": self.group_port,
                     "world_size": world_size,
                 },
             )
-            logger.info(
-                f"[VLLM_CLIENT] Init communicator response: status={response.status_code}"
-            )
         except Exception as e:
-            logger.error(f"[VLLM_CLIENT] Failed to init communicator: {e}")
+            logger.error(f"Failed to init communicator: {e}")
             raise
 
         if response.status_code != 200:
@@ -206,59 +182,12 @@ class VLLMClient:
         # Use device 0 like the old code - this seems to work better for multi-GPU setups
         device = 0
         logger.info(
-            f"[VLLM_CLIENT] Initializing PyNcclCommunicator on device {device}, rank {self.rank}, world_size {world_size}"
+            f"Initializing PyNcclCommunicator on device {device}, rank {self.rank}, world_size {world_size}"
         )
         self.pynccl_comm = PyNcclCommunicator(pg, device=device)
 
         # When the client object is deleted, close the weight update group
         atexit.register(self.close_communicator)
-
-    async def chat(self, json_body: dict) -> dict:
-        """
-        Send a chat completion request with retry logic for when inference is blocked.
-        """
-        url = f"http://{self.host}:{self.server_port}/v1/chat/completions"
-
-        retries = 0
-        while retries < MAX_INFERENCE_RETRIES:
-            try:
-                async with httpx.AsyncClient() as client:
-                    response = await client.post(url, json=json_body, timeout=300)
-
-                    if response.status_code == INFERENCE_BLOCKED_STATUS:
-                        retries += 1
-                        if retries < MAX_INFERENCE_RETRIES:
-                            logger.warning(
-                                f"Inference blocked (weight update in progress). Retry {retries}/{MAX_INFERENCE_RETRIES} in {INFERENCE_RETRY_DELAY}s"
-                            )
-                            await asyncio.sleep(INFERENCE_RETRY_DELAY)
-                            continue
-                        else:
-                            raise InferenceBlockedError(
-                                "Inference blocked by weight updates after max retries"
-                            )
-
-                    response.raise_for_status()
-                    return response.json()
-
-            except httpx.TimeoutException:
-                logger.error("Request timed out")
-                raise
-            except InferenceBlockedError:
-                raise
-            except Exception as e:
-                retries += 1
-                if retries < MAX_INFERENCE_RETRIES:
-                    logger.warning(
-                        f"Request failed. Retry {retries}/{MAX_INFERENCE_RETRIES} in {INFERENCE_RETRY_DELAY}s. Error: {e}"
-                    )
-                    await asyncio.sleep(INFERENCE_RETRY_DELAY)
-                else:
-                    logger.error(
-                        f"Request failed after {MAX_INFERENCE_RETRIES} retries. Error: {e}\n"
-                        f"Stack trace:\n{traceback.format_exc()}"
-                    )
-                    raise
 
     def update_named_param(self, name: str, weights: torch.Tensor):
         """
@@ -271,169 +200,49 @@ class VLLMClient:
                 Tensor containing the updated weights.
         """
         dtype, shape = str(weights.dtype), tuple(weights.shape)
-        url = f"http://{self.host}:{self.server_port}/update_named_param/"
-        logger.debug(f"[VLLM_CLIENT] Sending weight update request for {name}")
+        url = f"{self.server_url}/update_named_param"
 
         # Add timeout to prevent hanging on HTTP request
         try:
             response = self.session.post(
                 url, json={"name": name, "dtype": dtype, "shape": shape}, timeout=300.0
             )
-            if response.status_code != 200:
-                raise Exception(
-                    f"Request failed: {response.status_code}, {response.text}"
-                )
-        except requests.exceptions.Timeout:
-            logger.error(
-                f"[VLLM_CLIENT] Timeout waiting for server response for {name} after 300s"
-            )
+        except Timeout:
+            logger.error(f"Timeout waiting for server response for {name} after 300s")
             raise Exception(f"Request timeout for {name} after 300s")
         except Exception as e:
-            logger.error(f"[VLLM_CLIENT] Error sending request for {name}: {e}")
+            logger.error(f"Error sending request for {name}: {e}")
             raise
 
-        logger.debug(
-            f"[VLLM_CLIENT] Server responded, starting NCCL broadcast for {name}"
-        )
+        if response.status_code != 200:
+            raise Exception(f"Request failed: {response.status_code}, {response.text}")
 
         # Broadcast the weights to the other processes
         self.pynccl_comm.broadcast(weights, src=self.rank)
-        logger.debug(
-            f"[VLLM_CLIENT] NCCL broadcast complete, waiting at barrier for {name}"
-        )
         self.pynccl_comm.group.barrier()
-        logger.debug(f"[VLLM_CLIENT] Barrier passed for {name}")
-
-    def update_model_params(self, model: nn.Module):
-        """
-        Updates all parameters of the given model by calling `update_named_param` for each parameter in the model.
-
-        Args:
-            model (`nn.Module`):
-                Model whose parameters (weights/biases) are to be updated.
-        """
-        for name, param in model.named_parameters():
-            # Update each parameter individually
-            self.update_named_param(name, param.data)
-
-    def batch_update_model_params(self, model: nn.Module, batch_size: int = 50):
-        """
-        Updates all parameters of the given model in batches to reduce overhead and prevent overwhelming the server.
-
-        This method coordinates with the server to ensure proper NCCL synchronization:
-        1. Send batch of parameter metadata to server
-        2. Server notifies workers for each parameter
-        3. Client broadcasts each parameter via NCCL after server confirmation
-
-        Args:
-            model (`nn.Module`):
-                Model whose parameters (weights/biases) are to be updated.
-            batch_size (`int`, *optional*, defaults to 50):
-                Number of parameters to update in each batch.
-        """
-        # Collect all parameters
-        all_params = list(model.named_parameters())
-        total_params = len(all_params)
-
-        logger.info(
-            f"[VLLM_CLIENT] Starting batch update of {total_params} parameters in batches of {batch_size}"
-        )
-
-        # Process in batches
-        for batch_idx, i in enumerate(range(0, total_params, batch_size)):
-            batch_params = all_params[i : i + batch_size]
-
-            # Prepare batch update request
-            batch_updates = []
-            for name, param in batch_params:
-                batch_updates.append(
-                    {
-                        "name": name,
-                        "dtype": str(param.data.dtype),
-                        "shape": list(param.data.shape),
-                    }
-                )
-
-            # Send batch update request
-            url = f"http://{self.host}:{self.server_port}/batch_update_named_params/"
-            logger.debug(
-                f"[VLLM_CLIENT] Sending batch {batch_idx + 1} with {len(batch_updates)} parameters"
-            )
-
-            try:
-                response = self.session.post(
-                    url, json={"updates": batch_updates}, timeout=600.0
-                )
-                if response.status_code not in [200, 207]:  # 207 is Multi-Status
-                    raise Exception(
-                        f"Batch request failed: {response.status_code}, {response.text}"
-                    )
-
-                result = response.json()
-
-                # Check for partial failures
-                if response.status_code == 207:
-                    logger.warning(
-                        f"[VLLM_CLIENT] Batch had errors: {result.get('errors', [])}"
-                    )
-
-                # Get list of successfully notified parameters
-                successful_params = result.get("successful", [])
-                if not successful_params:
-                    logger.error(
-                        f"[VLLM_CLIENT] No successful parameters in batch response"
-                    )
-                    continue
-
-            except requests.exceptions.Timeout:
-                logger.error(
-                    f"[VLLM_CLIENT] Timeout waiting for batch response after 600s"
-                )
-                raise Exception(f"Batch request timeout after 600s")
-            except Exception as e:
-                logger.error(f"[VLLM_CLIENT] Error sending batch request: {e}")
-                raise
-
-            # Now broadcast weights for successfully notified parameters
-            logger.debug(
-                f"[VLLM_CLIENT] Broadcasting weights for {len(successful_params)} parameters in batch {batch_idx + 1}"
-            )
-
-            for name, param in batch_params:
-                if name in successful_params:
-                    try:
-                        # Broadcast this specific parameter
-                        self.pynccl_comm.broadcast(param.data, src=self.rank)
-                        self.pynccl_comm.group.barrier()
-                        logger.debug(f"[VLLM_CLIENT] Broadcast complete for {name}")
-                    except Exception as e:
-                        logger.error(f"[VLLM_CLIENT] Failed to broadcast {name}: {e}")
-                        raise
-                else:
-                    logger.warning(
-                        f"[VLLM_CLIENT] Skipping broadcast for {name} - not in successful list"
-                    )
-
-            logger.debug(f"[VLLM_CLIENT] Completed batch {batch_idx + 1}")
-
-        logger.info(
-            f"[VLLM_CLIENT] Batch update complete for {total_params} parameters"
-        )
 
     def reset_prefix_cache(self):
         """
         Resets the prefix cache for the model.
         """
-        url = f"http://{self.host}:{self.server_port}/reset_prefix_cache/"
+        url = f"{self.server_url}/reset_prefix_cache"
         response = self.session.post(url)
         if response.status_code != 200:
             raise Exception(f"Request failed: {response.status_code}, {response.text}")
+
+    def get_num_background_tasks(self):
+        """
+        Gets the number of background tasks.
+        """
+        url = f"{self.server_url}/get_num_background_tasks"
+        response = self.session.post(url)
+        return response.json()["num_background_tasks"]
 
     def close_communicator(self):
         """
         Closes the weight update group and cleans up the communication group.
         """
-        url = f"http://{self.host}:{self.server_port}/close_communicator/"
+        url = f"http://{self.host}:{self.server_port}/close_communicator"
 
         try:
             response = self.session.post(url)
