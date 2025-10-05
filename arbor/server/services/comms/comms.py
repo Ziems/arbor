@@ -3,6 +3,7 @@ import queue
 import socket
 import threading
 import time
+from typing import Optional
 
 import zmq
 
@@ -22,10 +23,10 @@ class ArborServerCommsHandler:
         self.command_socket = self.context.socket(zmq.REQ)
         self.command_port = self.command_socket.bind_to_random_port(f"tcp://{host}")
 
-        # Status socket (PUB/SUB pattern)
-        self.status_socket = self.context.socket(zmq.SUB)
-        self.status_port = self.status_socket.bind_to_random_port(f"tcp://{host}")
-        self.status_socket.setsockopt_string(zmq.SUBSCRIBE, "")
+        # Event socket (PUB/SUB pattern)
+        self.event_socket = self.context.socket(zmq.SUB)
+        self.event_port = self.event_socket.bind_to_random_port(f"tcp://{host}")
+        self.event_socket.setsockopt_string(zmq.SUBSCRIBE, "")
 
         # Data socket (PUB/SUB pattern)
         self.data_socket = self.context.socket(zmq.PUB)
@@ -47,16 +48,16 @@ class ArborServerCommsHandler:
     def send_broadcast(self, message):
         self.broadcast_socket.send_json(message)
 
-    def receive_status(self):
+    def receive_event(self):
         while True:
-            status = self.status_socket.recv_json()
-            yield status
+            event = self.event_socket.recv_json()
+            yield event
 
     def close(self):
         self.command_socket.setsockopt(zmq.LINGER, 0)
         self.command_socket.close()
-        self.status_socket.setsockopt(zmq.LINGER, 0)
-        self.status_socket.close()
+        self.event_socket.setsockopt(zmq.LINGER, 0)
+        self.event_socket.close()
         self.data_socket.setsockopt(zmq.LINGER, 0)
         self.data_socket.close()
         self.broadcast_socket.setsockopt(zmq.LINGER, 0)
@@ -83,7 +84,7 @@ class ArborScriptCommsHandler:
         self,
         host,
         command_port,
-        status_port,
+        event_port,
         data_port,
         broadcast_port,
         handshake_port,
@@ -97,11 +98,11 @@ class ArborScriptCommsHandler:
             self.command_socket = self.context.socket(zmq.REP)
             self.command_socket.connect(f"tcp://{host}:{command_port}")
 
-            self.status_socket = self.context.socket(zmq.PUB)
-            self.status_socket.connect(f"tcp://{host}:{status_port}")
+            self.event_socket = self.context.socket(zmq.PUB)
+            self.event_socket.connect(f"tcp://{host}:{event_port}")
         else:
             self.command_socket = None
-            self.status_socket = None
+            self.event_socket = None
 
         # Data socket (all processes)
         self.data_socket = self.context.socket(zmq.SUB)
@@ -120,9 +121,9 @@ class ArborScriptCommsHandler:
         self.handshake_socket.connect(f"tcp://{host}:{handshake_port}")
         self._send_handshake()
 
-    def send_status(self, status):
-        if self.status_socket is not None:
-            self.status_socket.send_json(status)
+    def send_event(self, event):
+        if self.event_socket is not None:
+            self.event_socket.send_json(event)
 
     def receive_command(self):
         if self.command_socket is not None:
@@ -164,8 +165,8 @@ class ArborScriptCommsHandler:
         self.closed = True
         if self.command_socket is not None:
             self.command_socket.close()
-        if self.status_socket is not None:
-            self.status_socket.close()
+        if self.event_socket is not None:
+            self.event_socket.close()
         self.data_socket.close()
         self.broadcast_socket.close()
         self.handshake_socket.close()
@@ -206,7 +207,7 @@ if __name__ == "__main__":
         script_comms = ArborScriptCommsHandler(
             "localhost",
             server_comms.command_port,
-            server_comms.status_port,
+            server_comms.event_port,
             server_comms.data_port,
             server_comms.broadcast_port,
             server_comms.handshake_port,

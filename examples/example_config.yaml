@@ -1,4 +1,2 @@
 storage_path: '~/.arbor/storage'
-gpu_ids: [0, 1, 2]
 accelerate_config: null
-inactivity_timeout: 30

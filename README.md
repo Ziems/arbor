@@ -132,8 +132,10 @@ For remote servers or custom configurations, use the CLI approach:
 
 **1. Create config at `~/.arbor/config.yaml`:**
 ```yaml
-gpu_ids: [0, 1, 2, 3]
+storage_path: ~/.arbor/storage
 ```
+
+The server will automatically detect available GPUs at startup.
 
 **2. Start server:**
 ```bash
@@ -190,6 +192,20 @@ If you don't have admin permissions, you can often install nvcc using conda.
 - Arbor-specific channel in the DSPy Discord: [Arbor Channel](https://discordapp.com/channels/1161519468141355160/1396547082839654430)
 
 ---
+
+## 🛠️ Development workflow
+
+To avoid merge surprises, make sure the `dev` branch is rebased on the
+latest `main` history before integrating feature work. A quick sanity
+check is to fetch the remote `main` ref and merge it locally:
+
+```bash
+git fetch origin main
+git checkout dev
+git merge origin/main
+```
+
+Only proceed with your feature merges once the commands above succeed.
 
 ## 🙏 Acknowledgements
 

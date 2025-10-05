@@ -2,6 +2,7 @@
 Clean abstraction for running long-running processes without the Popen ugliness.
 """
 
+import signal
 import subprocess
 import threading
 from pathlib import Path
@@ -20,6 +21,37 @@ class ProcessRunner:
         self.process: Optional[subprocess.Popen] = None
         self.log_thread: Optional[threading.Thread] = None
         self.stop_logging = threading.Event()
+
+        # Signal handling for cluster environments
+        self._setup_signal_handlers()
+
+    def _setup_signal_handlers(self):
+        """Setup signal handlers for graceful shutdown in cluster environments."""
+        try:
+
+            def signal_handler(signum, _):
+                logger.info(
+                    f"Received signal {signum} for job {self.job_id}, initiating graceful shutdown..."
+                )
+                self.terminate(timeout=5)  # Quick termination on signal
+
+            # Handle common termination signals
+            signal.signal(signal.SIGTERM, signal_handler)
+            signal.signal(signal.SIGINT, signal_handler)
+
+            # Handle SIGUSR1/SIGUSR2 for custom cluster signals
+            try:
+                signal.signal(signal.SIGUSR1, signal_handler)
+                signal.signal(signal.SIGUSR2, signal_handler)
+            except (OSError, ValueError):
+                # These signals might not be available on all systems
+                pass
+        except ValueError:
+            # signal.signal() can only be called from the main thread
+            logger.debug(
+                f"Cannot setup signal handlers for job {self.job_id} - not in main thread"
+            )
+            pass
 
     def start(
         self,

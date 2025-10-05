@@ -13,6 +13,7 @@ from arbor.server.api.models.schemas import (
     JobStatusModel,
 )
 from arbor.server.core.config import Config
+from arbor.server.services.managers.gpu_manager import GPUManager
 from arbor.server.services.comms.comms import ArborServerCommsHandler
 from arbor.server.services.jobs.job import Job, JobArtifact
 from arbor.server.services.managers.file_manager import FileManager
@@ -25,7 +26,7 @@ logger = get_logger(__name__)
 
 
 class FileTrainJob(Job):
-    def __init__(self, config: Config, gpu_manager=None):
+    def __init__(self, config: Config, gpu_manager: Optional[GPUManager] = None):
         # Training jobs need logs, models, and checkpoints
         super().__init__(
             config,
@@ -120,19 +121,13 @@ class FileTrainJob(Job):
         train_type: Literal["dpo", "sft"],
     ):
         # Allocate GPUs from GPU manager
-        if self.gpu_manager:
-            self.allocated_gpus = self.gpu_manager.allocate_gpus(
-                self.id, request.num_gpus
-            )
-            logger.info(
-                f"Allocated GPUs {self.allocated_gpus} for FileTrainJob {self.id}"
-            )
-        else:
-            # Fallback to using all config GPUs if no GPU manager
-            self.allocated_gpus = self.config.gpu_ids
-            logger.warning(
-                f"No GPU manager provided, using all config GPUs: {self.allocated_gpus}"
-            )
+        assert self.gpu_manager is not None, "FileTrainJob requires a GPUManager"
+        self.allocated_gpus = self.gpu_manager.allocate_gpus(
+            self.id, request.num_gpus
+        )
+        logger.info(
+            f"Allocated GPUs {self.allocated_gpus} for FileTrainJob {self.id}"
+        )
 
         find_train_args_fn = {
             "dpo": self.find_train_args_dpo,
@@ -192,8 +187,8 @@ class FileTrainJob(Job):
             self.server_comms_handler.host,
             "--command_port",
             str(self.server_comms_handler.command_port),
-            "--status_port",
-            str(self.server_comms_handler.status_port),
+            "--event_port",
+            str(self.server_comms_handler.event_port),
             "--data_port",
             str(self.server_comms_handler.data_port),
             "--broadcast_port",
