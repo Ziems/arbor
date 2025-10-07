@@ -205,6 +205,7 @@ class GRPOStatus(StrictBaseModel):
     current_model: str
     checkpoints: dict[str, str]
     last_checkpoint: Optional[str] = None
+    pending_batch_ids: List[int] = []
 
 
 class LoRAConfigRequest(StrictBaseModel):
@@ -263,6 +264,7 @@ class GRPOBaseRequest(StrictBaseModel):
 
 class GRPOStepRequest(GRPOBaseRequest):
     model: str
+    batch_id: int
     batch: List[dict] | List[List[dict]]
 
 

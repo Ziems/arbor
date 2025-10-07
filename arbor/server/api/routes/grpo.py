@@ -6,6 +6,7 @@ from arbor.server.api.models.schemas import (
     GRPOStatus,
     GRPOStepRequest,
     GRPOTerminateRequest,
+    GRPOBaseRequest, # TODO: These should be handled with a subclass like GRPOTerminateRequest
 )
 from arbor.server.services.managers.grpo_manager import GRPOManager
 from arbor.server.services.managers.inference_manager import InferenceManager
@@ -22,38 +23,41 @@ def initialize_grpo(request: Request, grpo_initialize_request: GRPOInitializeReq
     )
     return grpo_status
 
-
-@router.post("/{job_id}/step", response_model=GRPOStatus)
-def run_grpo_step(request: Request, job_id: str, grpo_request: GRPOStepRequest):
+@router.post('/status', response_model=GRPOStatus)
+def get_grpo_status(request: Request, grpo_request: GRPOBaseRequest):
     grpo_manager: GRPOManager = request.app.state.grpo_manager
-    # Override job_id from URL
-    grpo_request.job_id = job_id
+    grpo_status: GRPOStatus = grpo_manager.get_job_status(grpo_request.job_id)
+    print(grpo_status)
+    return grpo_status
+
+
+@router.post("/step", response_model=GRPOStatus)
+def run_grpo_step(request: Request, grpo_request: GRPOStepRequest):
+    grpo_manager: GRPOManager = request.app.state.grpo_manager
     grpo_status: GRPOStatus = grpo_manager.route_grpo_step(grpo_request)
 
     return grpo_status
 
 
-@router.post("/{job_id}/checkpoint", response_model=GRPOStatus)
+@router.post("/checkpoint", response_model=GRPOStatus)
 def checkpoint(
-    request: Request, job_id: str, grpo_checkpoint_request: GRPOCheckpointRequest
+    request: Request, grpo_checkpoint_request: GRPOCheckpointRequest
 ):
     grpo_manager: GRPOManager = request.app.state.grpo_manager
-    # Override job_id from URL
-    grpo_checkpoint_request.job_id = job_id
     grpo_status: GRPOStatus = grpo_manager.route_grpo_checkpoint(
         grpo_checkpoint_request
     )
     return grpo_status
 
 
-@router.post("/{job_id}/cancel", response_model=GRPOStatus)
-def cancel_grpo(request: Request, job_id: str):
+@router.post("/cancel", response_model=GRPOStatus)
+def cancel_grpo(request: Request, grpo_request: GRPOBaseRequest):
     from fastapi import HTTPException
 
     grpo_manager: GRPOManager = request.app.state.grpo_manager
 
     try:
-        grpo_status: GRPOStatus = grpo_manager.cancel(job_id)
+        grpo_status: GRPOStatus = grpo_manager.cancel(grpo_request.job_id)
         return grpo_status
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -63,13 +67,8 @@ def cancel_grpo(request: Request, job_id: str):
         )
 
 
-@router.post("/{job_id}/terminate", response_model=GRPOStatus)
-def terminate_grpo(request: Request, job_id: str):
-    from arbor.server.api.models.schemas import GRPOTerminateRequest
-
+@router.post("/terminate", response_model=GRPOStatus)
+def terminate_grpo(request: Request, grpo_request: GRPOTerminateRequest):
     grpo_manager: GRPOManager = request.app.state.grpo_manager
-
-    # Create the request object with job_id from URL
-    terminate_request = GRPOTerminateRequest(job_id=job_id)
-    grpo_status: GRPOStatus = grpo_manager.terminate(terminate_request)
+    grpo_status: GRPOStatus = grpo_manager.terminate(grpo_request)
     return grpo_status

@@ -79,6 +79,10 @@ class TrainerControlServer:
             ) from exc
         except Exception as exc:  # pragma: no cover - transport errors
             LOGGER.exception("TrainerControlServer request failed")
+            LOGGER.error(f"Request failed: {payload}")
+            # Log the full exception traceback for debugging
+            LOGGER.error(f"Full traceback: {exc.__traceback__}")
+
             raise RuntimeError("Control request failed") from exc
 
     def get_status(self) -> Dict[str, Any]:

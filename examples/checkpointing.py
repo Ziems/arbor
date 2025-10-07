@@ -3,6 +3,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
+from arbor.server.api.models.schemas import GRPOStatus
 from datasets import load_dataset
 from openai import OpenAI
 
@@ -21,11 +22,11 @@ client = OpenAI(
 
 def initialize_grpo(
     model, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/initialize"
-):
+) -> GRPOStatus:
     headers = {"Content-Type": "application/json"}
     trainer_config = {
         "num_generations": 8,
-        "temperature": 0.7,
+        "temperature": 1.0,
         "per_device_train_batch_size": 8,
         "gradient_accumulation_steps": 1,
         "learning_rate": 1e-5,
@@ -50,6 +51,8 @@ def initialize_grpo(
         },
         "max_steps": 1000,
         "bf16": True,
+        "report_to": "wandb",
+        "logging_steps": 10,
     }
 
     data = {
@@ -70,44 +73,56 @@ def initialize_grpo(
     }
     response = requests.post(url, headers=headers, json=data)
     response.raise_for_status()
-    return response
+    return GRPOStatus.model_validate(response.json())
 
+def get_grpo_status(
+    job_id,
+) -> GRPOStatus:
+    url = f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/status"
+    headers = {"Content-Type": "application/json"}
+    body = {"job_id": job_id}
+    response = requests.post(url, headers=headers, json=body)
+    response.raise_for_status()
+    res_json = response.json()
+    print(res_json)
+    return GRPOStatus.model_validate(res_json)
 
 # "HuggingFaceTB/SmolLM2-135M-Instruct"
 # "Qwen/Qwen2-0.5B-Instruct"
 def run_grpo_step(
     model_name,
     batch,
+    batch_id,
     job_id,
     url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/step",
-):
+) -> GRPOStatus:
     headers = {"Content-Type": "application/json"}
-    data = {"model": model_name, "batch": batch, "job_id": job_id}
+    data = {"model": model_name, "batch": batch, "job_id": job_id, "batch_id": batch_id}
     response = requests.post(url, headers=headers, json=data)
     response.raise_for_status()
-    return response
+    return GRPOStatus.model_validate(response.json())
 
 
 def checkpoint(
     checkpoint_name,
     job_id,
     url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/checkpoint",
-):
+) -> GRPOStatus:
     headers = {"Content-Type": "application/json"}
     data = {"checkpoint_name": checkpoint_name, "job_id": job_id}
     response = requests.post(url, headers=headers, json=data)
     response.raise_for_status()
-    return response
+    return GRPOStatus.model_validate(response.json())
 
 
 def terminate_grpo(
     job_id, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/terminate"
-):
+) -> GRPOStatus:
     headers = {"Content-Type": "application/json"}
     data = {"job_id": job_id}
     response = requests.post(url, headers=headers, json=data)
     response.raise_for_status()
-    return response
+    return GRPOStatus.model_validate(response.json())
 
 
 def main():
@@ -127,54 +142,54 @@ def main():
         return {"content": choice.message.content, "role": choice.message.role}
 
     dataset = load_dataset("trl-lib/ultrafeedback-prompt", split="train")
+    dset_idx = 0
 
     current_model = "Qwen/Qwen3-0.6B"
-    initialize_response = initialize_grpo(model=current_model)
-    current_model = initialize_response.json()["current_model"]
-    job_id = initialize_response.json()["job_id"]
-    last_checkpoint = None
+    try:
+        
+        initialize_response = initialize_grpo(model=current_model)
+        current_model = initialize_response.current_model
+        job_id = initialize_response.job_id
+        last_checkpoint = None
 
-    tik = time.time()
-    for i in range(len(dataset)):
-        inputs = dataset[i]
-        input_messages = inputs['prompt']
-        # input_messages = [{"role": "user", "content": ["prompt"]}]
-
-        completions = []
-        response = client.chat.completions.create(
-            model=current_model, messages=input_messages, temperature=0.7, n=8
-        )
-        for choice in response.choices:
-            completions.append(
-                {"content": choice.message.content, "role": choice.message.role}
+        def _create_batch_result(batch_id):
+            input_messages = dataset[batch_id]["prompt"]
+            response = client.chat.completions.create(
+                model=current_model, messages=input_messages, temperature=0.7, n=8
             )
-        rewards = _unique_letter_reward([c["content"] for c in completions])
-        print(rewards, sum(rewards) / len(rewards))
+            completions = []
+            for choice in response.choices:
+                completions.append(
+                    {"content": choice.message.content, "role": choice.message.role}
+                )
+            rewards = _unique_letter_reward([c["content"] for c in completions]) 
+            batch = []
+            for completion, reward in zip(completions, rewards):
+                batch.append(
+                    {"messages": input_messages, "completion": completion, "reward": reward}
+                )
+            return batch
 
-        batch = []
-        for completion, reward in zip(completions, rewards):
-            batch.append(
-                {"messages": input_messages, "completion": completion, "reward": reward}
-            )
-        step_response = run_grpo_step(
-            model_name=current_model, batch=batch, job_id=job_id
-        )
+        pending_batch_ids = []
+        fulfilled_batch_ids = []
+        while len(fulfilled_batch_ids) < 200:
+            status: GRPOStatus = get_grpo_status(job_id)
+            pending_batch_ids = status.pending_batch_ids
+            for batch_id in pending_batch_ids:
+                if batch_id not in fulfilled_batch_ids:
+                    batch_result = _create_batch_result(batch_id)
+                    run_grpo_step(
+                        model_name=current_model, batch=batch_result, job_id=job_id, batch_id=batch_id
+                    )
+                    fulfilled_batch_ids.append(batch_id)
 
-        # if i == 10:
-        # checkpoint_response = checkpoint(checkpoint_name=f"checkpoint_{i}", job_id=job_id)
-        # last_checkpoint_name = checkpoint_response.json()["last_checkpoint"]
-
-        if i == 200:
-            break
-    tok = time.time()
-    print(f"Time taken: {tok - tik} seconds")
-    terminate_response = terminate_grpo(job_id=job_id)
-
-    inputs = dataset[-1]
-    input_messages = [{"role": "user", "content": inputs["prompt"]}]
-    response = client.chat.completions.create(
-        model=current_model, messages=input_messages, temperature=0.7, n=8
-    )
+            else:
+                print("All batches are fulfilled")
+                time.sleep(1)
+    except Exception as e:
+        print(e)
+    finally:
+        arbor.shutdown()
 
 
 if __name__ == "__main__":

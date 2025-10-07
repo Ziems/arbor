@@ -197,9 +197,7 @@ class VLLMClient():
 
         try:
             async with httpx.AsyncClient() as client:
-                print(json_body)
                 response = await client.post(url, json=json_body, timeout=300)
-                print(response.json())
                 response.raise_for_status()
                 return response.json()
         except httpx.TimeoutException:

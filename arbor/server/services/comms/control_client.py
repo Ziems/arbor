@@ -1,6 +1,9 @@
 import threading
 import zmq
+import wandb
+
 from typing import Any, Dict, Optional
+from arbor.server.services.comms.async_batch_requester import BatchResult
 
 
 class TrainerControlClient(threading.Thread):
@@ -77,6 +80,7 @@ class TrainerControlClient(threading.Thread):
                 "completed_count": requester.get_completed_count(),
                 "active_inference_count": len(self._active_inference_ids),
                 "global_step": int(self.trainer.state.global_step),
+                "wandb_run_id": wandb.run.id if wandb.run is not None else None,
             }
         if cmd == "inference_start":
             inf_id = message.get("id") or message.get("inference_id")

@@ -1,11 +1,17 @@
 import json
+
+from transformers import AutoTokenizer
+import copy
+from typing import Any, Dict, Sequence
+import copy
+from arbor.server.services.comms.async_batch_requester import ProcessedOutputs
 import os
 import sys
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Iterable
 from arbor.server.services.comms.async_batch_requester import BatchResult
 import coolname
 
@@ -58,8 +64,12 @@ class GRPOJob(Job):
         self.terminating = False
         self.inference_job: InferenceJob = None
         self.process_runner: Optional[AccelerateProcessRunner] = None
+        self.trainer_controller: TrainerControlServer = None
+        self.trainer_config: ArborGRPOConfig = None
+        self.tokenizer: Any = None
 
         self.fulfilled_batches: List[BatchResult] = []
+        self.pending_batch_ids: List[int] = []
         self.no_submit_streak = 0
 
         self.checkpoints = {}
@@ -145,6 +155,8 @@ class GRPOJob(Job):
 
         self.inference_job = _launch_inference_job(request.inference_config, inference_gpus, self.trainer_controller)
 
+        self.tokenizer = AutoTokenizer.from_pretrained(request.model)
+
         # Set up logging paths for both GRPO and inference jobs
         log_dir = self._make_log_dir()
         self.log_file_path = os.path.join(log_dir, "grpo_training.log")
@@ -186,14 +198,14 @@ class GRPOJob(Job):
         # Use clean process runner for GRPO training
         self.process_runner = AccelerateProcessRunner(self.id)
 
-        trainer_config: ArborGRPOConfig = self._build_trainer_config(
+        self.trainer_config: ArborGRPOConfig = self._build_trainer_config(
             request, log_dir, self.inference_job.port
         )
         # Ensure the trainer binds its control client to our generated endpoint
-        trainer_config.control_endpoint = self.trainer_controller.endpoint
-        trainer_config.skip_generation_params_check = True
+        self.trainer_config.control_endpoint = self.trainer_controller.endpoint
+        self.trainer_config.skip_generation_params_check = True
 
-        config_dict = trainer_config.to_dict()
+        config_dict = self.trainer_config.to_dict()
         trainer_config_json = json.dumps(config_dict, separators=(",", ":"))
 
         # Build script args directly (everything that goes after the script path)
@@ -235,12 +247,13 @@ class GRPOJob(Job):
                 self.fulfilled_batches.remove(batch)
                 pending_batch_ids.remove(batch_id)
                 submitted_any = True
+        self.pending_batch_ids = pending_batch_ids
         
         if not submitted_any:
             time.sleep(0.5)
             self.no_submit_streak += 1
             if self.no_submit_streak % 10 == 0:
-                logger.info("Waiting for batches to be submitted")
+                logger.debug("Waiting for batches to be submitted")
         else:
             self.no_submit_streak = 0
 
@@ -268,31 +281,13 @@ class GRPOJob(Job):
         if not isinstance(batch, list):
             raise ValueError("Batch must be a list")
 
-        if self.train_kwargs["grpo_flavor"] == "mmgrpo":
-            for group in batch:
-                if not isinstance(group, list):
-                    raise ValueError("Each group in batch must be a list")
-                for item in group:
-                    if not isinstance(item, dict):
-                        raise ValueError("Each item in group must be a dictionary")
-                    required_keys = {"messages", "completion", "advantage"}
-                    if not all(key in item for key in required_keys):
-                        raise ValueError(
-                            f"Each item must contain keys: {required_keys}"
-                        )
-            return True
-        elif self.train_kwargs["grpo_flavor"] == "grpo":
-            for item in batch:
-                if not isinstance(item, dict):
-                    raise ValueError("Each item in batch must be a dictionary")
-                required_keys = {"messages", "completion", "reward"}
-                if not all(key in item for key in required_keys):
-                    raise ValueError(f"Each item must contain keys: {required_keys}")
-            return True
-        else:
-            raise NotImplementedError(
-                f"GRPO flavor batch validation not implemented for {self.train_kwargs['grpo_flavor']}"
-            )
+        for item in batch:
+            if not isinstance(item, dict):
+                raise ValueError("Each item in batch must be a dictionary")
+            required_keys = {"messages", "completion", "reward"}
+            if not all(key in item for key in required_keys):
+                raise ValueError(f"Each item must contain keys: {required_keys}")
+        return True
 
     def grpo_step(self, request: GRPOStepRequest) -> str:
         while self.saving_checkpoint:
@@ -304,17 +299,18 @@ class GRPOJob(Job):
         self.validate_batch(request.batch)
 
         def _handle_group_data(group: list[dict]):
-            # Add metadata to each item in the group
-            for idx, item in enumerate(group):
-                if isinstance(item, dict):
-                    item_id = f"{self.batch_count}"
-                    item["_metadata"] = {
-                        "batch_id": item_id,
-                        "timestamp": time.time(),
-                    }
-                    self.pending_data.add(item_id)
 
-            self.server_comms_handler.send_data(group)
+            batch_result = build_batch_result_from_samples(
+                batch_id=self.batch_count,
+                tokenizer=self.tokenizer,
+                samples=group,
+                max_prompt_length=self.trainer_config.max_prompt_length,
+                max_seq_len=self.trainer_config.max_seq_len,
+                num_generations=self.trainer_config.num_generations,
+            )
+
+            self.trainer_controller.submit_batch(batch_result)
+
             self.batch_count += 1
 
         try:
@@ -331,19 +327,18 @@ class GRPOJob(Job):
             raise
 
     def checkpoint(self, request: GRPOCheckpointRequest):
-        while (
-            self.inference_job.is_updating
-        ):  # Use the property instead of direct access
-            logger.info("Waiting for weight updates to finish before checkpointing...")
-            time.sleep(5)
+        # while (
+        #     self.inference_job.is_updating
+        # ):  # Use the property instead of direct access
+        #     logger.info("Waiting for weight updates to finish before checkpointing...")
+        #     time.sleep(5)
 
-        self.saving_checkpoint = True
-        self.server_comms_handler.send_command(
-            {"command": "save_checkpoint", "checkpoint_name": request.checkpoint_name}
-        )
-        while self.saving_checkpoint:
-            logger.info("Waiting for checkpoint to be saved...")
-            time.sleep(5)
+        # self.saving_checkpoint = True
+        # self.trainer_controller.request_checkpoint()
+        # while self.saving_checkpoint:
+        #     logger.info("Waiting for checkpoint to be saved...")
+        #     time.sleep(5)
+        pass
 
     def cancel(self):
         """Cancel the GRPO training job"""
@@ -466,47 +461,8 @@ class GRPOJob(Job):
             current_model=self.id,
             checkpoints=self.checkpoints,
             last_checkpoint=self.last_checkpoint,
+            pending_batch_ids=self.pending_batch_ids,
         )
-
-    def _handle_weight_update_request_event(self, event: dict):
-        # Training is requesting to start a weight update
-        logger.debug("Received weight update request from training...")
-        logger.debug("Blocking new inference calls...")
-        self.inference_job.start_weight_update()
-
-        # Wait for all existing inference requests to complete
-        logger.debug("Waiting for existing inference requests to complete...")
-        max_wait_time = 30  # Maximum time to wait for existing requests
-        wait_start = time.time()
-        last_log_time = wait_start
-
-        while self.inference_job.has_active_requests:
-            active_count = self.inference_job.active_request_count
-
-            # Only log every 10 seconds to reduce spam
-            current_time = time.time()
-            if current_time - last_log_time >= 10:
-                logger.info(
-                    f"Waiting for {active_count} active inference requests to complete..."
-                )
-                last_log_time = current_time
-
-            if current_time - wait_start > max_wait_time:
-                logger.warning(
-                    f"Timeout waiting for inference requests to complete after {max_wait_time}s, proceeding anyway..."
-                )
-                break
-
-            time.sleep(0.5)  # Check every 500ms
-
-        logger.info(
-            "All inference requests completed, sending ready signal to training..."
-        )
-        self.server_comms_handler.send_command({"command": "weight_update_ready"})
-
-    def _handle_weight_update_complete_event(self, event: dict):
-        logger.debug("Weight update completed, allowing new inference calls...")
-        self.inference_job.complete_weight_update()
 
     def _handle_checkpoint_saved_event(self, event: dict):
         logger.info("Received checkpoint saved status")
@@ -515,23 +471,6 @@ class GRPOJob(Job):
         self.saving_checkpoint = False
         logger.info("Checkpoint saved")
 
-    def _handle_data_processed_event(self, event: dict):
-        # Extract the batch_id from the processed data
-        processed_data = event.get("processed_data")
-        if processed_data and isinstance(processed_data, dict):
-            batch_id = processed_data.get("_metadata", {}).get("batch_id")
-            if batch_id is not None:
-                # Remove the batch_id from pending set
-                if batch_id in self.pending_data:
-                    self.pending_data.remove(batch_id)
-                    logger.debug(f"Removed batch_id {batch_id} from pending set")
-                else:
-                    logger.warning(f"batch_id {batch_id} not found in pending set")
-            else:
-                logger.warning("Processed data missing metadata batch_id")
-        else:
-            logger.warning("Data processed event missing processed_data")
-
     def _handle_error_event(self, event: dict):
         error_msg = event.get("error", "Unknown error")
         logger.error(f"Training error: {error_msg}")
@@ -539,3 +478,196 @@ class GRPOJob(Job):
     def _handle_terminated_event(self, event: dict):
         self.terminating = False
         logger.info("Training process terminated")
+
+def _tokenize(tokenizer: Any, text: str) -> List[int]:
+    if hasattr(tokenizer, "encode"):
+        return tokenizer.encode(text, add_special_tokens=False)
+    tokens = tokenizer(  # type: ignore[operator]
+        text,
+        add_special_tokens=False,
+        return_attention_mask=False,
+    )
+    if isinstance(tokens, dict):
+        return list(tokens.get("input_ids", []))
+    return list(tokens)
+
+
+def _render_messages(messages: Any) -> str:
+    if not isinstance(messages, (list, tuple)):
+        return str(messages or "")
+    lines: List[str] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            lines.append(str(message))
+            continue
+        role = message.get("role", "user")
+        content = message.get("content", "")
+        lines.append(f"{role}: {content}")
+    return "\n".join(lines)
+
+
+def _normalize_prompt(obj: Any) -> str:
+    if isinstance(obj, dict) and "messages" in obj:
+        return _render_messages(obj["messages"])
+    return str(obj or "")
+
+
+def _normalize_completion(obj: Any) -> str:
+    if isinstance(obj, dict) and "messages" in obj:
+        messages = obj["messages"]
+        if messages:
+            return str(messages[-1].get("content", ""))
+        return ""
+    return str(obj or "")
+
+
+def build_batch_result_from_samples(
+    *,
+    batch_id: int,
+    tokenizer: Any,
+    samples: Sequence[Dict[str, Any]],
+    max_prompt_length: int | None,
+    max_seq_len: int,
+    num_generations: int,
+) -> BatchResult:
+    """Treat the provided samples as a single generation group."""
+
+    if not samples:
+        raise ValueError("No samples provided to build batch result")
+
+    if len(samples) != num_generations:
+        raise ValueError(
+            f"Expected {num_generations} samples in the group, received {len(samples)}"
+        )
+
+    prompts_list: List[Any] = []
+    completions_list: List[Any] = []
+    rewards_list: List[float] = []
+    rewards_missing = False
+
+    for entry in samples:
+        prompt_value = entry.get("input", entry.get("prompt", ""))
+        completion_value = entry.get("completion", entry.get("answer", ""))
+
+        prompts_list.append(copy.deepcopy(prompt_value))
+        completions_list.append(copy.deepcopy(completion_value))
+
+        reward_value = entry.get("reward")
+        if isinstance(reward_value, (list, tuple)):
+            if len(reward_value) != 1:
+                raise ValueError(
+                    "Reward lists must contain exactly one value when treating a single group"
+                )
+            reward_value = reward_value[0]
+
+        if reward_value is None:
+            rewards_missing = True
+        else:
+            rewards_list.append(float(reward_value))
+
+    batch_rewards = None if rewards_missing else rewards_list
+
+    batch_result = build_batch_result(
+        tokenizer=tokenizer,
+        batch_id=batch_id,
+        prompts=prompts_list,
+        completions=completions_list,
+        rewards=batch_rewards,
+        max_prompt_length=max_prompt_length,
+        max_seq_len=max_seq_len,
+    )
+
+    return batch_result
+
+def build_batch_result(
+    *,
+    tokenizer: Any,
+    batch_id: int,
+    prompts: Iterable[Any],
+    completions: Iterable[Any],
+    rewards: Iterable[float] | None,
+    max_prompt_length: int | None,
+    max_seq_len: int,
+) -> BatchResult:
+    """Create a ``BatchResult`` from pre-tokenized prompt/completion pairs."""
+
+    pad_token_id = getattr(tokenizer, "pad_token_id", None)
+    eos_token_id = getattr(tokenizer, "eos_token_id", None)
+    effective_max_prompt = max_prompt_length or max_seq_len
+
+    prompts_list = list(prompts)
+    completions_list = list(completions)
+    if len(prompts_list) != len(completions_list):
+        raise ValueError(
+            f"Prompt/completion count mismatch: {len(prompts_list)} vs {len(completions_list)}"
+        )
+
+    reward_list = list(rewards) if rewards is not None else None
+    if reward_list is not None and len(reward_list) != len(prompts_list):
+        raise ValueError(
+            f"Reward count mismatch: expected {len(prompts_list)}, got {len(reward_list)}"
+        )
+
+    prompt_ids: List[List[int]] = []
+    prompt_mask: List[List[int]] = []
+    completion_ids: List[List[int]] = []
+    completion_mask: List[List[int]] = []
+    completion_logprobs: List[List[float]] = []
+    reward_values: List[float] = []
+
+    for idx, (prompt_obj, completion_obj) in enumerate(zip(prompts_list, completions_list)):
+        prompt_text = _normalize_prompt(prompt_obj)
+        completion_text = _normalize_completion(completion_obj)
+
+        prompt_tokens = _tokenize(tokenizer, prompt_text)
+        if effective_max_prompt is not None and len(prompt_tokens) > effective_max_prompt:
+            prompt_tokens = prompt_tokens[-effective_max_prompt:]
+        if not prompt_tokens:
+            if pad_token_id is not None:
+                prompt_tokens = [pad_token_id]
+            elif eos_token_id is not None:
+                prompt_tokens = [eos_token_id]
+            else:
+                prompt_tokens = [0]
+
+        available_for_completion = max(1, max_seq_len - len(prompt_tokens))
+        completion_tokens = _tokenize(tokenizer, completion_text)[:available_for_completion]
+        if eos_token_id is not None:
+            completion_tokens = completion_tokens + [eos_token_id]
+        if not completion_tokens:
+            if pad_token_id is not None:
+                completion_tokens = [pad_token_id]
+            elif eos_token_id is not None:
+                completion_tokens = [eos_token_id]
+            else:
+                completion_tokens = [0]
+
+        prompt_ids.append(prompt_tokens)
+        prompt_mask.append([1] * len(prompt_tokens))
+        completion_ids.append(completion_tokens)
+        completion_mask.append([1] * len(completion_tokens))
+        completion_logprobs.append([0.0] * len(completion_tokens))
+
+        if reward_list is not None:
+            reward_value = float(reward_list[idx])
+        else:
+            reward_value = float(len(completion_tokens))
+        reward_values.append(reward_value)
+
+    processed = ProcessedOutputs(
+        prompt_ids=prompt_ids,
+        prompt_mask=prompt_mask,
+        completion_ids=completion_ids,
+        completion_mask=completion_mask,
+        completion_logprobs=completion_logprobs,
+        rewards=reward_values,
+    )
+
+    return BatchResult(
+        batch_id=batch_id,
+        processed_results=processed,
+        generation_time=0.0,
+        all_reward_dict={"reward": reward_values},
+        completions=[_normalize_completion(c) for c in completions_list],
+        prompts=[_normalize_prompt(p) for p in prompts_list],
+    )
