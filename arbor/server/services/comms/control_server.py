@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Dict, Mapping, Optional
+import time
 
 import zmq
 
 from arbor.server.services.comms.async_batch_requester import BatchResult
+from arbor.server.utils.helpers import get_free_port
 
 LOGGER = logging.getLogger(__name__)
 
@@ -21,12 +23,15 @@ class TrainerControlServer:
 
     def __init__(
         self,
-        endpoint: str,
         *,
+        host: str = "127.0.0.1",
         context: Optional[zmq.Context] = None,
         recv_timeout: float | None = None,
     ) -> None:
-        self.endpoint = endpoint
+        """Initialize the control server client.
+        """
+        self.port = get_free_port()
+        self.endpoint = f"tcp://{host}:{self.port}"
         self._ctx = context or zmq.Context.instance()
         self._socket: Optional[zmq.Socket] = None
         self._recv_timeout_ms = int(recv_timeout * 1000) if recv_timeout else None
@@ -78,26 +83,93 @@ class TrainerControlServer:
 
     def get_status(self) -> Dict[str, Any]:
         """Fetch trainer status, including pending batch ids."""
-        return self._request({"cmd": "status"})
+        resp = self._request({"cmd": "status"})
+        if not resp.get("ok", False):
+            raise RuntimeError(f"Error getting status: {resp.get('error', 'Unknown error')}")
+        return resp
 
     def notify_inference_start(self, inference_id: str) -> Dict[str, Any]:
-        return self._request({"cmd": "inference_start", "id": inference_id})
+        resp = self._request({"cmd": "inference_start", "id": inference_id})
+        if not resp.get("ok", False):
+            raise RuntimeError(f"Error notifying inference start: {resp.get('error', 'Unknown error')}")
+        return resp
 
     def notify_inference_end(self, inference_id: str) -> Dict[str, Any]:
-        return self._request({"cmd": "inference_end", "id": inference_id})
+        resp = self._request({"cmd": "inference_end", "id": inference_id})
+        if not resp.get("ok", False):
+            raise RuntimeError(f"Error notifying inference end: {resp.get('error', 'Unknown error')}")
+        return resp
 
     def submit_batch(self, batch: BatchResult | Mapping[str, Any]) -> Dict[str, Any]:
         if isinstance(batch, BatchResult):
             payload = batch.model_dump()
         else:
             payload = dict(batch)
-        return self._request({"cmd": "submit_batch", "batch": payload})
+        resp = self._request({"cmd": "submit_batch", "batch": payload})
+        if not resp.get("ok", False):
+            raise RuntimeError(f"Error submitting batch: {resp.get('error', 'Unknown error')}")
+        return resp
 
     def request_checkpoint(self) -> Dict[str, Any]:
-        return self._request({"cmd": "checkpoint"})
+        resp = self._request({"cmd": "checkpoint"})
+        if not resp.get("ok", False):
+            raise RuntimeError(f"Error requesting checkpoint: {resp.get('error', 'Unknown error')}")
+        return resp
 
     def request_stop(self) -> Dict[str, Any]:
-        return self._request({"cmd": "stop"})
+        resp = self._request({"cmd": "stop"})
+        if not resp.get("ok", False):
+            raise RuntimeError(f"Error requesting stop: {resp.get('error', 'Unknown error')}")
+        return resp
 
     def ping(self) -> Dict[str, Any]:
-        return self._request({"cmd": "noop"})
+        resp = self._request({"cmd": "noop"})
+        if not resp.get("ok", False):
+            raise RuntimeError(f"Error pinging: {resp.get('error', 'Unknown error')}")
+        return resp
+
+    def wait_for_clients(
+        self,
+        expected_count: int = 1,
+        *,
+        timeout: float | None = 30.0,
+        interval: float = 1,
+        log_every: int = 10,
+    ) -> None:
+        """Wait until the trainer control client responds to ping.
+
+        This sends NOOP requests and counts successful responses until
+        ``expected_count`` successes are observed. Because the trainer exposes
+        a single REP socket, this does not distinguish unique clients; it
+        merely ensures the endpoint is responsive repeatedly.
+        """
+        successes = 0
+        attempts = 0
+        deadline = time.monotonic() + timeout if timeout is not None else None
+
+        while True:
+            if successes >= expected_count:
+                return
+            if deadline is not None and time.monotonic() > deadline:
+                raise TimeoutError(
+                    f"Timed out waiting for {expected_count} client response(s) on {self.endpoint}"
+                )
+
+            try:
+                resp = self._request({"cmd": "noop"})
+                if resp.get("ok", False):
+                    successes += 1
+                else:
+                    successes = 0
+            except Exception:
+                successes = 0
+
+            attempts += 1
+            if attempts % log_every == 0 and successes < expected_count:
+                LOGGER.info(
+                    "Waiting for trainer control client (successes=%d/%d)",
+                    successes,
+                    expected_count,
+                )
+
+            time.sleep(interval)

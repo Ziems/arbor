@@ -152,7 +152,7 @@ async def run_server(args: Namespace):
 
     engine_args = AsyncEngineArgs.from_cli_args(args)
     engine_args.worker_extension_cls = (
-        "arbor.vllm.vllm_server.WeightSyncWorkerExtension"
+        "arbor.server.services.inference.vllm_serve.WeightSyncWorkerExtension"
     )
     engine = AsyncLLMEngine.from_engine_args(
         engine_args, usage_context=UsageContext.OPENAI_API_SERVER

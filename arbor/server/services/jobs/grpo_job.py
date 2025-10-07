@@ -5,8 +5,8 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
-
+from typing import Optional, List
+from arbor.server.services.comms.async_batch_requester import BatchResult
 import coolname
 
 from arbor.server.api.models.schemas import (
@@ -15,6 +15,7 @@ from arbor.server.api.models.schemas import (
     GRPOInitializeRequest,
     GRPOStatus,
     GRPOStepRequest,
+    InferenceJobRequest,
 )
 from arbor.server.core.config import Config
 from arbor.server.services.jobs.inference_job import InferenceJob
@@ -26,7 +27,6 @@ from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
 from arbor.server.utils.mock_utils import get_script_path, setup_mock_environment
 from arbor.server.utils.process_runner import AccelerateProcessRunner
-from arbor.server.services.api.models.schemas import InferenceJobRequest
 from arbor.server.services.comms.control_server import TrainerControlServer
 
 logger = get_logger(__name__)
@@ -52,13 +52,15 @@ class GRPOJob(Job):
         self.training_process = None
         self.base_model = None
         self.train_kwargs = None
-        self.server_comms_handler = None
         self.event_thread = None
         self.saving_checkpoint = False
         self.saving_model = False
         self.terminating = False
         self.inference_job: InferenceJob = None
         self.process_runner: Optional[AccelerateProcessRunner] = None
+
+        self.fulfilled_batches: List[BatchResult] = []
+        self.no_submit_streak = 0
 
         self.checkpoints = {}
         self.last_checkpoint = None
@@ -69,9 +71,9 @@ class GRPOJob(Job):
     def _make_job_id(self, request: GRPOInitializeRequest):
         slug = coolname.generate_slug(2)
         model = request.model.split("/")[-1].lower()
-        suffix = request.suffix if request.suffix is not None else slug
+        name = request.run_name if request.run_name is not None else slug
         timestamp = datetime.now().strftime("%Y%m%d")
-        return f"grpo:{model}:{suffix}:{timestamp}"
+        return f"grpo:{model}:{name}:{timestamp}"
 
     def find_training_args(self, request: GRPOInitializeRequest) -> dict:
         """Process the config request and return training arguments."""
@@ -93,9 +95,12 @@ class GRPOJob(Job):
         trainer_kwargs = request.trainer_config.model_dump(
             exclude_unset=True,
         )
-        wandb_kwargs = request.wandb_config.model_dump(
-            exclude_unset=True,
-        )
+
+        wandb_kwargs = {}
+        if request.wandb_config is not None:
+            wandb_kwargs = request.wandb_config.model_dump(
+                exclude_unset=True,
+            )
 
         config = ArborGRPOConfig(**trainer_kwargs, **wandb_kwargs)
 
@@ -107,6 +112,10 @@ class GRPOJob(Job):
     def initialize(
         self, request: GRPOInitializeRequest, inference_manager: InferenceManager
     ):
+        # Initialize control server client with a self-generated endpoint
+        self.trainer_controller = TrainerControlServer()
+        self.trainer_controller.start()
+
         def _allocate_gpus(gpu_config: GRPOGPUConfig):
             if not self.gpu_manager:
                 raise RuntimeError("GPU manager is required for GRPO")
@@ -116,14 +125,14 @@ class GRPOJob(Job):
             all_gpus = self.gpu_manager.allocate_gpus(self.id, total_gpus)
             inference_gpus = all_gpus[:num_inference_gpus]
             training_gpus = all_gpus[num_inference_gpus:]
-            self.logger.info(
+            logger.info(
                 f"Allocated GPUs {inference_gpus} for inference and {training_gpus} for training"
             )
             return inference_gpus, training_gpus
 
         inference_gpus, training_gpus = _allocate_gpus(request.gpu_config)
 
-        def _launch_inference_job(inference_config: InferenceJobRequest, inference_gpus: list[int]):
+        def _launch_inference_job(inference_config: InferenceJobRequest, inference_gpus: list[int], trainer_controller: TrainerControlServer):
             # TODO: This "InferenceLaunchConfig"needs to be cleaned up to be more inline with the other config and request structures
             inference_launch_config = InferenceLaunchConfig(
                 max_context_length=inference_config.max_context_length,
@@ -132,10 +141,9 @@ class GRPOJob(Job):
                 grpo_job_id=self.id,
             )
             logger.info("Launching inference server...")
-            return inference_manager.launch_job(request.model, inference_launch_config)
+            return inference_manager.launch_job(request.model, inference_launch_config, self.trainer_controller)
 
-        self.inference_job = _launch_inference_job(request.inference_config, inference_gpus)
-
+        self.inference_job = _launch_inference_job(request.inference_config, inference_gpus, self.trainer_controller)
 
         # Set up logging paths for both GRPO and inference jobs
         log_dir = self._make_log_dir()
@@ -143,10 +151,7 @@ class GRPOJob(Job):
         if self.inference_job:
             self.inference_job.log_file_path = os.path.join(log_dir, "inference.log")
 
-        # Initialize ZMQ socket manager - no need for connection acceptance thread anymore
-        self.trainer_controller = TrainerControlServer(
-            endpoint=f"tcp://{self.server_comms_handler.host}:{self.server_comms_handler.command_port}"
-        )
+
 
         script_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"
@@ -167,7 +172,6 @@ class GRPOJob(Job):
         else:
             # WandB not requested, disable it completely to avoid login errors
             my_env["WANDB_SILENT"] = "true"
-            request.wandb_config.project = "none"
 
         # Setup mock environment if needed
         my_env = setup_mock_environment(my_env)
@@ -183,11 +187,14 @@ class GRPOJob(Job):
         self.process_runner = AccelerateProcessRunner(self.id)
 
         trainer_config: ArborGRPOConfig = self._build_trainer_config(
-            request, self.inference_job.port
+            request, log_dir, self.inference_job.port
         )
-        trainer_config_json = json.dumps(
-            trainer_config.to_sanitized_dict(), separators=(",", ":")
-        )
+        # Ensure the trainer binds its control client to our generated endpoint
+        trainer_config.control_endpoint = self.trainer_controller.endpoint
+        trainer_config.skip_generation_params_check = True
+
+        config_dict = trainer_config.to_dict()
+        trainer_config_json = json.dumps(config_dict, separators=(",", ":"))
 
         # Build script args directly (everything that goes after the script path)
         script_args = [
@@ -196,7 +203,7 @@ class GRPOJob(Job):
             "--trainer_config_json", trainer_config_json,
              # Comms args
             "--vllm_server_port", str(self.inference_job.port),
-            "--command_port", str(self.server_comms_handler.command_port),
+            "--command_port", str(self.trainer_controller.port),
        ]
 
         self.training_process = self.process_runner.start_training(
@@ -209,46 +216,49 @@ class GRPOJob(Job):
             log_callback=self.create_log_callback("GRPO"),
         )
 
+        self.trainer_controller.wait_for_clients(num_processes)
+        logger.info("Trainer controller clients ready")
+
         # Start status handling thread
         self.event_thread = threading.Thread(
             target=self._handle_event_updates, args=(), daemon=True
         )
         self.event_thread.start()
-        self.server_comms_handler.wait_for_clients(num_processes)
+    
+    def _handle_submit_batches(self, status: dict):
+        pending_batch_ids = status.get("pending_ids", [])
+        submitted_any = False
+        for batch in self.fulfilled_batches:
+            batch_id = batch.batch_id
+            if batch_id in pending_batch_ids:
+                self.trainer_controller.submit_batch(batch)
+                self.fulfilled_batches.remove(batch)
+                pending_batch_ids.remove(batch_id)
+                submitted_any = True
+        
+        if not submitted_any:
+            time.sleep(0.5)
+            self.no_submit_streak += 1
+            if self.no_submit_streak % 10 == 0:
+                logger.info("Waiting for batches to be submitted")
+        else:
+            self.no_submit_streak = 0
+
 
     def _handle_event_updates(self):
         """Handle event updates from training process using ZMQ SUB socket"""
         logger.info("Starting event update handler...")
+
+
         try:
-            for event in self.server_comms_handler.receive_event():
-                event_type = event.get("type")
-                logger.debug(f"Received event: {event}")
-                if event_type == "weight_update_request":
-                    self._handle_weight_update_request_event(event)
+            while True: # TODO: Make this changable with an event set or something
+                status = self.trainer_controller.get_status()
+                logger.debug(f"Received status: {status}")
+                if not status.get("ok", False):
+                    logger.error(f"Error getting status: {status.get('error', 'Unknown error')}")
+                    break
 
-                elif event_type == "weight_update_complete":
-                    # Training has completed the weight update
-                    self._handle_weight_update_complete_event(event)
-
-                elif event_type == "checkpoint_saved":
-                    self._handle_checkpoint_saved_event(event)
-
-                elif event_type == "data_processed":
-                    self._handle_data_processed_event(event)
-
-                elif event_type == "error":
-                    self._handle_error_event(event)
-
-                elif event_type == "terminated":
-                    self._handle_terminated_event(event)
-                else:
-                    logger.warning(f"Received unknown event: {event}")
-            # Make sure to allow inference if there's an error
-            try:
-                self.inference_job.complete_weight_update()
-            except:
-                pass
-
+                self._handle_submit_batches(status)
             # Always ensure GPU cleanup happens, even if job crashes
             self._ensure_gpu_cleanup()
         except Exception as e:
@@ -418,11 +428,6 @@ class GRPOJob(Job):
                 self.process_runner.terminate()
                 self.process_runner = None
 
-            # Clean up ZMQ connections
-            if self.server_comms_handler:
-                logger.debug("Closing ZMQ connections...")
-                self.server_comms_handler.close()
-
             if self.inference_job and self.inference_job.process is not None:
                 logger.info("Terminating inference job...")
                 self.inference_job.terminate()
@@ -433,7 +438,6 @@ class GRPOJob(Job):
             # Reinitialize in case we want to start a new training run
             self.training_process = None
             self.process_runner = None
-            self.server_comms_handler = None
             self.event_thread = None
             self.batch_count = 0
             logger.info("Cleanup completed successfully")

@@ -6,12 +6,14 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
-
+import uuid
 import psutil
+
 import requests
 
 from arbor.server.core.config import Config
 from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
+from arbor.server.services.comms.control_server import TrainerControlServer
 from arbor.server.services.jobs.job import Job
 from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
@@ -65,8 +67,9 @@ class InferenceJob(Job):
         """Check if vLLM server is running."""
         return self.process_runner is not None and self.process_runner.is_running()
 
-    def launch(self, model: str, launch_config: InferenceLaunchConfig):
+    def launch(self, model: str, launch_config: InferenceLaunchConfig, trainer_controller: TrainerControlServer = None):
         self.launched_model_name = model
+        self.trainer_controller = trainer_controller
         if self.is_server_running():
             logger.info("Server is already launched.")
             return
@@ -77,6 +80,8 @@ class InferenceJob(Job):
         if launch_config.is_grpo and launch_config.grpo_job_id:
             self.id = f"{launch_config.grpo_job_id}-inference"
             self._is_grpo_sub_job = True
+            assert trainer_controller is not None, "Trainer controller is required for GRPO inference jobs"
+            self.trainer_controller = trainer_controller
             # Don't create separate directories for GRPO inference jobs
             # The log file path will be set by the parent GRPO job
 
@@ -154,7 +159,16 @@ class InferenceJob(Job):
 
         # Use ProcessRunner for clean termination
         self.process_runner.terminate()
+
+        # Ensure vLLM worker subtree is terminated as well
+        try:
+            if getattr(self, "process", None) is not None and self.process.poll() is None:
+                kill_vllm_server(self.process.pid)
+        except Exception as e:
+            logger.warning(f"Force-kill fallback for vLLM processes failed: {e}")
+
         self.process_runner = None
+        self.process = None
         self.last_activity = None
         logger.info("Server terminated.")
 
@@ -162,18 +176,8 @@ class InferenceJob(Job):
         requested_model = request_json["model"]
         request_json["model"] = self.launched_model_name
 
-        # Check if weights are being updated BEFORE incrementing counter
-        # This prevents new requests from starting during weight updates
-        if self._is_updating:
-            # weights are being updated...waiting for new requests
-            logger.info(
-                "Weights are being updated...waiting for new requests to be allowed"
-            )
-            while self._is_updating:
-                await asyncio.sleep(1)  # Small sleep to prevent busy waiting
-
-        # Increment active request counter - at this point we know we're allowed to proceed
-        self._active_requests += 1
+        random_id = str(uuid.uuid4())
+        self.trainer_controller.notify_inference_start(random_id)
 
         try:
             # Update last_activity timestamp
@@ -186,32 +190,10 @@ class InferenceJob(Job):
                 requested_model  # Set the model back to the original requested model
             )
             return response
+        except Exception as e:
+            logger.error(f"Error running inference: {e}")
         finally:
-            # Always decrement active request counter, even if an exception occurs
-            self._active_requests -= 1
-
-    def start_weight_update(self):
-        """Block inference during weight updates"""
-        self._is_updating += 1
-
-    def complete_weight_update(self):
-        """Allow inference after weight update is complete"""
-        self._is_updating = max(0, self._is_updating - 1)  # Prevent going negative
-
-    @property
-    def is_updating(self):
-        """Check if any weight updates are in progress"""
-        return self._is_updating > 0
-
-    @property
-    def has_active_requests(self):
-        """Check if there are any active inference requests"""
-        return self._active_requests > 0
-
-    @property
-    def active_request_count(self):
-        """Get the number of currently active inference requests"""
-        return self._active_requests
+            self.trainer_controller.notify_inference_end(random_id)
 
     def create_filtered_log_callback(self, job_type: str = "INFERENCE"):
         """Create a log callback that filters out verbose inference logs from terminal output"""

@@ -23,14 +23,53 @@ def initialize_grpo(
     model, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/initialize"
 ):
     headers = {"Content-Type": "application/json"}
-    data = {
-        "model": model,
-        "num_generations": 16,
-        "lora": True,
-        "grpo_flavor": "grpo",
+    trainer_config = {
+        "num_generations": 8,
+        "temperature": 0.7,
+        "per_device_train_batch_size": 8,
+        "gradient_accumulation_steps": 1,
+        "learning_rate": 1e-5,
+        "beta": 0.001,
         "max_grad_norm": 1.0,
+        "max_prompt_length": 512,
+        "max_seq_len": 1024,
+        "mask_truncated_completions": True,
+        "lora_config": {
+            "r": 16,
+            "lora_alpha": 64,
+            "target_modules": [
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "o_proj",
+                "up_proj",
+                "down_proj",
+                "gate_proj",
+            ],
+            "lora_dropout": 0.05,
+        },
+        "max_steps": 1000,
+        "bf16": True,
+    }
+
+    data = {
+        "run_name": "checkpointing-demo",
+        "model": model,
+        "trainer_config": trainer_config,
+        "inference_config": {
+            "model": model,
+            "max_context_length": 2048,
+        },
+        "gpu_config": {
+            "type": "multi",
+            "multi": {
+                "num_inference_gpus": 1,
+                "num_training_gpus": 1,
+            },
+        },
     }
     response = requests.post(url, headers=headers, json=data)
+    response.raise_for_status()
     return response
 
 
@@ -45,6 +84,7 @@ def run_grpo_step(
     headers = {"Content-Type": "application/json"}
     data = {"model": model_name, "batch": batch, "job_id": job_id}
     response = requests.post(url, headers=headers, json=data)
+    response.raise_for_status()
     return response
 
 
@@ -56,6 +96,7 @@ def checkpoint(
     headers = {"Content-Type": "application/json"}
     data = {"checkpoint_name": checkpoint_name, "job_id": job_id}
     response = requests.post(url, headers=headers, json=data)
+    response.raise_for_status()
     return response
 
 
@@ -65,6 +106,7 @@ def terminate_grpo(
     headers = {"Content-Type": "application/json"}
     data = {"job_id": job_id}
     response = requests.post(url, headers=headers, json=data)
+    response.raise_for_status()
     return response
 
 
@@ -84,7 +126,8 @@ def main():
         choice = response.choices[0]
         return {"content": choice.message.content, "role": choice.message.role}
 
-    dataset = load_dataset("trl-lib/ultrafeedback-prompt", split="train", limit=1000)
+    dataset = load_dataset("trl-lib/ultrafeedback-prompt", split="train")
+
     current_model = "Qwen/Qwen3-0.6B"
     initialize_response = initialize_grpo(model=current_model)
     current_model = initialize_response.json()["current_model"]
@@ -94,10 +137,12 @@ def main():
     tik = time.time()
     for i in range(len(dataset)):
         inputs = dataset[i]
-        input_messages = [{"role": "user", "content": inputs["prompt"]}]
+        input_messages = inputs['prompt']
+        # input_messages = [{"role": "user", "content": ["prompt"]}]
+
         completions = []
         response = client.chat.completions.create(
-            model=current_model, messages=input_messages, temperature=0.7, n=16
+            model=current_model, messages=input_messages, temperature=0.7, n=8
         )
         for choice in response.choices:
             completions.append(
@@ -124,9 +169,7 @@ def main():
     tok = time.time()
     print(f"Time taken: {tok - tik} seconds")
     terminate_response = terminate_grpo(job_id=job_id)
-    import pdb
 
-    pdb.set_trace()
     inputs = dataset[-1]
     input_messages = [{"role": "user", "content": inputs["prompt"]}]
     response = client.chat.completions.create(

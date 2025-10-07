@@ -17,20 +17,21 @@ from transformers.trainer import Trainer
 from typing import Any, Dict, List, Optional, Union
 from transformers.trainer_callback import TrainerCallback
 from transformers import AutoConfig, AutoProcessor, ProcessorMixin, PreTrainedTokenizerBase, PreTrainedModel
-from trl.models import prepare_peft_model, prepare_deepspeed, prepare_fsdp
+from peft import LoraConfig
+
 from trl.trainer.utils import identity, disable_dropout_in_model, pad, nanmax, nanmin, identity, selective_log_softmax
+from trl.models import prepare_peft_model, prepare_deepspeed
 from trl.models.utils import _ForwardRedirection
 from transformers.trainer_utils import seed_worker
 import logging
 from trl.trainer.callbacks import SyncRefModelCallback
 from arbor.server.services.comms.async_batch_requester import AsyncBatchRequester, BatchRequest, BatchResult
-
-from arbor.async_dataloader_wrapper import AsyncDataLoaderWrapper
+from arbor.server.services.comms.async_dataloader_wrapper import AsyncDataLoaderWrapper
 from collections import defaultdict, deque
 
-from arbor.vllm.vllm_client import VLLMClient
+from arbor.server.services.inference.vllm_client import VLLMClient
 
-from arbor.arbor_grpo_config import ArborGRPOConfig
+from arbor.server.services.scripts.arbor_grpo_config import ArborGRPOConfig
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -1141,6 +1142,9 @@ def parse_args():
 
 def build_trainer_config(args: argparse.Namespace) -> ArborGRPOConfig:
     cfg = json.loads(args.trainer_config_json)
+    lora_cfg = cfg.get("lora_config")
+    if lora_cfg is not None:
+        cfg["lora_config"] = LoraConfig(**lora_cfg)
     return ArborGRPOConfig(**cfg)
 
         

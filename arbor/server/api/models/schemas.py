@@ -241,6 +241,7 @@ class ArborGRPOConfigRequest(StrictBaseModel):
     async_generation_timeout: Optional[float] = None
     max_seq_len: Optional[int] = None
     lora_config: Optional[LoRAConfigRequest] = None
+    max_steps: Optional[int] = None
     # ...and any other ArborGRPOConfig fields you care about.
     # Thanks to extra="allow" you can keep this list short and still pass others.
 

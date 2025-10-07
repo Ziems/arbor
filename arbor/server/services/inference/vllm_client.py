@@ -1,10 +1,11 @@
 import atexit
+import traceback
+import httpx
 import logging
 import time
 
 import requests
 import torch  # type: ignore
-from openai import AsyncOpenAI
 from requests import ConnectionError
 from requests.adapters import HTTPAdapter
 from requests.exceptions import RequestException, Timeout
@@ -17,7 +18,7 @@ from vllm.distributed.utils import StatelessProcessGroup  # type: ignore
 logger = logging.getLogger(__name__)
 
 
-class VLLMClient(AsyncOpenAI):
+class VLLMClient():
     """
     A client class to interact with a vLLM server.
 
@@ -76,7 +77,6 @@ class VLLMClient(AsyncOpenAI):
                 "vLLM is not installed. Please install it with `pip install vllm`."
             )
 
-        super().__init__(base_url=f"http://{host}:{port}/v1", api_key="local")
         self.session = requests.Session()
         # Configure connection pooling to handle rapid requests better
         adapter = HTTPAdapter(
@@ -188,6 +188,25 @@ class VLLMClient(AsyncOpenAI):
 
         # When the client object is deleted, close the weight update group
         atexit.register(self.close_communicator)
+    
+    async def chat(self, json_body: dict) -> dict:
+        """
+        Send a chat completion request with retry logic for when inference is blocked.
+        """
+        url = f"http://{self.host}:{self.server_port}/v1/chat/completions"
+
+        try:
+            async with httpx.AsyncClient() as client:
+                print(json_body)
+                response = await client.post(url, json=json_body, timeout=300)
+                print(response.json())
+                response.raise_for_status()
+                return response.json()
+        except httpx.TimeoutException:
+            logger.error("Request timed out")
+            raise
+        except Exception as e:
+            raise
 
     def update_named_param(self, name: str, weights: torch.Tensor):
         """

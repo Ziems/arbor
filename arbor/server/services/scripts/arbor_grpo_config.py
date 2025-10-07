@@ -27,9 +27,11 @@ class ArborGRPOConfig(TrainingArguments):
         from transformers.training_args import _VALID_DICT_FIELDS  # type: ignore
 
         _VALID_DICT_FIELDS.append("model_init_kwargs")
+        _VALID_DICT_FIELDS.append("lora_config")
     else:
         _VALID_DICT_FIELDS = TrainingArguments._VALID_DICT_FIELDS + [
-            "model_init_kwargs"
+            "model_init_kwargs",
+            "lora_config",
         ]
 
     # Parameters that control the model and reference model
@@ -432,6 +434,19 @@ class ArborGRPOConfig(TrainingArguments):
         },
     )
 
+    # generation_batch_size and steps_per_generation are provided in handoff.
+    skip_generation_params_check: bool = field(
+        default=False,
+        metadata={
+            "help": "If True, do not raise when both generation_batch_size and steps_per_generation are set; prefer generation_batch_size and recompute steps_per_generation."
+        },
+    )
+
+    def to_dict(self):  # type: ignore[override]
+        data = super().to_dict()
+        cls = type(self)
+        return {k: v for k, v in data.items() if not isinstance(getattr(cls, k, None), property)}
+
     def __post_init__(self):
         super().__post_init__()
 
@@ -441,9 +456,10 @@ class ArborGRPOConfig(TrainingArguments):
             self.generation_batch_size is not None
             and self.steps_per_generation is not None
         ):
-            raise ValueError(
-                "'generation_batch_size' and 'steps_per_generation' can not be both configured at the same time"
-            )
+            if not self.skip_generation_params_check:
+                raise ValueError(
+                    "'generation_batch_size' and 'steps_per_generation' can not be both configured at the same time"
+                )
 
         if self.steps_per_generation is None:
             self.steps_per_generation = self.gradient_accumulation_steps

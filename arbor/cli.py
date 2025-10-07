@@ -141,6 +141,7 @@ def start_server(host="0.0.0.0", port=7453, storage_path="./storage", timeout=10
 def stop_server(server):
     """Stop the Arbor API server"""
     server.should_exit = True
+    
 
 
 @cli.command()
