@@ -176,9 +176,6 @@ class InferenceJob(Job):
         requested_model = request_json["model"]
         request_json["model"] = self.launched_model_name
 
-        random_id = str(uuid.uuid4())
-        self.trainer_controller.notify_inference_start(random_id)
-
         try:
             # Update last_activity timestamp
             self.last_activity = datetime.now()
@@ -192,8 +189,6 @@ class InferenceJob(Job):
             return response
         except Exception as e:
             logger.error(f"Error running inference: {e}")
-        finally:
-            self.trainer_controller.notify_inference_end(random_id)
 
     def create_filtered_log_callback(self, job_type: str = "INFERENCE"):
         """Create a log callback that filters out verbose inference logs from terminal output"""

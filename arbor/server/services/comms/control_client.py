@@ -2,8 +2,11 @@ import threading
 import zmq
 import wandb
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TYPE_CHECKING
 from arbor.server.services.comms.async_batch_requester import BatchResult
+
+if TYPE_CHECKING:
+    from arbor.server.services.scripts.arbor_grpo_trainer import ArborGRPOTrainer
 
 
 class TrainerControlClient(threading.Thread):
@@ -23,8 +26,6 @@ class TrainerControlClient(threading.Thread):
         self._stop_event = threading.Event()
         self._ctx = zmq.Context.instance()
         self._socket: Optional[zmq.Socket] = None
-        # Track active inference sessions reported by external clients
-        self._active_inference_ids: set[str] = set()
         self._lock = threading.Lock()
 
     def run(self) -> None:  # pragma: no cover - network loop
@@ -45,11 +46,17 @@ class TrainerControlClient(threading.Thread):
             if socket in events and events[socket] == zmq.POLLIN:
                 try:
                     message = socket.recv_json()
+                    try:
+                        response = self._handle(message)
+                    except Exception as handler_exc:
+                        response = {"ok": False, "error": str(handler_exc)}
+                    socket.send_json(response)
                 except Exception as exc:
-                    socket.send_json({"ok": False, "error": str(exc)})
-                    continue
-                response = self._handle(message)
-                socket.send_json(response)
+                    # Best-effort reply to keep REP state consistent
+                    try:
+                        socket.send_json({"ok": False, "error": str(exc)})
+                    except Exception:
+                        pass
 
         try:
             socket.close(0)
@@ -78,24 +85,9 @@ class TrainerControlClient(threading.Thread):
                 "pending_ids": requester.get_pending_batch_ids(),
                 "pending_count": requester.get_pending_count(),
                 "completed_count": requester.get_completed_count(),
-                "active_inference_count": len(self._active_inference_ids),
                 "global_step": int(self.trainer.state.global_step),
                 "wandb_run_id": wandb.run.id if wandb.run is not None else None,
             }
-        if cmd == "inference_start":
-            inf_id = message.get("id") or message.get("inference_id")
-            if not inf_id:
-                return {"ok": False, "error": "missing inference id"}
-            with self._lock:
-                self._active_inference_ids.add(str(inf_id))
-            return {"ok": True}
-        if cmd == "inference_end":
-            inf_id = message.get("id") or message.get("inference_id")
-            if not inf_id:
-                return {"ok": False, "error": "missing inference id"}
-            with self._lock:
-                self._active_inference_ids.discard(str(inf_id))
-            return {"ok": True}
         if cmd == "submit_batch":
             batch_payload = message.get("batch")
             if batch_payload is None:
@@ -115,11 +107,3 @@ class TrainerControlClient(threading.Thread):
         if cmd == "noop":
             return {"ok": True}
         return {"ok": False, "error": f"unknown command: {cmd}"}
-
-    def has_active_inference(self) -> bool:
-        with self._lock:
-            return len(self._active_inference_ids) > 0
-
-    def get_active_inference_ids(self) -> list[str]:
-        with self._lock:
-            return list(self._active_inference_ids)

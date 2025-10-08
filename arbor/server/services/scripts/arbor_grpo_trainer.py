@@ -517,11 +517,7 @@ class ArborGRPOTrainer(Trainer):
         # and broadcast the state to all processes
         is_generating = False
         if self.accelerator.is_main_process:
-            if self._control_client is not None:
-                is_generating = self._control_client.has_active_inference()
-            else:
-                # Fallback to async requester queue if control server is unavailable
-                is_generating = self.async_requester.get_pending_count() > 0
+            is_generating = self.async_requester.get_pending_count() > 0
 
         is_generating_list = [is_generating]
         broadcast_object_list(is_generating_list, from_process=0)
@@ -539,10 +535,10 @@ class ArborGRPOTrainer(Trainer):
 
             # Check again and broadcast
             if self.accelerator.is_main_process:
-                if self._control_client is not None:
-                    is_generating = self._control_client.has_active_inference()
-                else:
-                    is_generating = self.async_requester.get_pending_count() > 0
+                # if self._control_client is not None:
+                #     is_generating = self._control_client.has_active_inference()
+                # else:
+                is_generating = self.async_requester.get_pending_count() > 0
             is_generating_list = [is_generating]
             broadcast_object_list(is_generating_list, from_process=0)
             is_generating = is_generating_list[0]

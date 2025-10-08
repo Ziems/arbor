@@ -29,30 +29,34 @@ def initialize_grpo(
         "temperature": 1.0,
         "per_device_train_batch_size": 8,
         "gradient_accumulation_steps": 1,
-        "learning_rate": 1e-5,
-        "beta": 0.001,
+        "learning_rate": 1e-6,
+        "beta": 0.01,
         "max_grad_norm": 1.0,
         "max_prompt_length": 512,
         "max_seq_len": 1024,
         "mask_truncated_completions": True,
-        "lora_config": {
-            "r": 16,
-            "lora_alpha": 64,
-            "target_modules": [
-                "q_proj",
-                "k_proj",
-                "v_proj",
-                "o_proj",
-                "up_proj",
-                "down_proj",
-                "gate_proj",
-            ],
-            "lora_dropout": 0.05,
-        },
+        "gradient_checkpointing": True,
+        "lr_scheduler_type": "constant_with_warmup",
+        "warmup_steps": 10,
+        # "lora_config": {
+        #     "r": 16,
+        #     "lora_alpha": 64,
+        #     "target_modules": [
+        #         "q_proj",
+        #         "k_proj",
+        #         "v_proj",
+        #         "o_proj",
+        #         "up_proj",
+        #         "down_proj",
+        #         "gate_proj",
+        #     ],
+        #     "lora_dropout": 0.05,
+        # },
         "max_steps": 1000,
         "bf16": True,
         "report_to": "wandb",
         "logging_steps": 10,
+        # "scale_rewards": False,
     }
 
     data = {
@@ -133,18 +137,9 @@ def main():
             rewards.append(float(len(set(letters))))
         return rewards
 
-    def _single_chat_completion(model, messages, temperature=0.7):
-        """Function to handle a single chat completion request"""
-        response = client.chat.completions.create(
-            model=model, messages=messages, temperature=temperature
-        )
-        choice = response.choices[0]
-        return {"content": choice.message.content, "role": choice.message.role}
-
     dataset = load_dataset("trl-lib/ultrafeedback-prompt", split="train")
-    dset_idx = 0
 
-    current_model = "Qwen/Qwen3-0.6B"
+    current_model = "Qwen/Qwen2-0.5B-Instruct"
     try:
         
         initialize_response = initialize_grpo(model=current_model)
@@ -155,7 +150,7 @@ def main():
         def _create_batch_result(batch_id):
             input_messages = dataset[batch_id]["prompt"]
             response = client.chat.completions.create(
-                model=current_model, messages=input_messages, temperature=0.7, n=8
+                model=current_model, messages=input_messages, temperature=1.0, n=8, top_p=1.0
             )
             completions = []
             for choice in response.choices:
@@ -172,7 +167,7 @@ def main():
 
         pending_batch_ids = []
         fulfilled_batch_ids = []
-        while len(fulfilled_batch_ids) < 200:
+        while len(fulfilled_batch_ids) < 1000:
             status: GRPOStatus = get_grpo_status(job_id)
             pending_batch_ids = status.pending_batch_ids
             for batch_id in pending_batch_ids:

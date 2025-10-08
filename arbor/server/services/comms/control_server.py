@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Dict, Mapping, Optional
+import threading
 import time
 
 import zmq
@@ -27,6 +28,7 @@ class TrainerControlServer:
         host: str = "127.0.0.1",
         context: Optional[zmq.Context] = None,
         recv_timeout: float | None = None,
+        send_timeout: float | None = 2.0,
     ) -> None:
         """Initialize the control server client.
         """
@@ -35,6 +37,9 @@ class TrainerControlServer:
         self._ctx = context or zmq.Context.instance()
         self._socket: Optional[zmq.Socket] = None
         self._recv_timeout_ms = int(recv_timeout * 1000) if recv_timeout else None
+        self._send_timeout_ms = int(send_timeout * 1000) if send_timeout else None
+        # Serialize REQ send/recv to avoid EFSM with concurrent callers
+        self._io_lock = threading.Lock()
 
     def __enter__(self) -> "TrainerControlServer":
         self.start()
@@ -50,6 +55,8 @@ class TrainerControlServer:
         socket = self._ctx.socket(zmq.REQ)
         if self._recv_timeout_ms is not None:
             socket.setsockopt(zmq.RCVTIMEO, self._recv_timeout_ms)
+        if self._send_timeout_ms is not None:
+            socket.setsockopt(zmq.SNDTIMEO, self._send_timeout_ms)
         socket.connect(self.endpoint)
         self._socket = socket
 
@@ -69,21 +76,23 @@ class TrainerControlServer:
         return self._socket
 
     def _request(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        socket = self._ensure_socket()
-        try:
-            socket.send_json(payload)
-            return socket.recv_json()
-        except zmq.error.Again as exc:
-            raise TimeoutError(
-                f"Timed out waiting for response to command {payload.get('cmd')}"
-            ) from exc
-        except Exception as exc:  # pragma: no cover - transport errors
-            LOGGER.exception("TrainerControlServer request failed")
-            LOGGER.error(f"Request failed: {payload}")
-            # Log the full exception traceback for debugging
-            LOGGER.error(f"Full traceback: {exc.__traceback__}")
-
-            raise RuntimeError("Control request failed") from exc
+        with self._io_lock:
+            socket = self._ensure_socket()
+            try:
+                socket.send_json(payload)
+                return socket.recv_json()
+            except zmq.error.Again as exc:
+                raise TimeoutError(
+                    f"Timed out waiting for response to command {payload.get('cmd')}"
+                ) from exc
+            except Exception as exc:  # pragma: no cover - transport errors
+                LOGGER.exception("TrainerControlServer request failed")
+                LOGGER.error(f"Request failed: {payload}")
+                import traceback
+                LOGGER.error(
+                    f"Full traceback: {''.join(traceback.format_tb(exc.__traceback__))}"
+                )
+                raise RuntimeError("Control request failed") from exc
 
     def get_status(self) -> Dict[str, Any]:
         """Fetch trainer status, including pending batch ids."""
@@ -92,17 +101,6 @@ class TrainerControlServer:
             raise RuntimeError(f"Error getting status: {resp.get('error', 'Unknown error')}")
         return resp
 
-    def notify_inference_start(self, inference_id: str) -> Dict[str, Any]:
-        resp = self._request({"cmd": "inference_start", "id": inference_id})
-        if not resp.get("ok", False):
-            raise RuntimeError(f"Error notifying inference start: {resp.get('error', 'Unknown error')}")
-        return resp
-
-    def notify_inference_end(self, inference_id: str) -> Dict[str, Any]:
-        resp = self._request({"cmd": "inference_end", "id": inference_id})
-        if not resp.get("ok", False):
-            raise RuntimeError(f"Error notifying inference end: {resp.get('error', 'Unknown error')}")
-        return resp
 
     def submit_batch(self, batch: BatchResult | Mapping[str, Any]) -> Dict[str, Any]:
         if isinstance(batch, BatchResult):
