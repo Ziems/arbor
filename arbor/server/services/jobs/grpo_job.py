@@ -152,8 +152,15 @@ class GRPOJob(Job):
             f"Allocated {total_gpus} GPUs for GRPO job {self.id}: inference={inference_gpus}, training={training_gpus}"
         )
 
+        max_context_length_from_request = arbor_train_kwargs.get("max_context_length")
+        effective_max_context_length = (
+            max_context_length_from_request
+            if max_context_length_from_request is not None
+            else self.config.max_context_length
+        )
+
         inference_launch_config = InferenceLaunchConfig(
-            max_context_length=arbor_train_kwargs.get("max_context_length", None),
+            max_context_length=effective_max_context_length,
             gpu_ids=inference_gpus,
             is_grpo=True,
             grpo_job_id=self.id,

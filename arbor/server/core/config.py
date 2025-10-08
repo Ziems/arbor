@@ -9,6 +9,7 @@ class Config(BaseModel):
 
     # Basic settings
     storage_path: str = str(Path.home() / ".arbor" / "storage")
+    max_context_length: Optional[int] = None
 
     # Training settings
     accelerate_config: Optional[str] = None
