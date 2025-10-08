@@ -29,7 +29,11 @@ class InferenceManager(BaseManager):
                     f"Allocated GPUs {allocated_gpus} for inference job {inference_job.id}"
                 )
 
-                inference_launch_config = InferenceLaunchConfig(gpu_ids=allocated_gpus)
+                inference_launch_config = InferenceLaunchConfig(
+                    gpu_ids=allocated_gpus,
+                    max_context_length=self.config.max_context_length,
+                )
+                
                 inference_job.launch(model, inference_launch_config)
                 # This needs to have a unique id or something, not be referenced by model
                 self.inference_jobs[model] = inference_job
