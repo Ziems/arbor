@@ -12,7 +12,6 @@ class ProcessedOutputs(BaseModel):
     prompt_mask: list[list[int]]
     completion_ids: list[list[int]]
     completion_mask: list[list[int]]
-    completion_logprobs: list[list[float]]
     rewards: list[float]
 
 class BatchRequest(BaseModel):

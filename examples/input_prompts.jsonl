@@ -1,0 +1,11 @@
+{"content": "In this task you will be given a list of integers. You should find the maximum absolute difference between 2 integers in the list. The absolute difference is the absolute value of one integer subtracted by another. The output should be a single integer which is the largest possible absolute distance.\nQ: [31, 28, -27]\nA: ", "role": "user"}
+{"content": "In this task your given two statements in Tamil. You must judge whether the second sentence is the cause or effect of the first one. Label the instances as \"cause\" or \"effect\" based on your judgment. The sentences are separated by a newline character.\n\nஅந்த ஓவியக் கலைஞர் மஞ்சள் நிற பெயிண்ட்டுடன் நீல நிற பெயிண்ட்டைச் சேர்த்து கலக்கினார்\nபெயிண்ட் பச்சை நிறமாக மாறியது", "role": "user"}
+{"content": "write me a bar mitzvah speech about parshas ki tisa and its connection to purim", "role": "user"}
+{"content": "Who is the CEO of Google?", "role": "user"}
+{"content": "Translate the following sentence from French to English: \"Le chat est sur le canapé.\"", "role": "user"}
+{"content": "Describe a random famous historic event", "role": "user"}
+{"content": "explain to me how the consequences of the events that happen today influence the future outcomes of the world today", "role": "user"}
+{"content": "Write a poem about a cat", "role": "user"}
+{"content": "Make a new romantic comedy movie that is the most groundbreaking movie ever made", "role": "user"}
+{"content": "Tell me a joke", "role": "user"}
+{"content": "write me a bar mitzvah speech about parshas ki tisa and its connection to purim", "role": "user"}

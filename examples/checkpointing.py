@@ -1,4 +1,5 @@
-# Assumes that the server is running
+import json
+import random
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -138,6 +139,8 @@ def main():
         return rewards
 
     dataset = load_dataset("trl-lib/ultrafeedback-prompt", split="train")
+    # dataset = load_dataset("json", data_files="input_prompts.jsonl", split="train")
+    # import pdb; pdb.set_trace()
 
     current_model = "Qwen/Qwen2-0.5B-Instruct"
     try:
@@ -149,6 +152,9 @@ def main():
 
         def _create_batch_result(batch_id):
             input_messages = dataset[batch_id]["prompt"]
+            # input_messages = [dataset[batch_id]]
+
+
             response = client.chat.completions.create(
                 model=current_model, messages=input_messages, temperature=1.0, n=8, top_p=1.0
             )
@@ -173,6 +179,8 @@ def main():
             for batch_id in pending_batch_ids:
                 if batch_id not in fulfilled_batch_ids:
                     batch_result = _create_batch_result(batch_id)
+                    # with open(f"batch_result_simple.jsonl", "a") as f:
+                        # f.write(json.dumps(batch_result) + "\n")
                     run_grpo_step(
                         model_name=current_model, batch=batch_result, job_id=job_id, batch_id=batch_id
                     )

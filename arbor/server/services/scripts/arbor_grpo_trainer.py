@@ -469,7 +469,7 @@ class ArborGRPOTrainer(Trainer):
 
         return model
     
-        # Get the per-token log probabilities for the completions for the model and the reference model
+    # Get the per-token log probabilities for the completions for the model and the reference model
     def _get_per_token_logps(
         self, model, input_ids, attention_mask, logits_to_keep, batch_size=None
     ) -> torch.Tensor:
@@ -863,6 +863,10 @@ class ArborGRPOTrainer(Trainer):
         # prompt is at least 1 token
         completion_mask = attention_mask[:, 1:]
         logits_to_keep = completion_mask.size(1)
+        print(f"logits_to_keep: {logits_to_keep}")
+        print(f"completion_mask: {completion_mask}")
+        print(f"input_ids: {input_ids}")
+        print(f"attention_mask: {attention_mask}")
         per_token_logps = self._get_per_token_logps(
             model, input_ids, attention_mask, logits_to_keep
         )

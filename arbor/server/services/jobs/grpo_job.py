@@ -1,4 +1,5 @@
 import json
+from trl.data_utils import apply_chat_template
 
 from transformers import AutoTokenizer
 import copy
@@ -66,7 +67,7 @@ class GRPOJob(Job):
         self.process_runner: Optional[AccelerateProcessRunner] = None
         self.trainer_controller: TrainerControlServer = None
         self.trainer_config: ArborGRPOConfig = None
-        self.tokenizer: Any = None
+        self.tokenizer: AutoTokenizer = None
 
         self.fulfilled_batches: List[BatchResult] = []
         self.pending_batch_ids: List[int] = []
@@ -122,9 +123,12 @@ class GRPOJob(Job):
     def initialize(
         self, request: GRPOInitializeRequest, inference_manager: InferenceManager
     ):
+        # Check that the request params are valid
         # Initialize control server client with a self-generated endpoint
         self.trainer_controller = TrainerControlServer()
         self.trainer_controller.start()
+
+        self.tokenizer = AutoTokenizer.from_pretrained(request.model)
 
         def _allocate_gpus(gpu_config: GRPOGPUConfig):
             if not self.gpu_manager:
@@ -155,7 +159,6 @@ class GRPOJob(Job):
 
         self.inference_job = _launch_inference_job(request.inference_config, inference_gpus, self.trainer_controller)
 
-        self.tokenizer = AutoTokenizer.from_pretrained(request.model)
 
         # Set up logging paths for both GRPO and inference jobs
         log_dir = self._make_log_dir()
@@ -270,6 +273,7 @@ class GRPOJob(Job):
                 if not status.get("ok", False):
                     logger.error(f"Error getting status: {status.get('error', 'Unknown error')}")
                     break
+                self.wandb_run_id = status.get("wandb_run_id", None)
 
                 self._handle_submit_batches(status)
             # Always ensure GPU cleanup happens, even if job crashes
@@ -290,23 +294,21 @@ class GRPOJob(Job):
         return True
 
     def grpo_step(self, request: GRPOStepRequest) -> str:
-        while self.saving_checkpoint:
-            logger.info(
-                "Saving checkpoint, pausing GRPO steps until checkpoint is saved..."
-            )
-            time.sleep(5)
+        with open("request2.jsonl", "a") as f:
+            f.write(json.dumps(request.model_dump()) + "\n")
 
         self.validate_batch(request.batch)
 
         def _handle_group_data(group: list[dict]):
 
-            batch_result = build_batch_result_from_samples(
+            batch_result = build_batch_result(
                 batch_id=self.batch_count,
                 tokenizer=self.tokenizer,
                 samples=group,
                 max_prompt_length=self.trainer_config.max_prompt_length,
                 max_seq_len=self.trainer_config.max_seq_len,
                 num_generations=self.trainer_config.num_generations,
+                trainer_config=self.trainer_config,
             )
 
             self.trainer_controller.submit_batch(batch_result)
@@ -479,58 +481,15 @@ class GRPOJob(Job):
         self.terminating = False
         logger.info("Training process terminated")
 
-def _tokenize(tokenizer: Any, text: str) -> List[int]:
-    if hasattr(tokenizer, "encode"):
-        return tokenizer.encode(text, add_special_tokens=False)
-    tokens = tokenizer(  # type: ignore[operator]
-        text,
-        add_special_tokens=False,
-        return_attention_mask=False,
-    )
-    if isinstance(tokens, dict):
-        return list(tokens.get("input_ids", []))
-    return list(tokens)
-
-
-def _render_messages(messages: Any) -> str:
-    if not isinstance(messages, (list, tuple)):
-        return str(messages or "")
-    lines: List[str] = []
-    for message in messages:
-        if not isinstance(message, dict):
-            lines.append(str(message))
-            continue
-        role = message.get("role", "user")
-        content = message.get("content", "")
-        lines.append(f"{role}: {content}")
-    return "\n".join(lines)
-
-
-def _normalize_prompt(obj: Any) -> str:
-    if isinstance(obj, dict) and "messages" in obj:
-        return _render_messages(obj["messages"])
-    return str(obj or "")
-
-
-def _normalize_completion(obj: Any) -> str:
-    if isinstance(obj, dict) and "messages" in obj:
-        messages = obj["messages"]
-        if messages:
-            return str(messages[-1].get("content", ""))
-        return ""
-    return str(obj or "")
-
-
-def build_batch_result_from_samples(
-    *,
+def build_batch_result(
     batch_id: int,
-    tokenizer: Any,
+    tokenizer: AutoTokenizer,
     samples: Sequence[Dict[str, Any]],
     max_prompt_length: int | None,
     max_seq_len: int,
     num_generations: int,
-) -> BatchResult:
-    """Treat the provided samples as a single generation group."""
+    trainer_config: ArborGRPOConfig
+):
 
     if not samples:
         raise ValueError("No samples provided to build batch result")
@@ -539,135 +498,81 @@ def build_batch_result_from_samples(
         raise ValueError(
             f"Expected {num_generations} samples in the group, received {len(samples)}"
         )
-
-    prompts_list: List[Any] = []
-    completions_list: List[Any] = []
-    rewards_list: List[float] = []
-    rewards_missing = False
-
-    for entry in samples:
-        prompt_value = entry.get("input", entry.get("prompt", ""))
-        completion_value = entry.get("completion", entry.get("answer", ""))
-
-        prompts_list.append(copy.deepcopy(prompt_value))
-        completions_list.append(copy.deepcopy(completion_value))
-
-        reward_value = entry.get("reward")
-        if isinstance(reward_value, (list, tuple)):
-            if len(reward_value) != 1:
-                raise ValueError(
-                    "Reward lists must contain exactly one value when treating a single group"
-                )
-            reward_value = reward_value[0]
-
-        if reward_value is None:
-            rewards_missing = True
-        else:
-            rewards_list.append(float(reward_value))
-
-    batch_rewards = None if rewards_missing else rewards_list
-
-    batch_result = build_batch_result(
-        tokenizer=tokenizer,
-        batch_id=batch_id,
-        prompts=prompts_list,
-        completions=completions_list,
-        rewards=batch_rewards,
-        max_prompt_length=max_prompt_length,
-        max_seq_len=max_seq_len,
-    )
-
-    return batch_result
-
-def build_batch_result(
-    *,
-    tokenizer: Any,
-    batch_id: int,
-    prompts: Iterable[Any],
-    completions: Iterable[Any],
-    rewards: Iterable[float] | None,
-    max_prompt_length: int | None,
-    max_seq_len: int,
-) -> BatchResult:
-    """Create a ``BatchResult`` from pre-tokenized prompt/completion pairs."""
-
-    pad_token_id = getattr(tokenizer, "pad_token_id", None)
-    eos_token_id = getattr(tokenizer, "eos_token_id", None)
+    
     effective_max_prompt = max_prompt_length or max_seq_len
-
-    prompts_list = list(prompts)
-    completions_list = list(completions)
-    if len(prompts_list) != len(completions_list):
-        raise ValueError(
-            f"Prompt/completion count mismatch: {len(prompts_list)} vs {len(completions_list)}"
-        )
-
-    reward_list = list(rewards) if rewards is not None else None
-    if reward_list is not None and len(reward_list) != len(prompts_list):
-        raise ValueError(
-            f"Reward count mismatch: expected {len(prompts_list)}, got {len(reward_list)}"
-        )
-
+    
     prompt_ids: List[List[int]] = []
     prompt_mask: List[List[int]] = []
     completion_ids: List[List[int]] = []
     completion_mask: List[List[int]] = []
-    completion_logprobs: List[List[float]] = []
-    reward_values: List[float] = []
+    rewards: List[float] = []
 
-    for idx, (prompt_obj, completion_obj) in enumerate(zip(prompts_list, completions_list)):
-        prompt_text = _normalize_prompt(prompt_obj)
-        completion_text = _normalize_completion(completion_obj)
+    prompt_completion_texts = [
+        apply_chat_template(
+        {
+            "prompt": sample["messages"],
+            "completion": (
+                sample["completion"]
+                if isinstance(sample["completion"], list)
+                else [sample["completion"]]
+            ),
+        },
+        tokenizer,
+        )
+        for sample in samples
+    ]
 
-        prompt_tokens = _tokenize(tokenizer, prompt_text)
-        if effective_max_prompt is not None and len(prompt_tokens) > effective_max_prompt:
-            prompt_tokens = prompt_tokens[-effective_max_prompt:]
-        if not prompt_tokens:
-            if pad_token_id is not None:
-                prompt_tokens = [pad_token_id]
-            elif eos_token_id is not None:
-                prompt_tokens = [eos_token_id]
-            else:
-                prompt_tokens = [0]
-
-        available_for_completion = max(1, max_seq_len - len(prompt_tokens))
-        completion_tokens = _tokenize(tokenizer, completion_text)[:available_for_completion]
-        if eos_token_id is not None:
-            completion_tokens = completion_tokens + [eos_token_id]
-        if not completion_tokens:
-            if pad_token_id is not None:
-                completion_tokens = [pad_token_id]
-            elif eos_token_id is not None:
-                completion_tokens = [eos_token_id]
-            else:
-                completion_tokens = [0]
-
-        prompt_ids.append(prompt_tokens)
-        prompt_mask.append([1] * len(prompt_tokens))
-        completion_ids.append(completion_tokens)
-        completion_mask.append([1] * len(completion_tokens))
-        completion_logprobs.append([0.0] * len(completion_tokens))
-
-        if reward_list is not None:
-            reward_value = float(reward_list[idx])
-        else:
-            reward_value = float(len(completion_tokens))
-        reward_values.append(reward_value)
-
-    processed = ProcessedOutputs(
-        prompt_ids=prompt_ids,
-        prompt_mask=prompt_mask,
-        completion_ids=completion_ids,
-        completion_mask=completion_mask,
-        completion_logprobs=completion_logprobs,
-        rewards=reward_values,
+    prompts_text = [prompt_completion_text["prompt"] for prompt_completion_text in prompt_completion_texts]
+    prompt_inputs = tokenizer(
+        prompts_text,
+        padding=True,
+        padding_side="left",
+        add_special_tokens=False,
     )
+    prompt_ids, prompt_mask = ( 
+        prompt_inputs["input_ids"],
+        prompt_inputs["attention_mask"],
+    )
+
+    completions_text = [prompt_completion_text["completion"] for prompt_completion_text in prompt_completion_texts]
+    completion_inputs = tokenizer(
+        completions_text,
+        padding=True,
+        add_special_tokens=False,
+    )
+    completion_ids, completion_mask = (
+        completion_inputs["input_ids"],
+        completion_inputs["attention_mask"],
+    )
+
+    rewards = [float(sample["reward"]) for sample in samples]
+
+    for prompt_id, prompt_mask, completion_id, completion_mask, reward in zip(prompt_ids, prompt_mask, completion_ids, completion_mask, rewards):
+        if len(prompt_id) > effective_max_prompt:
+            logger.warning(f"Prompt length {len(prompt_id)} is greater than effective max prompt length {effective_max_prompt}")
+
+        if trainer_config.max_completion_length and len(completion_id) > trainer_config.max_completion_length:
+            logger.warning(f"Completion length {len(completion_id)} is greater than effective max completion length {trainer_config.max_completion_length}")
+        
+        # TODO: This should exist
+        # if trainer_config.max_model_length and len(prompt_id + completion_id) > trainer_config.max_model_length:
+        #     logger.warning(f"Prompt + completion length {len(prompt_id + completion_id)} is greater than effective max model length {trainer_config.max_model_length}")
+        
+
+    processed_results = ProcessedOutputs(
+        prompt_ids=prompt_inputs["input_ids"], 
+        prompt_mask=prompt_inputs["attention_mask"], 
+        completion_ids=completion_inputs["input_ids"], 
+        completion_mask=completion_inputs["attention_mask"], 
+        rewards=rewards,
+    )
+
+
 
     return BatchResult(
         batch_id=batch_id,
-        processed_results=processed,
-        generation_time=0.0,
-        all_reward_dict={"reward": reward_values},
-        completions=[_normalize_completion(c) for c in completions_list],
-        prompts=[_normalize_prompt(p) for p in prompts_list],
+        prompts=prompts_text,
+        completions=completions_text,
+        processed_results=processed_results,
+        all_reward_dict={"reward": rewards},
     )
