@@ -71,8 +71,8 @@ def initialize_grpo(
         "gpu_config": {
             "type": "multi",
             "multi": {
-                "num_inference_gpus": 1,
-                "num_training_gpus": 1,
+                "num_inference_gpus": 2,
+                "num_training_gpus": 2,
             },
         },
     }
@@ -173,7 +173,7 @@ def main():
 
         pending_batch_ids = []
         fulfilled_batch_ids = []
-        while len(fulfilled_batch_ids) < 1000:
+        while len(fulfilled_batch_ids) < 100:
             status: GRPOStatus = get_grpo_status(job_id)
             pending_batch_ids = status.pending_batch_ids
             for batch_id in pending_batch_ids:
@@ -189,6 +189,12 @@ def main():
             else:
                 print("All batches are fulfilled")
                 time.sleep(1)
+        checkpoint_response = checkpoint(checkpoint_name="checkpoint_1", job_id=job_id)
+        if checkpoint_response.status_code == 200:
+            last_checkpoint = checkpoint_response.json()["last_checkpoint"]
+            print(f"Checkpoint created: {last_checkpoint}")
+        else:
+            print(f"Checkpoint failed: {checkpoint_response.text}")
     except Exception as e:
         print(e)
     finally:

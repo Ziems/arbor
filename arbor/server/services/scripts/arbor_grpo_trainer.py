@@ -288,6 +288,20 @@ class ArborGRPOTrainer(Trainer):
             compute_loss_func="non-None value to disable scaling",
         )
         logger.debug(f"Done with super().__init__")
+
+        # Validate batch sizing to avoid empty per-process slices
+        try:
+            world_size = self.accelerator.num_processes
+        except Exception:
+            world_size = 1
+        min_required_generations = world_size * int(self.gradient_accumulation_steps)
+        if self.num_generations < min_required_generations:
+            raise ValueError(
+                "num_generations must be >= world_size * gradient_accumulation_steps. "
+                f"Got num_generations={self.num_generations}, world_size={world_size}, "
+                f"gradient_accumulation_steps={self.gradient_accumulation_steps} → "
+                f"min_required={min_required_generations}."
+            )
     
         # Reference model
         self.logger.debug(f"Starting reference model")
@@ -863,10 +877,6 @@ class ArborGRPOTrainer(Trainer):
         # prompt is at least 1 token
         completion_mask = attention_mask[:, 1:]
         logits_to_keep = completion_mask.size(1)
-        print(f"logits_to_keep: {logits_to_keep}")
-        print(f"completion_mask: {completion_mask}")
-        print(f"input_ids: {input_ids}")
-        print(f"attention_mask: {attention_mask}")
         per_token_logps = self._get_per_token_logps(
             model, input_ids, attention_mask, logits_to_keep
         )
