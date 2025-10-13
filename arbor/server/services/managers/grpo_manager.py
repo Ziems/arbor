@@ -30,6 +30,10 @@ class GRPOManager(BaseManager):
         self.grpo_jobs[grpo_job.id] = grpo_job
 
         return grpo_job.get_status()
+    
+    def get_job_status(self, job_id: str) -> GRPOStatus:
+        grpo_job = self.grpo_jobs[job_id]
+        return grpo_job.get_status()
 
     def route_grpo_step(self, request: GRPOStepRequest):
         grpo_job = self.grpo_jobs[request.job_id]

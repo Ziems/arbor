@@ -16,7 +16,7 @@ dependencies = [
     "pydantic-settings",
     "vllm>=0.9.1",
     "transformers",
-    "trl==0.19.1",
+    "trl==0.23.1",
     "peft",
     "ray>=2.9",
     "setuptools (>=76.0.0,<79.0.1)",

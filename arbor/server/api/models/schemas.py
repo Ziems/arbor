@@ -6,14 +6,16 @@ from pydantic import BaseModel, ConfigDict
 # Generic type for list items
 T = TypeVar("T")
 
+class StrictBaseModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-class PaginatedResponse(BaseModel, Generic[T]):
+class PaginatedResponse(StrictBaseModel, Generic[T]):
     object: str = "list"
     data: List[T]
     has_more: bool = False
 
 
-class FileModel(BaseModel):
+class FileModel(StrictBaseModel):
     id: str
     object: str = "file"
     bytes: int
@@ -23,19 +25,19 @@ class FileModel(BaseModel):
     format: str = "unknown"  # Detected format: "sft", "dpo", or "unknown"
 
 
-class WandbConfig(BaseModel):
+class WandbConfig(StrictBaseModel):
     project: str
     name: Optional[str] = None
     entity: Optional[str] = None
     tags: Optional[List[str]] = None
 
 
-class IntegrationModel(BaseModel):
+class IntegrationModel(StrictBaseModel):
     type: str
     wandb: WandbConfig
 
 
-class FineTuneRequest(BaseModel):
+class FineTuneRequest(StrictBaseModel):
     model: str
     training_file: str  # id of uploaded jsonl file
     method: Optional[dict] = None
@@ -47,34 +49,34 @@ class FineTuneRequest(BaseModel):
     seed: Optional[int] = None
 
 
-class ErrorModel(BaseModel):
+class ErrorModel(StrictBaseModel):
     code: str
     message: str
     param: str | None = None
 
 
-class SupervisedHyperparametersModel(BaseModel):
+class SupervisedHyperparametersModel(StrictBaseModel):
     batch_size: int | str = "auto"
     learning_rate_multiplier: float | str = "auto"
     n_epochs: int | str = "auto"
 
 
-class DPOHyperparametersModel(BaseModel):
+class DPOHyperparametersModel(StrictBaseModel):
     beta: float | str = "auto"
     batch_size: int | str = "auto"
     learning_rate_multiplier: float | str = "auto"
     n_epochs: int | str = "auto"
 
 
-class SupervisedModel(BaseModel):
+class SupervisedModel(StrictBaseModel):
     hyperparameters: SupervisedHyperparametersModel
 
 
-class DpoModel(BaseModel):
+class DpoModel(StrictBaseModel):
     hyperparameters: DPOHyperparametersModel
 
 
-class MethodModel(BaseModel):
+class MethodModel(StrictBaseModel):
     type: Literal["supervised"] | Literal["dpo"]
     supervised: SupervisedModel | None = None
     dpo: DpoModel | None = None
@@ -97,7 +99,7 @@ class JobStatus(Enum):
 
 
 # https://platform.openai.com/docs/api-reference/fine-tuning/object
-class JobStatusModel(BaseModel):
+class JobStatusModel(StrictBaseModel):
     object: str = "fine_tuning.job"
     id: str
     fine_tuned_model: str | None = None
@@ -124,7 +126,7 @@ class JobStatusModel(BaseModel):
     # metadata: dict[str, str]
 
 
-class JobEventModel(BaseModel):
+class JobEventModel(StrictBaseModel):
     object: str = "fine_tuning.job_event"
     id: str
     created_at: int
@@ -134,7 +136,7 @@ class JobEventModel(BaseModel):
     type: str
 
 
-class MetricsModel(BaseModel):
+class MetricsModel(StrictBaseModel):
     step: int
     train_loss: float
     train_mean_token_accuracy: float
@@ -144,7 +146,7 @@ class MetricsModel(BaseModel):
     full_valid_mean_token_accuracy: float
 
 
-class JobCheckpointModel(BaseModel):
+class JobCheckpointModel(StrictBaseModel):
     object: str = "fine_tuning.job_checkpoint"
     id: str
     created_at: int
@@ -154,12 +156,12 @@ class JobCheckpointModel(BaseModel):
     fine_tuning_job_id: str
 
 
-class ChatCompletionMessage(BaseModel):
+class ChatCompletionMessage(StrictBaseModel):
     role: Literal["system", "user", "assistant"]
     content: str
 
 
-class ChatCompletionRequest(BaseModel):
+class ChatCompletionRequest(StrictBaseModel):
     model: str
     messages: List[ChatCompletionMessage]
     temperature: float | None = None
@@ -167,13 +169,13 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: int | None = None
 
 
-class ChatCompletionChoice(BaseModel):
+class ChatCompletionChoice(StrictBaseModel):
     message: ChatCompletionMessage
     index: int
     finish_reason: Literal["stop", "length", "tool_calls"]
 
 
-class ChatCompletionModel(BaseModel):
+class ChatCompletionModel(StrictBaseModel):
     id: str
     object: str = "chat.completion"
     created: int
@@ -181,30 +183,45 @@ class ChatCompletionModel(BaseModel):
     choices: List[ChatCompletionChoice]
 
 
+class InferenceJobRequest(StrictBaseModel):
+    model: str
+    max_context_length: Optional[int] = None
+
+
 ### GRPO
-class MultiGPUConfig(BaseModel):
+class MultiGPUConfig(StrictBaseModel):
     num_inference_gpus: int
     num_training_gpus: int  # Number of GPUs to use for training
 
 
-class GRPOGPUConfig(BaseModel):
+class GRPOGPUConfig(StrictBaseModel):
     type: Literal["multi"]
     multi: MultiGPUConfig
 
 
-class GRPOStatus(BaseModel):
+class GRPOStatus(StrictBaseModel):
     job_id: str
     status: Optional[str] = None
     current_model: str
     checkpoints: dict[str, str]
     last_checkpoint: Optional[str] = None
+    pending_batch_ids: List[int] = []
 
 
-class GRPOInitializeRequest(BaseModel):
-    model: str
+class LoRAConfigRequest(StrictBaseModel):
+    r: int
+    lora_alpha: int
+    target_modules: List[str]
+    lora_dropout: float
+
+class WandbConfigRequest(StrictBaseModel):
+    project: str
+    name: Optional[str] = None
+
+class ArborGRPOConfigRequest(StrictBaseModel):
+    """Only the settings we want to feed straight into ArborGRPOConfig."""
     temperature: Optional[float] = None
     beta: Optional[float] = None
-    num_iterations: Optional[int] = None
     num_generations: Optional[int] = None
     per_device_train_batch_size: Optional[int] = None
     learning_rate: Optional[float] = None
@@ -213,35 +230,43 @@ class GRPOInitializeRequest(BaseModel):
     lr_scheduler_type: Optional[str] = None
     max_prompt_length: Optional[int] = None
     max_completion_length: Optional[int] = None
-    gradient_checkpointing_kwargs: Optional[dict] = {}
+    gradient_checkpointing_kwargs: Optional[dict[str, Any]] = None
     bf16: Optional[bool] = None
     scale_rewards: Optional[bool] = None
     max_grad_norm: Optional[float] = None
     report_to: Optional[str] = None
     log_completions: Optional[bool] = None
     logging_steps: Optional[int] = None
-    mask_truncated_completions: Optional[bool] = None
-    # Arbor specific
-    max_context_length: Optional[int] = None
-    lora: Optional[bool] = None
-    grpo_flavor: Optional[Literal["grpo", "mmgrpo"]] = None
-    wandb_kwargs: Optional[dict] = None
-    # To name the run
-    suffix: Optional[str] = None
     generation_batch_size: Optional[int] = None
-    # GPU allocation
+    mask_truncated_completions: Optional[bool] = None
+    async_generation_timeout: Optional[float] = None
+    max_seq_len: Optional[int] = None
+    lora_config: Optional[LoRAConfigRequest] = None
+    max_steps: Optional[int] = None
+    warmup_steps: Optional[int] = None
+    lr_scheduler_type: Optional[str] = None
+    # ...and any other ArborGRPOConfig fields you care about.
+    # Thanks to extra="allow" you can keep this list short and still pass others.
+
+class GRPOInitializeRequest(StrictBaseModel):
+    run_name: Optional[str] = None
+    model: str
+    trainer_config: ArborGRPOConfigRequest
+    inference_config: InferenceJobRequest
+    wandb_config: Optional[WandbConfigRequest] = None
     gpu_config: GRPOGPUConfig = GRPOGPUConfig(
         type="multi", multi=MultiGPUConfig(num_inference_gpus=1, num_training_gpus=1)
     )
 
 
 # Base class for all GRPO requests except initialize
-class GRPOBaseRequest(BaseModel):
+class GRPOBaseRequest(StrictBaseModel):
     job_id: str
 
 
 class GRPOStepRequest(GRPOBaseRequest):
     model: str
+    batch_id: int
     batch: List[dict] | List[List[dict]]
 
 
@@ -253,12 +278,12 @@ class GRPOTerminateRequest(GRPOBaseRequest):
     pass
 
 
-class LogQueryRequest(BaseModel):
+class LogQueryRequest(StrictBaseModel):
     jq_query: str
     limit: Optional[int]
 
 
-class LogQueryResponse(BaseModel):
+class LogQueryResponse(StrictBaseModel):
     status: str
     results: List[Any]
     error_message: Optional[str] = None

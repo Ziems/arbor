@@ -1,10 +1,5 @@
 import json
 import os
-import random
-import string
-import sys
-from datetime import datetime
-from pathlib import Path
 from typing import Literal, Optional
 
 from arbor.server.api.models.schemas import (
@@ -14,7 +9,6 @@ from arbor.server.api.models.schemas import (
 )
 from arbor.server.core.config import Config
 from arbor.server.services.managers.gpu_manager import GPUManager
-from arbor.server.services.comms.comms import ArborServerCommsHandler
 from arbor.server.services.jobs.job import Job, JobArtifact
 from arbor.server.services.managers.file_manager import FileManager
 from arbor.server.utils.helpers import get_free_port
@@ -138,8 +132,6 @@ class FileTrainJob(Job):
         self.model = request.model
         self.training_file = request.training_file
         print("Set model and training file")
-
-        self.server_comms_handler = ArborServerCommsHandler()
 
         script_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"

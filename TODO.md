@@ -1,0 +1,3 @@
+- [ ] Resolve where inference job config should be
+- [ ] Redo logs
+- [ ] Make sure DSPy imports arbor in arbor provider and validates the request before it is sent to Arbor. Can also do init through DSPy! Also an easy way to check that the various versions are compatable with each other
