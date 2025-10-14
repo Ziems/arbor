@@ -5,11 +5,12 @@ Provides the same interface as VLLMClient but with lightweight mock implementati
 """
 
 import asyncio
-import logging
 import time
 from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger(__name__)
+from arbor.server.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class MockVLLMClient:

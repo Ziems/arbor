@@ -1,7 +1,6 @@
 import atexit
 import traceback
 import httpx
-import logging
 import time
 
 import requests
@@ -15,7 +14,9 @@ from vllm.distributed.device_communicators.pynccl import (  # type: ignore
 )
 from vllm.distributed.utils import StatelessProcessGroup  # type: ignore
 
-logger = logging.getLogger(__name__)
+from arbor.server.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class VLLMClient():

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from typing import Any, Dict, Mapping, Optional
 import threading
 import time
@@ -9,8 +8,9 @@ import zmq
 
 from arbor.server.services.comms.async_batch_requester import BatchResult
 from arbor.server.utils.helpers import get_free_port
+from arbor.server.utils.logging import get_logger
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = get_logger(__name__)
 
 
 class TrainerControlServer:

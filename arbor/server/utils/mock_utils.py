@@ -6,7 +6,10 @@ of GPU-intensive scripts when running in test environments.
 """
 
 import os
-from typing import Tuple
+
+from arbor.server.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def should_use_mock_gpu() -> bool:
@@ -70,10 +73,7 @@ def get_script_path(script_name: str, script_dir: str) -> str:
         if os.path.exists(mock_path):
             return mock_path
         else:
-            # Log warning that mock was requested but not found
-            import logging
-
-            logging.warning(
+            logger.warning(
                 f"Mock script {mock_path} not found, falling back to {script_name}"
             )
 

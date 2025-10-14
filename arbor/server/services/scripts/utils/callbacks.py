@@ -1,12 +1,12 @@
-import logging
 import time
 
 from transformers import TrainerCallback
 
 from arbor.server.services.comms.comms import ArborScriptCommsHandler
 from arbor.server.services.scripts.utils.ingestion_monitor import IngestionMonitor
+from arbor.server.utils.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class WeightUpdateCallback(TrainerCallback):

@@ -2,7 +2,7 @@ import torch
 from arbor.server.services.comms.control_client import TrainerControlClient
 import json
 import argparse
-import wandb 
+import wandb
 import time
 import zmq
 import datasets
@@ -32,8 +32,9 @@ from collections import defaultdict, deque
 from arbor.server.services.inference.vllm_client import VLLMClient
 
 from arbor.server.services.scripts.arbor_grpo_config import ArborGRPOConfig
+from arbor.server.utils.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 logger.setLevel(logging.INFO)
 
 logging.getLogger("httpx").setLevel(logging.WARN)
@@ -120,7 +121,7 @@ class ArborGRPOTrainer(Trainer):
         callbacks: Optional[list[TrainerCallback]] = None,
         optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
     ):
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger(__name__)
         self.logger.debug(f"Starting __init__")
         self._control_client: Optional[TrainerControlClient] = None
         
