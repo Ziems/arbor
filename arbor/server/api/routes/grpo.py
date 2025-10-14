@@ -27,7 +27,6 @@ def initialize_grpo(request: Request, grpo_initialize_request: GRPOInitializeReq
 def get_grpo_status(request: Request, grpo_request: GRPOBaseRequest):
     grpo_manager: GRPOManager = request.app.state.grpo_manager
     grpo_status: GRPOStatus = grpo_manager.get_job_status(grpo_request.job_id)
-    # print(grpo_status)
     return grpo_status
 
 
@@ -35,7 +34,6 @@ def get_grpo_status(request: Request, grpo_request: GRPOBaseRequest):
 def run_grpo_step(request: Request, grpo_request: GRPOStepRequest):
     grpo_manager: GRPOManager = request.app.state.grpo_manager
     grpo_status: GRPOStatus = grpo_manager.route_grpo_step(grpo_request)
-
     return grpo_status
 
 
