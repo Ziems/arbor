@@ -1,18 +1,29 @@
+from __future__ import annotations
+
 import atexit
-import httpx
+import importlib.util
 import logging
 import time
 
+import httpx
 import requests
-import torch  # type: ignore
 from requests import ConnectionError
 from requests.adapters import HTTPAdapter
 from requests.exceptions import RequestException, Timeout
-from trl.import_utils import is_requests_available, is_vllm_available  # type: ignore
-from vllm.distributed.device_communicators.pynccl import (  # type: ignore
-    PyNcclCommunicator,
-)
-from vllm.distributed.utils import StatelessProcessGroup  # type: ignore
+
+try:
+    from trl.import_utils import is_requests_available, is_vllm_available  # type: ignore
+except ImportError:
+    def _module_exists(module_name: str) -> bool:
+        return importlib.util.find_spec(module_name) is not None
+
+
+    def is_requests_available() -> bool:  # type: ignore
+        return _module_exists("requests")
+
+
+    def is_vllm_available() -> bool:  # type: ignore
+        return _module_exists("vllm")
 
 logger = logging.getLogger(__name__)
 
@@ -69,11 +80,11 @@ class VLLMClient:
     ):
         if not is_requests_available():
             raise ImportError(
-                "requests is not installed. Please install it with `pip install requests`."
+                "requests is required for VLLMClient. Install it via `pip install requests` or `pip install arbor-ai`."
             )
         if not is_vllm_available():
             raise ImportError(
-                "vLLM is not installed. Please install it with `pip install vllm`."
+                "vLLM is required for VLLMClient. Install it via `pip install arbor-ai[all]` or `pip install vllm`."
             )
 
         self.session = requests.Session()
@@ -89,6 +100,7 @@ class VLLMClient:
         self.server_url = f"http://{self.host}:{self.server_port}"
 
         self.group_port = group_port
+        self.pynccl_comm = None
         self.check_server(connection_timeout)  # check server and fail after timeout
 
     def check_server(self, total_timeout: float = 0.0, retry_interval: float = 2.0):
@@ -131,6 +143,16 @@ class VLLMClient:
         """
         Initializes the weight update group in a distributed setup for model synchronization.
         """
+
+        try:
+            from vllm.distributed.device_communicators.pynccl import (  # type: ignore
+                PyNcclCommunicator,
+            )
+            from vllm.distributed.utils import StatelessProcessGroup  # type: ignore
+        except ImportError as exc:
+            raise ImportError(
+                "vLLM distributed components are unavailable. Install them via `pip install arbor-ai[all]` or `pip install vllm`."
+            ) from exc
 
         # Get the world size from the server
         url = f"{self.server_url}/get_world_size"
