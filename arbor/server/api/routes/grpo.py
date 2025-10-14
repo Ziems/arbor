@@ -6,7 +6,7 @@ from arbor.server.api.models.schemas import (
     GRPOStatus,
     GRPOStepRequest,
     GRPOTerminateRequest,
-    GRPOBaseRequest, # TODO: These should be handled with a subclass like GRPOTerminateRequest
+    GRPOBaseRequest,  # TODO: These should be handled with a subclass like GRPOTerminateRequest
 )
 from arbor.server.services.managers.grpo_manager import GRPOManager
 from arbor.server.services.managers.inference_manager import InferenceManager
@@ -23,7 +23,8 @@ def initialize_grpo(request: Request, grpo_initialize_request: GRPOInitializeReq
     )
     return grpo_status
 
-@router.post('/status', response_model=GRPOStatus)
+
+@router.post("/status", response_model=GRPOStatus)
 def get_grpo_status(request: Request, grpo_request: GRPOBaseRequest):
     grpo_manager: GRPOManager = request.app.state.grpo_manager
     grpo_status: GRPOStatus = grpo_manager.get_job_status(grpo_request.job_id)
@@ -38,9 +39,7 @@ def run_grpo_step(request: Request, grpo_request: GRPOStepRequest):
 
 
 @router.post("/checkpoint", response_model=GRPOStatus)
-def checkpoint(
-    request: Request, grpo_checkpoint_request: GRPOCheckpointRequest
-):
+def checkpoint(request: Request, grpo_checkpoint_request: GRPOCheckpointRequest):
     grpo_manager: GRPOManager = request.app.state.grpo_manager
     grpo_status: GRPOStatus = grpo_manager.route_grpo_checkpoint(
         grpo_checkpoint_request

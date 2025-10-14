@@ -152,7 +152,6 @@ ignore = [
     "UP037",  # Allow quoted annotations until upgrade
     "UP038",  # Allow isinstance tuple patterns
     "UP039",  # Allow explicit base class parentheses
-    "UP045",  # Allow Optional[T] syntax instead of X | None
     "W291",  # Allow trailing whitespace in generated blocks
     "W292",  # Allow missing newline at EOF in legacy files
     "W293",  # Allow whitespace on blank lines
@@ -172,4 +171,3 @@ known-first-party = ["arbor"]
 
 [tool.ruff.lint.pyupgrade]
 keep-runtime-typing = true
-

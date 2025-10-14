@@ -2,7 +2,7 @@ import torch
 from arbor.server.services.comms.control_client import TrainerControlClient
 import json
 import argparse
-import wandb 
+import wandb
 import time
 import datasets
 from contextlib import nullcontext
@@ -14,15 +14,31 @@ from transformers.utils import is_peft_available
 from transformers.trainer import Trainer
 from typing import Any, Dict, List, Optional, Union
 from transformers.trainer_callback import TrainerCallback
-from transformers import AutoConfig, AutoProcessor, ProcessorMixin, PreTrainedTokenizerBase, PreTrainedModel
+from transformers import (
+    AutoConfig,
+    AutoProcessor,
+    ProcessorMixin,
+    PreTrainedTokenizerBase,
+    PreTrainedModel,
+)
 from peft import LoraConfig
 
-from trl.trainer.utils import disable_dropout_in_model, pad, nanmax, nanmin, identity, selective_log_softmax
+from trl.trainer.utils import (
+    disable_dropout_in_model,
+    pad,
+    nanmax,
+    nanmin,
+    identity,
+    selective_log_softmax,
+)
 from trl.models import prepare_peft_model, prepare_deepspeed
 from transformers.trainer_utils import seed_worker
 import logging
 from trl.trainer.callbacks import SyncRefModelCallback
-from arbor.server.services.comms.async_batch_requester import AsyncBatchRequester, BatchRequest
+from arbor.server.services.comms.async_batch_requester import (
+    AsyncBatchRequester,
+    BatchRequest,
+)
 from arbor.server.services.comms.async_dataloader_wrapper import AsyncDataLoaderWrapper
 from collections import defaultdict, deque
 
@@ -78,6 +94,7 @@ def shuffle_tensor_dict(
         for key, tensor in tensor_dict.items()
     }
 
+
 def split_tensor_dict(
     tensor_dict: dict[str, Optional[torch.Tensor]], num_chunks: int
 ) -> list[dict[str, Optional[torch.Tensor]]]:
@@ -109,18 +126,19 @@ def split_tensor_dict(
 
 
 class ArborGRPOTrainer(Trainer):
-
     def __init__(
         self,
         model: str,
         args: ArborGRPOConfig,
         callbacks: Optional[list[TrainerCallback]] = None,
-        optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
+        optimizers: tuple[
+            Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]
+        ] = (None, None),
     ):
         self.logger = logging.getLogger(__name__)
         self.logger.debug("Starting __init__")
         self._control_client: Optional[TrainerControlClient] = None
-        
+
         # Trained model
         model_init_kwargs = args.model_init_kwargs or {}
         model_id = model
@@ -141,28 +159,30 @@ class ArborGRPOTrainer(Trainer):
         model = architecture.from_pretrained(model_id, **model_init_kwargs)
 
         if args.lora_config is not None:
-            model = prepare_peft_model(model, args.lora_config, args)        
+            model = prepare_peft_model(model, args.lora_config, args)
             # Override sync_ref_model if PEFT is used since ref_model will be None
             if args.sync_ref_model:
                 self.logger.warning(
                     "sync_ref_model=True is not compatible with PEFT. Setting sync_ref_model=False."
                 )
                 args.sync_ref_model = False
-        
+
                 # Enable gradient checkpointing if requested
         if args.gradient_checkpointing:
             model = self._enable_gradient_checkpointing(model, args)  # type: ignore
 
         # Processing class
         processing_class = AutoProcessor.from_pretrained(model.config._name_or_path)
-        
+
         # Handle pad token for processors or tokenizers
         if isinstance(processing_class, ProcessorMixin):
             tokenizer = processing_class.tokenizer
         elif isinstance(processing_class, PreTrainedTokenizerBase):
             tokenizer = processing_class
         else:
-            raise TypeError("The `processing_class` must be either a `PreTrainedTokenizerBase` or a `ProcessorMixin`")
+            raise TypeError(
+                "The `processing_class` must be either a `PreTrainedTokenizerBase` or a `ProcessorMixin`"
+            )
 
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
@@ -215,9 +235,15 @@ class ArborGRPOTrainer(Trainer):
         self.repetition_penalty = args.repetition_penalty
         # self.use_transformers_paged = args.use_transformers_paged
         self.vllm_mode = args.vllm_mode
-        self.vllm_gpu_memory_utilization = args.vllm_gpu_memory_utilization  # only applies to colocation mode
-        self.vllm_tensor_parallel_size = args.vllm_tensor_parallel_size  # only applies to colocation mode
-        self.vllm_importance_sampling_correction = args.vllm_importance_sampling_correction
+        self.vllm_gpu_memory_utilization = (
+            args.vllm_gpu_memory_utilization
+        )  # only applies to colocation mode
+        self.vllm_tensor_parallel_size = (
+            args.vllm_tensor_parallel_size
+        )  # only applies to colocation mode
+        self.vllm_importance_sampling_correction = (
+            args.vllm_importance_sampling_correction
+        )
         self.vllm_importance_sampling_cap = args.vllm_importance_sampling_cap
         self.use_liger_loss = args.use_liger_loss
         self.loss_type = args.loss_type
@@ -235,11 +261,13 @@ class ArborGRPOTrainer(Trainer):
                 "Liger Kernels currently only support token-level importance sampling. Please set"
                 "`importance_sampling_level` to 'token'."
             )
-        
+
         # Multi-step
         self.num_iterations = args.num_iterations  # = 𝜇 in the GRPO paper
         self.epsilon_low = args.epsilon
-        self.epsilon_high = args.epsilon_high if args.epsilon_high is not None else args.epsilon
+        self.epsilon_high = (
+            args.epsilon_high if args.epsilon_high is not None else args.epsilon
+        )
         # Tracks the number of iterations (forward + backward passes), including those within a grad accum cycle
         self.gradient_accumulation_steps = args.gradient_accumulation_steps
         self._step = 0
@@ -265,7 +293,7 @@ class ArborGRPOTrainer(Trainer):
             "Initialized dummy dataset with %s items for external batch results",
             total_items,
         )
-        
+
         logger.debug("Starting super().__init__")
 
         super().__init__(
@@ -299,7 +327,7 @@ class ArborGRPOTrainer(Trainer):
                 f"gradient_accumulation_steps={self.gradient_accumulation_steps} → "
                 f"min_required={min_required_generations}."
             )
-    
+
         # Reference model
         self.logger.debug("Starting reference model")
         self.beta = args.beta
@@ -315,7 +343,7 @@ class ArborGRPOTrainer(Trainer):
             config = AutoConfig.from_pretrained(model_id)
             architecture = getattr(transformers, config.architectures[0])
             self.ref_model = architecture.from_pretrained(model_id, **model_init_kwargs)
-        
+
         self.logger.debug("Done with reference model")
 
         # Disable dropout in the models
@@ -323,7 +351,7 @@ class ArborGRPOTrainer(Trainer):
             disable_dropout_in_model(model)
             if self.ref_model is not None:
                 disable_dropout_in_model(self.ref_model)
-        
+
         # Liger loss
         # TODO: Commented out for now for testing --Noah 9/26/2025
         # if self.use_liger_loss:
@@ -343,7 +371,7 @@ class ArborGRPOTrainer(Trainer):
         #         loss_type=self.loss_type,
         #         max_completion_length=self.max_completion_length,
         #     )
-        
+
         # Initialize the metrics
         self._metrics = {"train": defaultdict(list), "eval": defaultdict(list)}
         self._total_train_tokens = 0
@@ -367,17 +395,27 @@ class ArborGRPOTrainer(Trainer):
         self.logger.debug("Configuring vllm client")
         if self.vllm_mode == "server":
             if self.accelerator.is_main_process:
-                self.vllm_client = VLLMClient(host=args.vllm_server_host, port=args.vllm_server_port, connection_timeout=args.vllm_server_timeout)
+                self.vllm_client = VLLMClient(
+                    host=args.vllm_server_host,
+                    port=args.vllm_server_port,
+                    connection_timeout=args.vllm_server_timeout,
+                )
                 self.vllm_client.init_communicator()
 
         elif self.vllm_mode == "colocate":
             # TODO: Implement colocation mode
-            raise NotImplementedError("Colocation mode is not supported for ArborGRPO at this time.")
+            raise NotImplementedError(
+                "Colocation mode is not supported for ArborGRPO at this time."
+            )
         else:
-            raise ValueError(f"vllm_mode must be either 'server' or 'colocate', got '{self.vllm_mode}'.")
+            raise ValueError(
+                f"vllm_mode must be either 'server' or 'colocate', got '{self.vllm_mode}'."
+            )
         self.logger.debug("Done with configuring vllm client")
-        
-        self._last_loaded_step = 0  # tag to avoid useless loading during grad accumulation
+
+        self._last_loaded_step = (
+            0  # tag to avoid useless loading during grad accumulation
+        )
 
         # When using vLLM, the main process is responsible for loading the model weights. This can cause process
         # desynchronization and seems to lead to DeepSpeed hanging during initialization. To prevent this, we
@@ -399,7 +437,7 @@ class ArborGRPOTrainer(Trainer):
                     accelerator=self.accelerator,
                 )
             )
-        
+
         self._next_batch_id: int = 0
         self._async_started: bool = False
         self.num_batches_ahead: int = args.num_batches_ahead
@@ -415,7 +453,7 @@ class ArborGRPOTrainer(Trainer):
             self._control_client = TrainerControlClient(self, args.control_endpoint)
             self._control_client.start()
         logger.debug("Done with __init__")
-    
+
     def get_train_dataloader(self):
         if self.train_dataset is None:
             raise ValueError("Trainer: training requires a train_dataset.")
@@ -455,7 +493,6 @@ class ArborGRPOTrainer(Trainer):
             dataloader, buffer_size=max(5, self.num_batches_ahead * 2)
         )
         return self.accelerator.prepare(self._async_dataloader)
-    
 
     def _enable_gradient_checkpointing(
         self, model: PreTrainedModel, args: ArborGRPOConfig
@@ -479,7 +516,7 @@ class ArborGRPOTrainer(Trainer):
             model.enable_input_require_grads()
 
         return model
-    
+
     # Get the per-token log probabilities for the completions for the model and the reference model
     def _get_per_token_logps(
         self, model, input_ids, attention_mask, logits_to_keep, batch_size=None
@@ -512,7 +549,6 @@ class ArborGRPOTrainer(Trainer):
             all_logps.append(logps)
         return torch.cat(all_logps, dim=0)
 
-    
     def _move_model_to_vllm(self):
         # For DeepSpeed ZeRO-3 we need to gather all parameters before operations
         deepspeed_plugin = self.accelerator.state.deepspeed_plugin
@@ -603,7 +639,7 @@ class ArborGRPOTrainer(Trainer):
 
         # Ensure all processes wait for the main process to finish updating weights
         self.accelerator.wait_for_everyone()
-    
+
     def _inner_training_loop(self, *args, **kwargs):
         """Override to ensure async generator is stopped when training ends"""
         try:
@@ -614,13 +650,12 @@ class ArborGRPOTrainer(Trainer):
                 self._control_client = None
             # Clean up async generator on all processes
             if (
-                self.async_requester and
-                self._async_started
+                self.async_requester
+                and self._async_started
                 and self.accelerator.is_main_process
             ):
                 self.async_requester.stop()
             self._async_started = False
-        
 
     def _prepare_inputs(  # type: ignore
         self, inputs: list[dict[str, Any]]
@@ -636,7 +671,9 @@ class ArborGRPOTrainer(Trainer):
         # Ensure all processes are synchronized at the start
         self.accelerator.wait_for_everyone()
         # inputs = list of dicts for all gradient accumulation steps
-        generate_every = self.gradient_accumulation_steps# * self.num_iterations # num iterations unused
+        generate_every = (
+            self.gradient_accumulation_steps
+        )  # * self.num_iterations # num iterations unused
 
         # Check if we need to generate new completions
         if self._step % generate_every == 0 or self._buffered_inputs is None:
@@ -685,7 +722,9 @@ class ArborGRPOTrainer(Trainer):
                     break
 
                 if self.accelerator.is_main_process:
-                    if self.async_requester.request_batch(BatchRequest(batch_id=batch_id)):
+                    if self.async_requester.request_batch(
+                        BatchRequest(batch_id=batch_id)
+                    ):
                         batches_requested += 1
                     else:
                         self.logger.debug(
@@ -840,7 +879,7 @@ class ArborGRPOTrainer(Trainer):
         self._step += 1
         self.accelerator.wait_for_everyone()
         return result
-    
+
     def _compute_advantages(
         self,
         rewards: torch.Tensor,
@@ -859,7 +898,7 @@ class ArborGRPOTrainer(Trainer):
             advantages = advantages / (std_grouped + 1e-4)
 
         return advantages
-    
+
     def compute_loss(  # type: ignore
         self,  # type: ignore
         model: PreTrainedModel,
@@ -969,7 +1008,7 @@ class ArborGRPOTrainer(Trainer):
             gathered_clip_ratio.nanmean().item()  # type: ignore
         )
         return loss
-    
+
     def log(self, logs: dict[str, float], start_time: float | None = None) -> None:
         mode = "train" if self.model is not None and self.model.training else "eval"  # type: ignore
         metrics = {
@@ -1025,7 +1064,7 @@ class ArborGRPOTrainer(Trainer):
             self._textual_logs["completion"].clear()
             for key in self._textual_logs["rewards"]:
                 self._textual_logs["rewards"][key].clear()
-    
+
     def _log_reward_metrics_primary(
         self,
         mode: str,
@@ -1147,6 +1186,7 @@ def parse_args():
     parser.add_argument("--vllm_server_port", type=int, required=True)
     return parser.parse_args()
 
+
 def build_trainer_config(args: argparse.Namespace) -> ArborGRPOConfig:
     cfg = json.loads(args.trainer_config_json)
     lora_cfg = cfg.get("lora_config")
@@ -1154,7 +1194,7 @@ def build_trainer_config(args: argparse.Namespace) -> ArborGRPOConfig:
         cfg["lora_config"] = LoraConfig(**lora_cfg)
     return ArborGRPOConfig(**cfg)
 
-        
+
 def main():
     args = parse_args()
     trainer_config = build_trainer_config(args)
@@ -1171,4 +1211,4 @@ def main():
 
 
 if __name__ == "__main__":
-   main() 
+    main()

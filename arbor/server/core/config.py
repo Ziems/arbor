@@ -4,6 +4,7 @@ from typing import Dict, Optional
 import yaml
 from pydantic import BaseModel
 
+
 class Config(BaseModel):
     """Simplified Arbor configuration."""
 

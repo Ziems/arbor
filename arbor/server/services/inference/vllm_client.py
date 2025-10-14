@@ -17,7 +17,7 @@ from vllm.distributed.utils import StatelessProcessGroup  # type: ignore
 logger = logging.getLogger(__name__)
 
 
-class VLLMClient():
+class VLLMClient:
     """
     A client class to interact with a vLLM server.
 
@@ -187,7 +187,7 @@ class VLLMClient():
 
         # When the client object is deleted, close the weight update group
         atexit.register(self.close_communicator)
-    
+
     async def chat(self, json_body: dict) -> dict:
         """
         Send a chat completion request with retry logic for when inference is blocked.

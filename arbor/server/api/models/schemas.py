@@ -6,8 +6,10 @@ from pydantic import BaseModel, ConfigDict
 # Generic type for list items
 T = TypeVar("T")
 
+
 class StrictBaseModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
 
 class PaginatedResponse(StrictBaseModel, Generic[T]):
     object: str = "list"
@@ -214,12 +216,15 @@ class LoRAConfigRequest(StrictBaseModel):
     target_modules: List[str]
     lora_dropout: float
 
+
 class WandbConfigRequest(StrictBaseModel):
     project: str
     name: Optional[str] = None
 
+
 class ArborGRPOConfigRequest(StrictBaseModel):
     """Only the settings we want to feed straight into ArborGRPOConfig."""
+
     temperature: Optional[float] = None
     beta: Optional[float] = None
     num_generations: Optional[int] = None
@@ -247,6 +252,7 @@ class ArborGRPOConfigRequest(StrictBaseModel):
     lr_scheduler_type: Optional[str] = None
     # ...and any other ArborGRPOConfig fields you care about.
     # Thanks to extra="allow" you can keep this list short and still pass others.
+
 
 class GRPOInitializeRequest(StrictBaseModel):
     run_name: Optional[str] = None

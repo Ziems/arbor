@@ -116,12 +116,8 @@ class FileTrainJob(Job):
     ):
         # Allocate GPUs from GPU manager
         assert self.gpu_manager is not None, "FileTrainJob requires a GPUManager"
-        self.allocated_gpus = self.gpu_manager.allocate_gpus(
-            self.id, request.num_gpus
-        )
-        logger.info(
-            f"Allocated GPUs {self.allocated_gpus} for FileTrainJob {self.id}"
-        )
+        self.allocated_gpus = self.gpu_manager.allocate_gpus(self.id, request.num_gpus)
+        logger.info(f"Allocated GPUs {self.allocated_gpus} for FileTrainJob {self.id}")
 
         find_train_args_fn = {
             "dpo": self.find_train_args_dpo,

@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+
 class ProcessedOutputs(BaseModel):
     """Pydantic model for processed outputs."""
 
@@ -13,6 +14,7 @@ class ProcessedOutputs(BaseModel):
     completion_ids: list[list[int]]
     completion_mask: list[list[int]]
     rewards: list[float]
+
 
 class BatchRequest(BaseModel):
     """Descriptor for a batch that will be provided to the requester."""

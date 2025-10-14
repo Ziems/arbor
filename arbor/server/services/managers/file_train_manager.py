@@ -1,4 +1,3 @@
-
 from arbor.server.api.models.schemas import FineTuneRequest
 from arbor.server.core.config import Config
 from arbor.server.services.jobs.file_train_job import FileTrainJob
@@ -16,7 +15,6 @@ class FileTrainManager(BaseManager):
     def fine_tune(
         self, request: FineTuneRequest, job: FileTrainJob, file_manager: FileManager
     ):
-
         job.status = JobStatus.RUNNING
         job.add_event(
             JobEvent(level="info", message="Starting fine-tuning job", data={})
