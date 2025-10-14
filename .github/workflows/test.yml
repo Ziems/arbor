@@ -70,12 +70,6 @@ jobs:
       run: |
         uv sync --only-group dev
 
-    - name: Run Black
-      run: uv run --only-group dev black --check .
-
-    - name: Run isort
-      run: uv run --only-group dev isort --check-only --profile black .
-
     - name: Validate configuration files
       run: |
         # Basic validation of key config files

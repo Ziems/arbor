@@ -1,12 +1,9 @@
-import asyncio
 import os
 import signal
 import sys
 import time
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, Optional
-import uuid
+from typing import Optional
 import psutil
 
 import requests
@@ -67,7 +64,12 @@ class InferenceJob(Job):
         """Check if vLLM server is running."""
         return self.process_runner is not None and self.process_runner.is_running()
 
-    def launch(self, model: str, launch_config: InferenceLaunchConfig, trainer_controller: TrainerControlServer = None):
+    def launch(
+        self,
+        model: str,
+        launch_config: InferenceLaunchConfig,
+        trainer_controller: TrainerControlServer = None,
+    ):
         self.launched_model_name = model
         self.trainer_controller = trainer_controller
         if self.is_server_running():
@@ -80,7 +82,9 @@ class InferenceJob(Job):
         if launch_config.is_grpo and launch_config.grpo_job_id:
             self.id = f"{launch_config.grpo_job_id}-inference"
             self._is_grpo_sub_job = True
-            assert trainer_controller is not None, "Trainer controller is required for GRPO inference jobs"
+            assert (
+                trainer_controller is not None
+            ), "Trainer controller is required for GRPO inference jobs"
             self.trainer_controller = trainer_controller
             # Don't create separate directories for GRPO inference jobs
             # The log file path will be set by the parent GRPO job
@@ -135,7 +139,6 @@ class InferenceJob(Job):
 
     def cancel(self):
         """Cancel the inference job"""
-        from arbor.server.api.models.schemas import JobStatus
 
         # Call parent cancel method to check status and set CANCELLED
         super().cancel()
@@ -162,7 +165,10 @@ class InferenceJob(Job):
 
         # Ensure vLLM worker subtree is terminated as well
         try:
-            if getattr(self, "process", None) is not None and self.process.poll() is None:
+            if (
+                getattr(self, "process", None) is not None
+                and self.process.poll() is None
+            ):
                 kill_vllm_server(self.process.pid)
         except Exception as e:
             logger.warning(f"Force-kill fallback for vLLM processes failed: {e}")

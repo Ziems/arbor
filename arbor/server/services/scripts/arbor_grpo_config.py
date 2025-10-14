@@ -241,7 +241,7 @@ class ArborGRPOConfig(TrainingArguments):
             "after the timeout, a `ConnectionError` is raised."
         },
     )
-    
+
     # Parameters that control colocated vLLM execution (only used when `vllm_mode` is `"colocate"`)
     vllm_gpu_memory_utilization: float = field(
         default=0.3,
@@ -445,7 +445,11 @@ class ArborGRPOConfig(TrainingArguments):
     def to_dict(self):  # type: ignore[override]
         data = super().to_dict()
         cls = type(self)
-        return {k: v for k, v in data.items() if not isinstance(getattr(cls, k, None), property)}
+        return {
+            k: v
+            for k, v in data.items()
+            if not isinstance(getattr(cls, k, None), property)
+        }
 
     def __post_init__(self):
         super().__post_init__()

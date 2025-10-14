@@ -7,9 +7,10 @@ Python sessions. It includes convenience functions for server management,
 job monitoring, and OpenAI client integration.
 """
 
+import atexit
+import importlib.util
 import os
 import socket
-import threading
 import time
 from contextlib import closing
 from typing import Any, Dict, Optional
@@ -27,12 +28,7 @@ _server_config = {}
 
 def is_colab_environment() -> bool:
     """Check if running in Google Colab environment."""
-    try:
-        import google.colab
-
-        return True
-    except ImportError:
-        return False
+    return importlib.util.find_spec("google.colab") is not None
 
 
 def is_notebook_environment() -> bool:
@@ -291,8 +287,7 @@ def shutdown_job(job_identifier: str):
             try:
                 response = requests.post(f"{base_url}chat/kill")
                 if response.status_code == 200:
-                    result = response.json()
-                    print(f"🛑 Shut down inference servers")
+                    print("🛑 Shut down inference servers")
                     print(f"   Model: {job_identifier}")
                     print("   GPU resources have been freed")
                     return {
@@ -434,6 +429,4 @@ def stop():
 
 
 # Auto-cleanup on exit (best effort)
-import atexit
-
 atexit.register(shutdown)

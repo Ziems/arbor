@@ -5,6 +5,7 @@ from arbor.server.services.jobs.inference_launch_config import InferenceLaunchCo
 from arbor.server.services.comms.control_server import TrainerControlServer
 from arbor.server.services.managers.base_manager import BaseManager
 
+
 class InferenceManager(BaseManager):
     def __init__(self, config: Config, gpu_manager: GPUManager):
         super().__init__(config)
@@ -33,7 +34,7 @@ class InferenceManager(BaseManager):
                 inference_launch_config = InferenceLaunchConfig(
                     gpu_ids=allocated_gpus,
                 )
-                
+
                 inference_job.launch(model, inference_launch_config)
                 # This needs to have a unique id or something, not be referenced by model
                 self.inference_jobs[model] = inference_job
@@ -45,7 +46,12 @@ class InferenceManager(BaseManager):
 
         return await inference_job.run_inference(request_json)
 
-    def launch_job(self, model: str, launch_config: InferenceLaunchConfig, trainer_controller: TrainerControlServer):
+    def launch_job(
+        self,
+        model: str,
+        launch_config: InferenceLaunchConfig,
+        trainer_controller: TrainerControlServer,
+    ):
         inference_job = InferenceJob(self.config)
 
         # Use provided GPU IDs or allocate through GPU manager

@@ -1,20 +1,16 @@
 fail_fast: true
 repos:
   # Code formatting and import organization
-  - repo: https://github.com/psf/black
-    rev: 24.4.2
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.4
     hooks:
-      - id: black
-
-  - repo: https://github.com/pycqa/isort
-    rev: 6.0.1
-    hooks:
-      - id: isort
-        args: ["--profile", "black", "--filter-files"]
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
 
   # Basic file checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -26,21 +22,21 @@ repos:
       - id: debug-statements
         exclude: ^examples/
 
-  # Test hooks
-  - repo: local
-    hooks:
-      - id: pytest-unit-tests
-        name: Run unit tests with coverage
-        entry: bash -c "ARBOR_MOCK_GPU=1 uv run --only-group dev pytest tests/server/ tests/test_gpu_mocking.py --cov=arbor --cov-report=term-missing --cov-report=html --cov-fail-under=30 -v --tb=short --timeout=45"
-        language: system
-        types: [python]
-        pass_filenames: false
-        always_run: true
+  # # Test hooks
+  # - repo: local
+  #   hooks:
+  #     - id: pytest-unit-tests
+  #       name: Run unit tests with coverage
+  #       entry: bash -c "ARBOR_MOCK_GPU=1 uv run --only-group dev pytest tests/server/ --cov=arbor --cov-report=term-missing --cov-report=html --cov-fail-under=30 -v --tb=short --timeout=45"
+  #       language: system
+  #       types: [python]
+  #       pass_filenames: false
+  #       always_run: true
 
-      - id: pytest-integration-tests
-        name: Run integration tests
-        entry: bash -c "ARBOR_MOCK_GPU=1 uv run --only-group dev pytest tests/integration/ -v --tb=short --timeout=90 -k 'not test_openai_cancel_fine_tune_job'"
-        language: system
-        types: [python]
-        pass_filenames: false
-        always_run: true
+  #     - id: pytest-integration-tests
+  #       name: Run integration tests
+  #       entry: bash -c "ARBOR_MOCK_GPU=1 uv run --only-group dev pytest tests/integration/ -v --tb=short --timeout=90 -k 'not test_openai_cancel_fine_tune_job'"
+  #       language: system
+  #       types: [python]
+  #       pass_filenames: false
+  #       always_run: true

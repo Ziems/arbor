@@ -1,15 +1,10 @@
-import random
-import string
-from datetime import datetime
-from pathlib import Path
-
 from arbor.server.api.models.schemas import FineTuneRequest
 from arbor.server.core.config import Config
 from arbor.server.services.jobs.file_train_job import FileTrainJob
 from arbor.server.services.jobs.job import JobEvent
 from arbor.server.services.managers.base_manager import BaseManager
 from arbor.server.services.managers.file_manager import FileManager
-from arbor.server.services.managers.job_manager import Job, JobStatus
+from arbor.server.services.managers.job_manager import JobStatus
 
 
 class FileTrainManager(BaseManager):
@@ -20,7 +15,6 @@ class FileTrainManager(BaseManager):
     def fine_tune(
         self, request: FineTuneRequest, job: FileTrainJob, file_manager: FileManager
     ):
-
         job.status = JobStatus.RUNNING
         job.add_event(
             JobEvent(level="info", message="Starting fine-tuning job", data={})
@@ -45,8 +39,8 @@ class FileTrainManager(BaseManager):
             detected_format = file_manager.check_file_format(request.training_file)
             if detected_format == "unknown":
                 raise ValueError(
-                    f"Could not determine training method. File format is unknown. "
-                    f"Please specify the method parameter with type 'sft' or 'dpo'."
+                    "Could not determine training method. File format is unknown. "
+                    "Please specify the method parameter with type 'sft' or 'dpo'."
                 )
             fine_tune_type = detected_format
             job.add_event(

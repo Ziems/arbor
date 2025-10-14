@@ -8,8 +8,8 @@ job debugging, system metrics, and a real-time dashboard.
 import asyncio
 import json
 import time
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import List, Optional
 
 from fastapi import (
     APIRouter,
@@ -65,7 +65,7 @@ async def health_check(request: Request):
 
             # Check file manager
             try:
-                file_manager = request.app.state.file_manager
+                _file_manager = request.app.state.file_manager
                 health_status["checks"]["file_manager"] = {"status": "healthy"}
             except Exception as e:
                 health_status["checks"]["file_manager"] = {
@@ -953,7 +953,7 @@ async def test_error_handling(
 
     with RequestContext(operation="test_error"):
         logger.warning(
-            f"Test error endpoint called", error_type=error_type, message=message
+            "Test error endpoint called", error_type=error_type, message=message
         )
 
         if error_type == "validation":
@@ -996,7 +996,7 @@ def _get_job_logs(job, lines: int) -> List[str]:
                 # This is a simplified implementation
                 # In practice, you'd need to handle buffering properly
                 logs = ["Process logs not directly available"]
-            except:
+            except Exception:
                 logs = ["Failed to read process logs"]
     else:
         logs = ["No logs available for this job type"]

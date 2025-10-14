@@ -11,8 +11,8 @@
 - Run the API locally via `uv run arbor serve`; use `--config ~/.arbor/config.yaml` to point to custom GPU layouts.
 
 ## Coding Style & Naming Conventions
-- Follow Black’s defaults (88-char lines); run `uv run black arbor tests` before committing.
-- Keep imports sorted with `uv run isort arbor tests`; prefer explicit relative imports within `arbor.server` packages.
+- Format Python code with Ruff (`uv run ruff format arbor tests examples`).
+- Lint and sort imports via Ruff (`uv run ruff check --fix arbor tests examples`); prefer explicit relative imports within `arbor.server` packages.
 - Name modules and directories with lowercase underscores; use PascalCase for classes, snake_case for functions and variables.
 - Register `pre-commit` hooks (`uv run pre-commit install`) so formatting and lightweight linting run automatically.
 

@@ -1,14 +1,11 @@
 # Mock version of vllm_serve.py for testing purposes
 import asyncio
-import json
 import signal
 import time
 from argparse import Namespace
-from typing import Any, Dict
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 
 
 # Mock GPU operations - no actual GPU dependencies

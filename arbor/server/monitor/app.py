@@ -2,8 +2,8 @@ from typing import List
 
 from textual import on
 from textual.app import App, ComposeResult
-from textual.containers import Container, Vertical
-from textual.widgets import DataTable, Footer, Header, Static
+from textual.containers import Container
+from textual.widgets import DataTable, Header, Static
 
 from .mock_data import MockJob, generate_mock_jobs
 from .widgets import JobTable

@@ -14,7 +14,7 @@ import uuid
 from contextvars import ContextVar
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, Optional
 
 # Context variables for tracking across async operations
 request_id_context: ContextVar[Optional[str]] = ContextVar("request_id", default=None)
