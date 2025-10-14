@@ -53,3 +53,4 @@ Thumbs.db
 
 mise.toml
 uv.lock
+**/wandb/

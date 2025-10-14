@@ -1,5 +1,5 @@
 import uuid
-
+import json
 from fastapi import APIRouter, Request
 
 from arbor.server.services.managers.inference_manager import InferenceManager
@@ -19,11 +19,19 @@ async def run_inference(
     raw_json = await request.json()
     raw_json["model"] = strip_prefix(raw_json["model"])
 
-    # Generate a random hex ID
-    # request_id = str(uuid.uuid4())
-
     # forward the request to the inference server
     completion = await inference_manager.route_inference(raw_json)
+
+    # # Write combined request+completion to a single JSONL for inspection
+    # try:
+    #     combined = {
+    #         "request": raw_json,
+    #         "completion": completion,
+    #     }
+    #     with open("completion_inspect.jsonl", "a") as f:
+    #         f.write(json.dumps(combined) + "\n")
+    # except Exception as exc:
+    #     logger.warning(f"Failed to write completion_inspect.jsonl: {exc}")
 
     return completion
 

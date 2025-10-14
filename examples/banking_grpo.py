@@ -2,7 +2,6 @@ import random
 
 import dspy
 from datasets import load_dataset
-from dspy.clients.utils_finetune import MultiGPUConfig
 from dspy.datasets import DataLoader
 
 import arbor
@@ -47,8 +46,8 @@ from dspy.clients.lm_local_arbor import ArborProvider
 # Get Arbor server info from init()
 provider = ArborProvider()
 
-# student_lm_name = "Qwen/Qwen2.5-1.5B-Instruct"
-student_lm_name = "Qwen/Qwen2.5-7B-Instruct"
+student_lm_name = "Qwen/Qwen2.5-1.5B-Instruct"
+# student_lm_name = "Qwen/Qwen2.5-7B-Instruct"
 # student_lm_name = "Qwen/Qwen2.5-14B-Instruct"
 # student_lm_name = "Qwen/Qwen2.5-32B-Instruct"
 student_lm = dspy.LM(
@@ -75,8 +74,6 @@ train_kwargs = {
     "gradient_accumulation_steps": 8,
     "bf16": True,
     "lr_scheduler_type": "constant_with_warmup",
-    "max_prompt_length": None,
-    "max_completion_length": None,
     "lora": True,
     "report_to": "none",  # 'wandb'
     "log_completions": False,
@@ -92,7 +89,6 @@ compiler = GRPO(
     use_train_as_val=False,
     num_steps_for_val=10,
     train_kwargs=train_kwargs,
-    gpu_config=MultiGPUConfig(num_inference_gpus=1, num_training_gpus=1),
 )
 
 classify_ft = compiler.compile(

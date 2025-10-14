@@ -2,6 +2,7 @@ from arbor.server.core.config import Config
 from arbor.server.services.managers.gpu_manager import GPUManager
 from arbor.server.services.jobs.inference_job import InferenceJob
 from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
+from arbor.server.services.comms.control_server import TrainerControlServer
 from arbor.server.services.managers.base_manager import BaseManager
 
 class InferenceManager(BaseManager):
@@ -31,7 +32,6 @@ class InferenceManager(BaseManager):
 
                 inference_launch_config = InferenceLaunchConfig(
                     gpu_ids=allocated_gpus,
-                    max_context_length=self.config.max_context_length,
                 )
                 
                 inference_job.launch(model, inference_launch_config)
@@ -45,7 +45,7 @@ class InferenceManager(BaseManager):
 
         return await inference_job.run_inference(request_json)
 
-    def launch_job(self, model: str, launch_config: InferenceLaunchConfig):
+    def launch_job(self, model: str, launch_config: InferenceLaunchConfig, trainer_controller: TrainerControlServer):
         inference_job = InferenceJob(self.config)
 
         # Use provided GPU IDs or allocate through GPU manager
@@ -61,7 +61,7 @@ class InferenceManager(BaseManager):
             len(launch_config.gpu_ids) > 0
         ), f"Inference Job must have at least one GPU in gpu_ids. Currently set to {launch_config.gpu_ids}"
 
-        inference_job.launch(model, launch_config)
+        inference_job.launch(model, launch_config, trainer_controller)
         if launch_config.is_grpo and launch_config.grpo_job_id:
             self.inference_jobs[launch_config.grpo_job_id] = inference_job
         else:
