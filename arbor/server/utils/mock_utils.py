@@ -6,7 +6,6 @@ of GPU-intensive scripts when running in test environments.
 """
 
 import os
-from typing import Tuple
 
 
 def should_use_mock_gpu() -> bool:

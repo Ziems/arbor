@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, Request
+from fastapi import APIRouter, Request
 
 from arbor.server.api.models.schemas import (
     GRPOCheckpointRequest,

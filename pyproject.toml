@@ -50,12 +50,11 @@ dev = [
     "requests",
     "openai",  # Lightweight OpenAI client for tests
     # Dev tools
-    "black",
     "pytest",
     "pytest-timeout",
     "pytest-cov",
-    "isort",
     "pre-commit",
+    "ruff",
 ]
 
 [tool.setuptools.packages.find]
@@ -98,3 +97,76 @@ package = true
 [project.urls]
 Homepage = "https://github.com/Ziems/arbor"
 Issues = "https://github.com/Ziems/arbor/issues"
+
+[tool.ruff]
+line-length = 88
+indent-width = 4
+target-version = "py310"
+extend-exclude = ["examples"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "C",   # flake8-comprehensions
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "N",   # pep8-naming
+    "RUF", # ruff-specific rules
+    "Q",   # flake8-quotes
+]
+ignore = [
+    "B008",  # Allow FastAPI dependency declarations
+    "B027",  # Allow non-abstract empty methods in abstract base classes
+    "B006",  # Allow mutable defaults in existing constructors
+    "B905",  # Allow zip without strict flag in legacy loops
+    "B904",  # Allow raise custom exceptions in except blocks
+    "B007",  # Allow unused loop variables for tuple unpacking
+    "B020",  # Allow loop variables shadowing iterables when intentional
+    "C414",  # Allow redundant list() usage inside sorted for clarity
+    "C901",  # Ignore complexity checking for now
+    "E501",  # Ignore line length errors (handled by formatter)
+    "E721",  # Allow using == to compare with type
+    "F403",  # Allow wildcard imports
+    "FBT003", # Allow boolean positional values in function calls
+    "I001",  # Allow existing import ordering until cleaned up
+    "N806",  # Allow uppercase local variables for clarity
+    "N818",  # Allow non-Error exception suffix for compatibility
+    "Q000",  # Allow existing quote style in a few places
+    "RUF005", # Allow using + operator to concatenate collections
+    "RUF001", # Allow non-ASCII characters in strings when meaningful
+    "RUF003", # Allow typographic punctuation in comments
+    "RUF013", # Allow implicit Optional[...] annotations
+    "RUF010", # Allow implicit str conversion when logging exceptions
+    "RUF012", # Allow mutable class attributes without ClassVar for now
+    "RUF019", # Allow key checks before dict access in legacy code
+    "RUF022", # Allow unsorted __all__ value
+    "UP006",  # Allow typing.List style annotations
+    "UP007",  # Allow Optional[T] syntax
+    "UP015",  # Allow explicit read mode
+    "UP024",  # Allow socket.error alias
+    "UP031",  # Allow percent format
+    "UP035",  # Allow python typing modules
+    "UP037",  # Allow quoted annotations until upgrade
+    "UP038",  # Allow isinstance tuple patterns
+    "UP039",  # Allow explicit base class parentheses
+    "UP045",  # Allow Optional[T] syntax instead of X | None
+    "W291",  # Allow trailing whitespace in generated blocks
+    "W292",  # Allow missing newline at EOF in legacy files
+    "W293",  # Allow whitespace on blank lines
+]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.format]
+indent-style = "space"
+line-ending = "auto"
+quote-style = "double"
+skip-magic-trailing-comma = false
+docstring-code-format = false
+
+[tool.ruff.lint.isort]
+known-first-party = ["arbor"]
+

@@ -1,5 +1,4 @@
 import atexit
-import traceback
 import httpx
 import logging
 import time
@@ -203,7 +202,7 @@ class VLLMClient():
         except httpx.TimeoutException:
             logger.error("Request timed out")
             raise
-        except Exception as e:
+        except Exception:
             raise
 
     def update_named_param(self, name: str, weights: torch.Tensor):

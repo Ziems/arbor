@@ -167,7 +167,7 @@ class FileTrainJob(Job):
         num_processes = len(self.allocated_gpus)
         main_process_port = get_free_port()
 
-        logger.info(f"Running training command")
+        logger.info("Running training command")
 
         # Use clean process runner for training
         self.process_runner = AccelerateProcessRunner(self.id)

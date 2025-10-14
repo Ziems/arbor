@@ -2,17 +2,13 @@ import json
 from trl.data_utils import apply_chat_template
 
 from transformers import AutoTokenizer
-import copy
 from typing import Any, Dict, Sequence
-import copy
 from arbor.server.services.comms.async_batch_requester import ProcessedOutputs
 import os
-import sys
 import threading
 import time
 from datetime import datetime
-from pathlib import Path
-from typing import Optional, List, Iterable
+from typing import Optional, List
 from arbor.server.services.comms.async_batch_requester import BatchResult
 import coolname
 
@@ -195,7 +191,7 @@ class GRPOJob(Job):
         # This is the port for the accelerate main process
         main_process_port = get_free_port()
 
-        logger.info(f"Running GRPO training command")
+        logger.info("Running GRPO training command")
 
         # Use clean process runner for GRPO training
         self.process_runner = AccelerateProcessRunner(self.id)

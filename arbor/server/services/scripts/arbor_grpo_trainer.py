@@ -4,14 +4,12 @@ import json
 import argparse
 import wandb 
 import time
-import zmq
 import datasets
-from datasets import load_dataset
 from contextlib import nullcontext
 import threading
 import transformers
 from accelerate.utils import broadcast_object_list, is_peft_model
-from torch.utils.data import DataLoader, Dataset, Sampler
+from torch.utils.data import DataLoader, Dataset
 from transformers.utils import is_peft_available
 from transformers.trainer import Trainer
 from typing import Any, Dict, List, Optional, Union
@@ -19,13 +17,12 @@ from transformers.trainer_callback import TrainerCallback
 from transformers import AutoConfig, AutoProcessor, ProcessorMixin, PreTrainedTokenizerBase, PreTrainedModel
 from peft import LoraConfig
 
-from trl.trainer.utils import identity, disable_dropout_in_model, pad, nanmax, nanmin, identity, selective_log_softmax
+from trl.trainer.utils import disable_dropout_in_model, pad, nanmax, nanmin, identity, selective_log_softmax
 from trl.models import prepare_peft_model, prepare_deepspeed
-from trl.models.utils import _ForwardRedirection
 from transformers.trainer_utils import seed_worker
 import logging
 from trl.trainer.callbacks import SyncRefModelCallback
-from arbor.server.services.comms.async_batch_requester import AsyncBatchRequester, BatchRequest, BatchResult
+from arbor.server.services.comms.async_batch_requester import AsyncBatchRequester, BatchRequest
 from arbor.server.services.comms.async_dataloader_wrapper import AsyncDataLoaderWrapper
 from collections import defaultdict, deque
 
@@ -39,7 +36,7 @@ logger.setLevel(logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARN)
 
 if is_peft_available():
-    from peft import PeftConfig, PeftModel
+    from peft import PeftConfig, PeftModel  # noqa: F401
 
 
 class _ExternalBatchDataset(Dataset):
@@ -121,7 +118,7 @@ class ArborGRPOTrainer(Trainer):
         optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
     ):
         self.logger = logging.getLogger(__name__)
-        self.logger.debug(f"Starting __init__")
+        self.logger.debug("Starting __init__")
         self._control_client: Optional[TrainerControlClient] = None
         
         # Trained model
@@ -269,7 +266,7 @@ class ArborGRPOTrainer(Trainer):
             total_items,
         )
         
-        logger.debug(f"Starting super().__init__")
+        logger.debug("Starting super().__init__")
 
         super().__init__(
             model=model,
@@ -287,7 +284,7 @@ class ArborGRPOTrainer(Trainer):
             # that behavior without rewriting `training_step`.
             compute_loss_func="non-None value to disable scaling",
         )
-        logger.debug(f"Done with super().__init__")
+        logger.debug("Done with super().__init__")
 
         # Validate batch sizing to avoid empty per-process slices
         try:
@@ -304,7 +301,7 @@ class ArborGRPOTrainer(Trainer):
             )
     
         # Reference model
-        self.logger.debug(f"Starting reference model")
+        self.logger.debug("Starting reference model")
         self.beta = args.beta
         if self.beta == 0.0:
             # If beta is 0.0, the reference model is not needed
@@ -319,7 +316,7 @@ class ArborGRPOTrainer(Trainer):
             architecture = getattr(transformers, config.architectures[0])
             self.ref_model = architecture.from_pretrained(model_id, **model_init_kwargs)
         
-        self.logger.debug(f"Done with reference model")
+        self.logger.debug("Done with reference model")
 
         # Disable dropout in the models
         if args.disable_dropout:
@@ -367,7 +364,7 @@ class ArborGRPOTrainer(Trainer):
             "rewards": defaultdict(lambda: deque(maxlen=maxlen)),
         }
 
-        self.logger.debug(f"Configuring vllm client")
+        self.logger.debug("Configuring vllm client")
         if self.vllm_mode == "server":
             if self.accelerator.is_main_process:
                 self.vllm_client = VLLMClient(host=args.vllm_server_host, port=args.vllm_server_port, connection_timeout=args.vllm_server_timeout)
@@ -378,7 +375,7 @@ class ArborGRPOTrainer(Trainer):
             raise NotImplementedError("Colocation mode is not supported for ArborGRPO at this time.")
         else:
             raise ValueError(f"vllm_mode must be either 'server' or 'colocate', got '{self.vllm_mode}'.")
-        self.logger.debug(f"Done with configuring vllm client")
+        self.logger.debug("Done with configuring vllm client")
         
         self._last_loaded_step = 0  # tag to avoid useless loading during grad accumulation
 
@@ -417,7 +414,7 @@ class ArborGRPOTrainer(Trainer):
         if self.accelerator.is_main_process and args.control_endpoint:
             self._control_client = TrainerControlClient(self, args.control_endpoint)
             self._control_client.start()
-        logger.debug(f"Done with __init__")
+        logger.debug("Done with __init__")
     
     def get_train_dataloader(self):
         if self.train_dataset is None:

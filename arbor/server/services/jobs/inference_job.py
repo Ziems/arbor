@@ -1,12 +1,9 @@
-import asyncio
 import os
 import signal
 import sys
 import time
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, Optional
-import uuid
+from typing import Optional
 import psutil
 
 import requests
@@ -135,7 +132,6 @@ class InferenceJob(Job):
 
     def cancel(self):
         """Cancel the inference job"""
-        from arbor.server.api.models.schemas import JobStatus
 
         # Call parent cancel method to check status and set CANCELLED
         super().cancel()

@@ -3,7 +3,7 @@ import shutil
 import time
 import uuid
 from pathlib import Path
-from typing import Literal, Union
+from typing import Literal
 
 from fastapi import UploadFile
 
@@ -104,7 +104,7 @@ class FileManager(BaseManager):
                 with open(metadata_path, "w") as f:
                     json.dump(metadata, f)
         except Exception as e:
-            logger.warning(f"Failed to update metadata for {file_id}: {e}")
+            self.logger.warning(f"Failed to update metadata for {file_id}: {e}")
 
     def save_uploaded_file(self, file: UploadFile):
         file_id = f"file-{str(uuid.uuid4())}"
@@ -112,7 +112,7 @@ class FileManager(BaseManager):
         dir_path.mkdir(exist_ok=True)
 
         # Save the actual file
-        file_path = dir_path / f"data.jsonl"
+        file_path = dir_path / "data.jsonl"
         with open(file_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
 
@@ -206,7 +206,7 @@ class FileManager(BaseManager):
             return "unknown"
 
         except Exception as e:
-            logger.warning(f"Error detecting content format: {e}")
+            self.logger.warning(f"Error detecting content format: {e}")
             return "unknown"
 
     def validate_file_format(
