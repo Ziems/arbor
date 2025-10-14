@@ -170,3 +170,6 @@ docstring-code-format = false
 [tool.ruff.lint.isort]
 known-first-party = ["arbor"]
 
+[tool.ruff.lint.pyupgrade]
+keep-runtime-typing = true
+
