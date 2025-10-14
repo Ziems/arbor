@@ -7,27 +7,31 @@ authors = [
 ]
 readme = "README.md"
 requires-python = ">=3.11"
+# Default lightweight dependencies for the Arbor CLI and API server runtime
 dependencies = [
-    "torch>=2.7.0",
     "fastapi",
     "uvicorn",
     "click",
     "python-multipart",
     "pydantic-settings",
+    "pyzmq>=26.4.0",
+    "pyyaml>=6.0.2",
+    "httpx",
+    "coolname",
+    "jq>=1.8.0",
+    "textual",
+]
+
+[project.optional-dependencies]
+# Heavy optional ML stack for GPU-backed inference and training (pip install arbor-ai[all])
+all = [
+    "torch>=2.7.0",
     "vllm>=0.9.1",
     "transformers",
     "trl==0.23.1",
     "peft",
     "ray>=2.9",
-    "setuptools (>=76.0.0,<79.0.1)",
-    "pyzmq>=26.4.0",
-    "pyyaml>=6.0.2",
     "wandb",
-    "httpx",
-    "coolname",
-    "jq>=1.8.0",
-    "textual",
-    "verifiers",
     "deepspeed>=0.17.6",
 ]
 
@@ -36,16 +40,7 @@ arbor = "arbor.cli:cli"
 
 [dependency-groups]
 dev = [
-    # Core server dependencies without heavy ML libs (used for development on Mac)
-    "fastapi",
-    "uvicorn",
-    "click",
-    "python-multipart",
-    "pydantic-settings",
-    "pyzmq>=26.4.0",
-    "pyyaml>=6.0.2",
-    "httpx",
-    "coolname",
+    # Supplements the lightweight runtime stack with extra dev/test utilities
     "psutil",
     "requests",
     "openai",  # Lightweight OpenAI client for tests
