@@ -33,7 +33,7 @@ import sys
 import time
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Union
 
 request_id_context: ContextVar[Optional[str]] = ContextVar("request_id", default=None)
 job_id_context: ContextVar[Optional[str]] = ContextVar("job_id", default=None)
@@ -45,14 +45,17 @@ operation_context: ContextVar[Optional[str]] = ContextVar("operation", default=N
 # Formatting and logger wrapper
 # ---------------------------------------------------------------------------
 
+
 class ArborFormatter(logging.Formatter):
     """Very small formatter that optionally appends context information."""
 
     def __init__(self, *, show_context: bool = True) -> None:
-        super().__init__(fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S")
+        super().__init__(
+            fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S"
+        )
         self.show_context = show_context
 
-    def format(self, record: logging.LogRecord) -> str:  # noqa: D401
+    def format(self, record: logging.LogRecord) -> str:
         """Format the record and append context stored in :mod:`contextvars`."""
 
         message = super().format(record)
@@ -97,8 +100,8 @@ class ArborLogger:
     def __init__(self, name: str) -> None:
         self._logger = logging.getLogger(name)
 
-    def setLevel(self, level: Union[int, str]) -> None:
-        """Proxy ``setLevel`` to the wrapped :class:`logging.Logger`."""
+    def setLevel(self, level: Union[int, str]) -> None:  # noqa: N802
+        """Proxy ``set_level`` to the wrapped :class:`logging.Logger`."""
 
         self._logger.setLevel(level)
 
@@ -121,13 +124,19 @@ class ArborLogger:
 
         self._logger.log(level, message, exc_info=exc_info)
 
-    def debug(self, message: str, context: Optional[Dict[str, Any]] = None, **kwargs: Any) -> None:
+    def debug(
+        self, message: str, context: Optional[Dict[str, Any]] = None, **kwargs: Any
+    ) -> None:
         self._log(logging.DEBUG, message, context, **kwargs)
 
-    def info(self, message: str, context: Optional[Dict[str, Any]] = None, **kwargs: Any) -> None:
+    def info(
+        self, message: str, context: Optional[Dict[str, Any]] = None, **kwargs: Any
+    ) -> None:
         self._log(logging.INFO, message, context, **kwargs)
 
-    def warning(self, message: str, context: Optional[Dict[str, Any]] = None, **kwargs: Any) -> None:
+    def warning(
+        self, message: str, context: Optional[Dict[str, Any]] = None, **kwargs: Any
+    ) -> None:
         self._log(logging.WARNING, message, context, **kwargs)
 
     def error(
@@ -150,7 +159,9 @@ class ArborLogger:
     ) -> None:
         self._log(logging.CRITICAL, message, context, exc_info=exc_info, **kwargs)
 
-    def exception(self, message: str, context: Optional[Dict[str, Any]] = None, **kwargs: Any) -> None:
+    def exception(
+        self, message: str, context: Optional[Dict[str, Any]] = None, **kwargs: Any
+    ) -> None:
         self._log(logging.ERROR, message, context, exc_info=True, **kwargs)
 
 
@@ -212,7 +223,7 @@ class RequestContext(_BaseContext):
             self._set(operation_context, self.operation)
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:  # noqa: D401
+    def __exit__(self, exc_type, exc, tb) -> None:
         duration_ms = round((time.time() - self._start) * 1000, 2)
         logger = get_logger("request")
 
@@ -246,7 +257,13 @@ class JobContext(_BaseContext):
     ...     ...  # execute the job body
     """
 
-    def __init__(self, job_id: str, *, job_type: Optional[str] = None, model: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        job_id: str,
+        *,
+        job_type: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> None:
         super().__init__()
         self.job_id = job_id
         self.job_type = job_type
@@ -260,7 +277,7 @@ class JobContext(_BaseContext):
         logger.info("Job started", job_type=self.job_type, model=self.model)
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:  # noqa: D401
+    def __exit__(self, exc_type, exc, tb) -> None:
         duration_ms = round((time.time() - self._start) * 1000, 2)
         logger = get_logger("job")
 
@@ -283,7 +300,9 @@ class JobContext(_BaseContext):
 # ---------------------------------------------------------------------------
 
 
-def log_function_call(include_args: bool = False, include_result: bool = False) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+def log_function_call(
+    include_args: bool = False, include_result: bool = False
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator that logs start/finish information for a function call.
 
     Examples
@@ -322,7 +341,11 @@ def log_function_call(include_args: bool = False, include_result: bool = False) 
                 raise
 
             duration_ms = round((time.time() - start) * 1000, 2)
-            result_context: Dict[str, Any] = {"function": context["function"], "duration_ms": duration_ms, "success": True}
+            result_context: Dict[str, Any] = {
+                "function": context["function"],
+                "duration_ms": duration_ms,
+                "success": True,
+            }
             if include_result and result is not None:
                 result_context["result_type"] = type(result).__name__
 
@@ -334,7 +357,9 @@ def log_function_call(include_args: bool = False, include_result: bool = False) 
     return decorator
 
 
-def log_slow_operations(threshold_ms: float = 1000.0) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+def log_slow_operations(
+    threshold_ms: float = 1000.0,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator logging a warning when an operation exceeds ``threshold_ms``.
 
     Examples
@@ -406,7 +431,12 @@ def debug_timing(operation: str):
         def __exit__(self, exc_type, exc, tb) -> None:
             duration_ms = round((time.time() - self.start) * 1000, 2)
             if exc_type is None:
-                self.logger.debug("Completed operation", operation=self.operation, duration_ms=duration_ms, success=True)
+                self.logger.debug(
+                    "Completed operation",
+                    operation=self.operation,
+                    duration_ms=duration_ms,
+                    success=True,
+                )
             else:
                 self.logger.error(
                     "Failed operation",
@@ -492,7 +522,9 @@ def setup_logging(
     }
 
 
-def apply_uvicorn_formatting() -> None:  # pragma: no cover - retained for API compatibility
+def apply_uvicorn_formatting() -> (
+    None
+):  # pragma: no cover - retained for API compatibility
     """Legacy helper kept for compatibility with previous imports."""
 
 
@@ -522,4 +554,3 @@ def log_configuration(config: Dict[str, Any]) -> None:
 
     logger = get_logger("arbor.config")
     logger.info("Configuration loaded", config=config)
-

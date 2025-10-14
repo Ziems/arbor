@@ -137,7 +137,7 @@ class ArborGRPOTrainer(Trainer):
         ] = (None, None),
     ):
         self.logger = get_logger(__name__)
-        self.logger.debug(f"Starting __init__")
+        self.logger.debug("Starting __init__")
         self._control_client: Optional[TrainerControlClient] = None
 
         # Trained model
