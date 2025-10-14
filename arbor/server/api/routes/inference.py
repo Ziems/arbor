@@ -1,5 +1,3 @@
-import uuid
-import json
 from fastapi import APIRouter, Request
 
 from arbor.server.services.managers.inference_manager import InferenceManager

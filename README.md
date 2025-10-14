@@ -72,11 +72,9 @@ student_classify.set_lm(student_lm)
 
 # Optimize with GRPO (requires 2+ GPUs)
 from dspy.teleprompt.grpo import GRPO
-from dspy.clients.utils_finetune import MultiGPUConfig
 
 compiler = GRPO(
     metric=lambda x, y: x.label == y.label,
-    gpu_config=MultiGPUConfig(num_inference_gpus=1, num_training_gpus=1)
 )
 
 # Run optimization

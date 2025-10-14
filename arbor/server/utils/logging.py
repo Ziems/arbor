@@ -33,11 +33,7 @@ import sys
 import time
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Union
-
-# ---------------------------------------------------------------------------
-# Context storage
-# ---------------------------------------------------------------------------
+from typing import Any, Callable, Dict, Optional
 
 request_id_context: ContextVar[Optional[str]] = ContextVar("request_id", default=None)
 job_id_context: ContextVar[Optional[str]] = ContextVar("job_id", default=None)

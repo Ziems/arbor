@@ -2,7 +2,6 @@ import random
 
 import dspy
 from datasets import load_dataset
-from dspy.clients.utils_finetune import MultiGPUConfig
 from dspy.datasets import DataLoader
 
 import arbor
@@ -183,7 +182,6 @@ compiler = GRPO(
     use_train_as_val=False,
     num_steps_for_val=10,
     train_kwargs=train_kwargs,
-    gpu_config=MultiGPUConfig(num_inference_gpus=1, num_training_gpus=1),
 )
 
 optimized_hop = compiler.compile(

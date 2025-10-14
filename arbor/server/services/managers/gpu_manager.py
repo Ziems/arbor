@@ -32,7 +32,9 @@ def _detect_gpus_with_nvml() -> Dict[str, Set[int]]:
     try:
         pynvml.nvmlInit()
     except pynvml.NVMLError as exc:  # type: ignore[attr-defined]
-        raise NoGPUsDetectedError("Failed to initialize NVML for GPU detection.") from exc
+        raise NoGPUsDetectedError(
+            "Failed to initialize NVML for GPU detection."
+        ) from exc
 
     try:
         total: Set[int] = set()
@@ -57,7 +59,9 @@ def _detect_gpus_with_nvml() -> Dict[str, Set[int]]:
             except AttributeError:
                 graphics_proc_getter = None
 
-        getters = [getter for getter in (compute_proc_getter, graphics_proc_getter) if getter]
+        getters = [
+            getter for getter in (compute_proc_getter, graphics_proc_getter) if getter
+        ]
 
         for idx in range(device_count):
             handle = pynvml.nvmlDeviceGetHandleByIndex(idx)
@@ -120,7 +124,9 @@ def detect_available_gpus() -> List[int]:
     free_gpu_ids = state["free"]
     busy_gpu_ids = state["busy"]
 
-    LOGGER.info("Auto-detected %d available GPU(s): %s", len(free_gpu_ids), free_gpu_ids)
+    LOGGER.info(
+        "Auto-detected %d available GPU(s): %s", len(free_gpu_ids), free_gpu_ids
+    )
     if busy_gpu_ids:
         LOGGER.info("GPUs currently in use: %s", busy_gpu_ids)
 
@@ -159,7 +165,8 @@ class GPUManager(BaseManager):
         if not state["free"]:
             busy_gpus = state["busy"]
             raise GPUAllocationError(
-                "No GPUs available on this host." if not busy_gpus
+                "No GPUs available on this host."
+                if not busy_gpus
                 else f"All GPUs are currently in use: {busy_gpus}"
             )
 
@@ -216,7 +223,9 @@ class GPUManager(BaseManager):
             available_pool = (candidate_pool & system_free_gpus) - allocated_gpus
 
             if len(available_pool) < num_gpus:
-                busy_gpus = sorted((candidate_pool - system_free_gpus) | set(state["busy"]))
+                busy_gpus = sorted(
+                    (candidate_pool - system_free_gpus) | set(state["busy"])
+                )
                 raise GPUAllocationError(
                     "Not enough free GPUs. "
                     f"Requested: {num_gpus}, "

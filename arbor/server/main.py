@@ -1,9 +1,6 @@
-import atexit
-import signal
-import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 
 from arbor.server.api.routes import files, grpo, inference, jobs, monitor
 from arbor.server.utils.logging import apply_uvicorn_formatting, get_logger

@@ -53,7 +53,7 @@ def flatten_batch(batch):
 def debug_data_generator(server_comms_handler):
     idx = 0
     while True:
-        print(f"Sending group:")  # Debug print
+        print("Sending group:")  # Debug print
         server_comms_handler.send_data(group_example)
         idx += 1
         time.sleep(1)
@@ -84,18 +84,18 @@ if __name__ == "__main__":
     # Print the command that would be used to connect to this mock server
     print("\nTo connect to this mock server, run the following command:")
     print(
-        f"CUDA_VISIBLE_DEVICES=2 python arbor/server/services/scripts/mmgrpo_training.py \\"
+        "CUDA_VISIBLE_DEVICES=2 python arbor/server/services/scripts/mmgrpo_training.py \\"
     )
-    print(f"    --debug \\")
+    print("    --debug \\")
     print(f"    --command_port {command_port} \\")
     print(f"    --status_port {status_port} \\")
     print(f"    --data_port {data_port} \\")
     print(f"    --broadcast_port {broadcast_port} \\")
     print(f"    --handshake_port {handshake_port} \\")
-    print(f"    --vllm_group_port 0 \\")
-    print(f"    --vllm_port 0 \\")
-    print(f"    --model Qwen/Qwen3-0.6B \\")
-    print(f'    --trl_train_kwargs \'{{"output_dir": ".", "report_to": "none"}}\'')
+    print("    --vllm_group_port 0 \\")
+    print("    --vllm_port 0 \\")
+    print("    --model Qwen/Qwen3-0.6B \\")
+    print('    --trl_train_kwargs \'{"output_dir": ".", "report_to": "none"}\'')
     print(
         "\nThis mock server will simulate sending training data to the training process."
     )

@@ -30,8 +30,7 @@ class TrainerControlServer:
         recv_timeout: float | None = None,
         send_timeout: float | None = 2.0,
     ) -> None:
-        """Initialize the control server client.
-        """
+        """Initialize the control server client."""
         self.port = get_free_port()
         self.endpoint = f"tcp://{host}:{self.port}"
         self._ctx = context or zmq.Context.instance()
@@ -89,6 +88,7 @@ class TrainerControlServer:
                 LOGGER.exception("TrainerControlServer request failed")
                 LOGGER.error(f"Request failed: {payload}")
                 import traceback
+
                 LOGGER.error(
                     f"Full traceback: {''.join(traceback.format_tb(exc.__traceback__))}"
                 )
@@ -98,9 +98,10 @@ class TrainerControlServer:
         """Fetch trainer status, including pending batch ids."""
         resp = self._request({"cmd": "status"})
         if not resp.get("ok", False):
-            raise RuntimeError(f"Error getting status: {resp.get('error', 'Unknown error')}")
+            raise RuntimeError(
+                f"Error getting status: {resp.get('error', 'Unknown error')}"
+            )
         return resp
-
 
     def submit_batch(self, batch: BatchResult | Mapping[str, Any]) -> Dict[str, Any]:
         if isinstance(batch, BatchResult):
@@ -109,19 +110,25 @@ class TrainerControlServer:
             payload = dict(batch)
         resp = self._request({"cmd": "submit_batch", "batch": payload})
         if not resp.get("ok", False):
-            raise RuntimeError(f"Error submitting batch: {resp.get('error', 'Unknown error')}")
+            raise RuntimeError(
+                f"Error submitting batch: {resp.get('error', 'Unknown error')}"
+            )
         return resp
 
     def request_checkpoint(self) -> Dict[str, Any]:
         resp = self._request({"cmd": "checkpoint"})
         if not resp.get("ok", False):
-            raise RuntimeError(f"Error requesting checkpoint: {resp.get('error', 'Unknown error')}")
+            raise RuntimeError(
+                f"Error requesting checkpoint: {resp.get('error', 'Unknown error')}"
+            )
         return resp
 
     def request_stop(self) -> Dict[str, Any]:
         resp = self._request({"cmd": "stop"})
         if not resp.get("ok", False):
-            raise RuntimeError(f"Error requesting stop: {resp.get('error', 'Unknown error')}")
+            raise RuntimeError(
+                f"Error requesting stop: {resp.get('error', 'Unknown error')}"
+            )
         return resp
 
     def ping(self) -> Dict[str, Any]:

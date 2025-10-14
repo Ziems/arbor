@@ -116,12 +116,8 @@ class FileTrainJob(Job):
     ):
         # Allocate GPUs from GPU manager
         assert self.gpu_manager is not None, "FileTrainJob requires a GPUManager"
-        self.allocated_gpus = self.gpu_manager.allocate_gpus(
-            self.id, request.num_gpus
-        )
-        logger.info(
-            f"Allocated GPUs {self.allocated_gpus} for FileTrainJob {self.id}"
-        )
+        self.allocated_gpus = self.gpu_manager.allocate_gpus(self.id, request.num_gpus)
+        logger.info(f"Allocated GPUs {self.allocated_gpus} for FileTrainJob {self.id}")
 
         find_train_args_fn = {
             "dpo": self.find_train_args_dpo,
@@ -167,7 +163,7 @@ class FileTrainJob(Job):
         num_processes = len(self.allocated_gpus)
         main_process_port = get_free_port()
 
-        logger.info(f"Running training command")
+        logger.info("Running training command")
 
         # Use clean process runner for training
         self.process_runner = AccelerateProcessRunner(self.id)

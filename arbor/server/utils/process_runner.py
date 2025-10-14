@@ -75,15 +75,18 @@ class ProcessRunner:
         # On Linux, ensure child processes receive SIGTERM if the parent dies
         preexec_fn = None
         if sys.platform.startswith("linux"):
+
             def _set_pdeathsig():
                 try:
                     import ctypes
+
                     libc = ctypes.CDLL("libc.so.6")
                     PR_SET_PDEATHSIG = 1
                     libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
                 except Exception:
                     # Best-effort; fall back to normal spawn if unavailable
                     pass
+
             preexec_fn = _set_pdeathsig
 
         self.process = subprocess.Popen(

@@ -1,8 +1,6 @@
 # Mock version of dpo_training.py for testing purposes
 import argparse
 import json
-import signal
-import sys
 import time
 
 print("Mock DPO Training Script")

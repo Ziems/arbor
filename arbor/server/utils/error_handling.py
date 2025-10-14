@@ -4,12 +4,11 @@ Centralized error handling system for Arbor.
 Provides structured error handling with context, automatic logging, and debugging support.
 """
 
-import json
 import traceback
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Type, Union
+from typing import Any, Dict, List, Optional
 
 from .logging import get_logger, job_id_context, request_id_context, user_context
 

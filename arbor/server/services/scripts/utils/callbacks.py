@@ -29,7 +29,6 @@ class WeightUpdateCallback(TrainerCallback):
 
         # Check if we need to do a weight update (on all processes)
         if self.trainer and state.global_step != self.trainer._last_loaded_step:
-
             # Only the main process handles server coordination
             if self.comms_handler and self.comms_handler.is_main_process:
                 logger.info("Starting weight update coordination with server...")

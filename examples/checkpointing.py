@@ -144,7 +144,7 @@ def main():
 
     current_model = "Qwen/Qwen2-0.5B-Instruct"
     try:
-        
+
         initialize_response = initialize_grpo(model=current_model)
         current_model = initialize_response.current_model
         job_id = initialize_response.job_id
@@ -163,7 +163,7 @@ def main():
                 completions.append(
                     {"content": choice.message.content, "role": choice.message.role}
                 )
-            rewards = _unique_letter_reward([c["content"] for c in completions]) 
+            rewards = _unique_letter_reward([c["content"] for c in completions])
             batch = []
             for completion, reward in zip(completions, rewards):
                 batch.append(
