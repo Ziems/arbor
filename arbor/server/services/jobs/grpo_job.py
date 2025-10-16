@@ -367,7 +367,9 @@ class GRPOJob(Job):
             logger.debug(f"Trainer terminate response: {response}")
 
             if self.process_runner and self.process_runner.is_running():
-                logger.info("Waiting for training process to exit after terminate request")
+                logger.info(
+                    "Waiting for training process to exit after terminate request"
+                )
                 deadline = time.time() + timeout
                 while time.time() < deadline and self.process_runner.is_running():
                     time.sleep(5)
@@ -392,7 +394,6 @@ class GRPOJob(Job):
 
         # Terminate without saving model for faster cancellation
         self.terminate_process()
-
 
     def terminate_process(self):
         try:

@@ -63,6 +63,7 @@ def cancel_grpo(request: Request, grpo_request: GRPOBaseRequest):
             status_code=500, detail=f"Failed to cancel GRPO job: {str(e)}"
         )
 
+
 @router.post("/terminate", response_model=GRPOStatus)
 def terminate_grpo(request: Request, grpo_request: GRPOTerminateRequest):
     grpo_manager: GRPOManager = request.app.state.grpo_manager
