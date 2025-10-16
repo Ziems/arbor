@@ -120,8 +120,8 @@ def checkpoint(
     return GRPOStatus.model_validate(response.json())
 
 
-def stop_grpo(
-    job_id, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/stop"
+def terminate_grpo(
+    job_id, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/terminate"
 ) -> GRPOStatus:
     headers = {"Content-Type": "application/json"}
     data = {"job_id": job_id}
@@ -199,8 +199,10 @@ def main():
                 else:
                     print("Checkpoint response did not include a checkpoint name")
             
-        stop_response = stop_grpo(job_id=job_id)
-        print(f"GRPO stopped: status={stop_response.status}, pending_batches={stop_response.pending_batch_ids}")
+        terminate_response = terminate_grpo(job_id=job_id)
+        print(
+            f"GRPO terminated: status={terminate_response.status}, pending_batches={terminate_response.pending_batch_ids}"
+        )
     except Exception as e:
         print(e)
     finally:

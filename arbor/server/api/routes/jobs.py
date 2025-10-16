@@ -6,8 +6,6 @@ from arbor.server.api.models.schemas import (
     JobEventModel,
     JobStatus,
     JobStatusModel,
-    LogQueryRequest,
-    LogQueryResponse,
     PaginatedResponse,
 )
 from arbor.server.services.managers.file_manager import FileManager
@@ -127,43 +125,3 @@ def cancel_job(request: Request, job_id: str):
             raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to cancel job: {str(e)}")
-
-
-@router.post("/{job_id}/logs/query", response_model=LogQueryResponse)
-async def query_job_logs(request: LogQueryRequest, job_id: str) -> LogQueryResponse:
-    """Execute a JQ query for a specific job's logs."""
-
-    # job_manager = request.app.state.job_manager
-    jq_query = request.jq_query
-    limit = request.limit if request.limit else 1000
-
-    try:
-        import json
-
-        import jq
-
-        ## PLACEHOLDER
-        # job_manager.get_job_log(job_id)
-        # json_log_path = get_job_log(job_id)
-        json_log_path = "valid/json/path"
-
-        # read JSON file
-        with open(json_log_path, "r") as f:
-            log_data = json.load(f)
-
-        program = jq.compile(jq_query)
-
-        results = program.input_value(log_data).all()
-
-        if len(results) > limit:
-            results = results[:limit]
-
-        return LogQueryResponse(
-            status="success",
-            results=results,
-        )
-
-    except Exception as e:
-        return LogQueryResponse(
-            status="error", results=[], num_results=0, error_message=str(e)
-        )

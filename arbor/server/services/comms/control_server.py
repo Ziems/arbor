@@ -123,11 +123,11 @@ class TrainerControlServer:
             )
         return resp
 
-    def request_stop(self) -> Dict[str, Any]:
-        resp = self._request({"cmd": "stop"})
+    def request_terminate(self) -> Dict[str, Any]:
+        resp = self._request({"cmd": "terminate"})
         if not resp.get("ok", False):
             raise RuntimeError(
-                f"Error requesting stop: {resp.get('error', 'Unknown error')}"
+                f"Error requesting terminate: {resp.get('error', 'Unknown error')}"
             )
         return resp
 

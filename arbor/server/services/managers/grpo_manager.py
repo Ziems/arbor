@@ -6,7 +6,6 @@ from arbor.server.api.models.schemas import (
     GRPOStatus,
     GRPOStepRequest,
     GRPOTerminateRequest,
-    GRPOStopRequest,
 )
 from arbor.server.core.config import Config
 from arbor.server.services.jobs.grpo_job import GRPOJob
@@ -58,9 +57,10 @@ class GRPOManager(BaseManager):
 
         return grpo_job.get_status()
 
-    def stop(self, request: GRPOStopRequest) -> GRPOStatus:
+    def terminate(self, request: GRPOTerminateRequest) -> GRPOStatus:
         grpo_job = self.grpo_jobs[request.job_id]
-        grpo_job.stop_training()
+        grpo_job.terminate_training()
+        grpo_job.terminate_process()
         return grpo_job.get_status()
 
     def cleanup(self) -> None:

@@ -60,7 +60,7 @@ class GRPOJob(Job):
         self.saving_checkpoint = False
         self.saving_model = False
         self.terminating = False
-        self.stopping_training = False
+        self.training_terminate_pending = False
         self.inference_job: InferenceJob = None
         self.process_runner: Optional[AccelerateProcessRunner] = None
         self.trainer_controller: TrainerControlServer = None
@@ -352,36 +352,36 @@ class GRPOJob(Job):
 
         return checkpoint_dir
 
-    def stop_training(self, timeout: float = 300.0):
+    def terminate_training(self, timeout: float = 300.0):
         if not self.trainer_controller:
             raise RuntimeError("Trainer controller is not initialized for this job")
 
-        if self.stopping_training:
-            logger.info("Stop request already in progress for this job")
+        if self.training_terminate_pending:
+            logger.info("Terminate request already in progress for this job")
             return
 
-        self.stopping_training = True
+        self.training_terminate_pending = True
         try:
-            logger.info("Sending stop request to trainer")
-            response = self.trainer_controller.request_stop()
-            logger.debug(f"Trainer stop response: {response}")
+            logger.info("Sending terminate request to trainer")
+            response = self.trainer_controller.request_terminate()
+            logger.debug(f"Trainer terminate response: {response}")
 
             if self.process_runner and self.process_runner.is_running():
-                logger.info("Waiting for training process to exit after stop request")
+                logger.info("Waiting for training process to exit after terminate request")
                 deadline = time.time() + timeout
                 while time.time() < deadline and self.process_runner.is_running():
                     time.sleep(5)
-                    logger.info("Training process still stopping...")
+                    logger.info("Training process still terminating...")
 
                 if self.process_runner.is_running():
                     logger.warning(
-                        "Training process still running after stop timeout; proceeding without force termination"
+                        "Training process still running after terminate timeout; proceeding without force termination"
                     )
             else:
                 logger.info("Training process already stopped")
             return response
         finally:
-            self.stopping_training = False
+            self.training_terminate_pending = False
 
     def cancel(self):
         """Cancel the GRPO training job"""
@@ -391,10 +391,10 @@ class GRPOJob(Job):
         logger.info(f"Cancelling GRPOJob {self.id}")
 
         # Terminate without saving model for faster cancellation
-        self.terminate()
+        self.terminate_process()
 
 
-    def terminate(self):
+    def terminate_process(self):
         try:
             # Terminate training process using ProcessRunner
             if self.process_runner:

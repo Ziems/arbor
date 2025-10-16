@@ -249,7 +249,6 @@ class ArborGRPOConfigRequest(StrictBaseModel):
     lora_config: Optional[LoRAConfigRequest] = None
     max_steps: Optional[int] = None
     warmup_steps: Optional[int] = None
-    lr_scheduler_type: Optional[str] = None
     # ...and any other ArborGRPOConfig fields you care about.
     # Thanks to extra="allow" you can keep this list short and still pass others.
 
@@ -282,18 +281,3 @@ class GRPOCheckpointRequest(GRPOBaseRequest):
 
 class GRPOTerminateRequest(GRPOBaseRequest):
     pass
-
-
-class GRPOStopRequest(GRPOBaseRequest):
-    pass
-
-
-class LogQueryRequest(StrictBaseModel):
-    jq_query: str
-    limit: Optional[int]
-
-
-class LogQueryResponse(StrictBaseModel):
-    status: str
-    results: List[Any]
-    error_message: Optional[str] = None

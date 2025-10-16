@@ -15,7 +15,7 @@ class TrainerControlClient(threading.Thread):
     This thread runs inside the GRPO trainer process and exposes a REP socket
     that mirrors the interface provided by :class:`TrainerControlServer`. It
     receives requests such as status polling, inference lifecycle updates, batch
-    submissions, checkpoint triggers, and stop signals, then routes them to the
+    submissions, checkpoint triggers, and terminate signals, then routes them to the
     underlying :class:`AsyncBatchRequester` and trainer control logic.
     """
 
@@ -105,7 +105,7 @@ class TrainerControlClient(threading.Thread):
             except Exception as exc:
                 return {"ok": False, "error": str(exc)}
             return {"ok": True, "checkpoint_dir": checkpoint_dir}
-        if cmd == "stop":
+        if cmd == "terminate":
             self.trainer.control.should_training_stop = True  # type: ignore[attr-defined]
             return {"ok": True}
         if cmd == "noop":
