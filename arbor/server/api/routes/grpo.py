@@ -6,6 +6,7 @@ from arbor.server.api.models.schemas import (
     GRPOStatus,
     GRPOStepRequest,
     GRPOTerminateRequest,
+    GRPOStopRequest,
     GRPOBaseRequest,  # TODO: These should be handled with a subclass like GRPOTerminateRequest
 )
 from arbor.server.services.managers.grpo_manager import GRPOManager
@@ -63,9 +64,8 @@ def cancel_grpo(request: Request, grpo_request: GRPOBaseRequest):
             status_code=500, detail=f"Failed to cancel GRPO job: {str(e)}"
         )
 
-
-@router.post("/terminate", response_model=GRPOStatus)
-def terminate_grpo(request: Request, grpo_request: GRPOTerminateRequest):
+@router.post("/stop", response_model=GRPOStatus)
+def stop_grpo(request: Request, grpo_request: GRPOStopRequest):
     grpo_manager: GRPOManager = request.app.state.grpo_manager
-    grpo_status: GRPOStatus = grpo_manager.terminate(grpo_request)
+    grpo_status: GRPOStatus = grpo_manager.stop(grpo_request)
     return grpo_status

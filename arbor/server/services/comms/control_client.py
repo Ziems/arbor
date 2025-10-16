@@ -99,8 +99,12 @@ class TrainerControlClient(threading.Thread):
                 return {"ok": False, "error": str(exc)}
             return {"ok": True}
         if cmd == "checkpoint":
-            self.trainer.save_model()
-            return {"ok": True}
+            checkpoint_name = message.get("checkpoint_name")
+            try:
+                checkpoint_dir = self.trainer.save_external_checkpoint(checkpoint_name)
+            except Exception as exc:
+                return {"ok": False, "error": str(exc)}
+            return {"ok": True, "checkpoint_dir": checkpoint_dir}
         if cmd == "stop":
             self.trainer.control.should_training_stop = True  # type: ignore[attr-defined]
             return {"ok": True}

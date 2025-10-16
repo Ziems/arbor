@@ -115,8 +115,8 @@ class TrainerControlServer:
             )
         return resp
 
-    def request_checkpoint(self) -> Dict[str, Any]:
-        resp = self._request({"cmd": "checkpoint"})
+    def request_checkpoint(self, checkpoint_name: str) -> Dict[str, Any]:
+        resp = self._request({"cmd": "checkpoint", "checkpoint_name": checkpoint_name})
         if not resp.get("ok", False):
             raise RuntimeError(
                 f"Error requesting checkpoint: {resp.get('error', 'Unknown error')}"

@@ -284,6 +284,10 @@ class GRPOTerminateRequest(GRPOBaseRequest):
     pass
 
 
+class GRPOStopRequest(GRPOBaseRequest):
+    pass
+
+
 class LogQueryRequest(StrictBaseModel):
     jq_query: str
     limit: Optional[int]

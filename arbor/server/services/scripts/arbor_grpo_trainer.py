@@ -1,3 +1,4 @@
+import os
 import torch
 from arbor.server.services.comms.control_client import TrainerControlClient
 import json
@@ -137,6 +138,7 @@ class ArborGRPOTrainer(Trainer):
     ):
         self.logger = logging.getLogger(__name__)
         self.logger.debug("Starting __init__")
+        self._checkpoint_lock = threading.RLock()
         self._control_client: Optional[TrainerControlClient] = None
 
         # Trained model
@@ -494,6 +496,11 @@ class ArborGRPOTrainer(Trainer):
         )
         return self.accelerator.prepare(self._async_dataloader)
 
+    def training_step(self, *args, **kwargs):  # type: ignore[override]
+        """Wrap the base training step to coordinate with external checkpoints."""
+        with self._checkpoint_lock:
+            return super().training_step(*args, **kwargs)
+
     def _enable_gradient_checkpointing(
         self, model: PreTrainedModel, args: ArborGRPOConfig
     ) -> PreTrainedModel:
@@ -656,6 +663,44 @@ class ArborGRPOTrainer(Trainer):
             ):
                 self.async_requester.stop()
             self._async_started = False
+
+    def save_external_checkpoint(self, checkpoint_name: Optional[str]) -> str:
+        """Save a checkpoint triggered by an external control request.
+
+        Args:
+            checkpoint_name: Name provided by the caller. If None, defaults to the
+                current global step.
+
+        Returns:
+            Absolute path to the checkpoint directory written on disk.
+        """
+
+        if not self.accelerator.is_main_process:
+            raise RuntimeError("External checkpoints must run on the main process")
+
+        base_dir = self.args.output_dir
+        if not base_dir:
+            raise ValueError("Trainer output directory is not configured")
+
+        if checkpoint_name:
+            target_name = checkpoint_name
+        else:
+            target_name = f"checkpoint-{int(self.state.global_step)}"
+
+        checkpoint_dir = os.path.abspath(os.path.join(base_dir, target_name))
+
+        with self._checkpoint_lock:
+            os.makedirs(checkpoint_dir, exist_ok=True)
+            self.save_model(checkpoint_dir)
+
+            if hasattr(self, "deepspeed") and self.deepspeed:  # type: ignore[attr-defined]
+                # DeepSpeed integrates optimizer/sharded weights saving
+                self.deepspeed.save_checkpoint(checkpoint_dir)  # type: ignore[attr-defined]
+
+            if hasattr(self, "_save_training_state"):
+                self._save_training_state(checkpoint_dir)  # type: ignore[attr-defined]
+
+        return checkpoint_dir
 
     def _prepare_inputs(  # type: ignore
         self, inputs: list[dict[str, Any]]

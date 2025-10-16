@@ -71,8 +71,8 @@ def initialize_grpo(
         "gpu_config": {
             "type": "multi",
             "multi": {
-                "num_inference_gpus": 2,
-                "num_training_gpus": 2,
+                "num_inference_gpus": 1,
+                "num_training_gpus": 1,
             },
         },
     }
@@ -120,8 +120,8 @@ def checkpoint(
     return GRPOStatus.model_validate(response.json())
 
 
-def terminate_grpo(
-    job_id, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/terminate"
+def stop_grpo(
+    job_id, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/stop"
 ) -> GRPOStatus:
     headers = {"Content-Type": "application/json"}
     data = {"job_id": job_id}
@@ -189,12 +189,18 @@ def main():
             else:
                 print("All batches are fulfilled")
                 time.sleep(1)
-        checkpoint_response = checkpoint(checkpoint_name="checkpoint_1", job_id=job_id)
-        if checkpoint_response.status_code == 200:
-            last_checkpoint = checkpoint_response.json()["last_checkpoint"]
-            print(f"Checkpoint created: {last_checkpoint}")
-        else:
-            print(f"Checkpoint failed: {checkpoint_response.text}")
+            if len(fulfilled_batch_ids) % 51 == 0 and len(fulfilled_batch_ids) > 0:
+                checkpoint_response = checkpoint(
+                    checkpoint_name=f"checkpoint_{len(fulfilled_batch_ids)}", job_id=job_id
+                )
+                last_checkpoint = checkpoint_response.last_checkpoint
+                if last_checkpoint:
+                    print(f"Checkpoint created: {last_checkpoint}")
+                else:
+                    print("Checkpoint response did not include a checkpoint name")
+            
+        stop_response = stop_grpo(job_id=job_id)
+        print(f"GRPO stopped: status={stop_response.status}, pending_batches={stop_response.pending_batch_ids}")
     except Exception as e:
         print(e)
     finally:

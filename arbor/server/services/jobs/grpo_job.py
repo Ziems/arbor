@@ -25,6 +25,7 @@ from arbor.server.services.jobs.inference_job import InferenceJob
 from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
 from arbor.server.services.jobs.job import Job, JobArtifact
 from arbor.server.services.managers.inference_manager import InferenceManager
+from arbor.server.services.managers.gpu_manager import GPUManager
 from arbor.server.services.scripts.arbor_grpo_config import ArborGRPOConfig
 from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
@@ -51,7 +52,7 @@ class GRPOJob(Job):
                 JobArtifact.METRICS,
             ],
         )
-        self.gpu_manager = gpu_manager
+        self.gpu_manager: GPUManager = gpu_manager
         self.training_process = None
         self.base_model = None
         self.train_kwargs = None
@@ -59,6 +60,7 @@ class GRPOJob(Job):
         self.saving_checkpoint = False
         self.saving_model = False
         self.terminating = False
+        self.stopping_training = False
         self.inference_job: InferenceJob = None
         self.process_runner: Optional[AccelerateProcessRunner] = None
         self.trainer_controller: TrainerControlServer = None
@@ -328,18 +330,58 @@ class GRPOJob(Job):
             raise
 
     def checkpoint(self, request: GRPOCheckpointRequest):
-        # while (
-        #     self.inference_job.is_updating
-        # ):  # Use the property instead of direct access
-        #     logger.info("Waiting for weight updates to finish before checkpointing...")
-        #     time.sleep(5)
+        self.saving_checkpoint = True
+        try:
+            response = self.trainer_controller.request_checkpoint(
+                request.checkpoint_name
+            )
+        finally:
+            self.saving_checkpoint = False
 
-        # self.saving_checkpoint = True
-        # self.trainer_controller.request_checkpoint()
-        # while self.saving_checkpoint:
-        #     logger.info("Waiting for checkpoint to be saved...")
-        #     time.sleep(5)
-        pass
+        checkpoint_dir = response.get("checkpoint_dir") if response else None
+        if checkpoint_dir:
+            self.checkpoints[request.checkpoint_name] = checkpoint_dir
+            self.last_checkpoint = request.checkpoint_name
+            logger.info(
+                f"Checkpoint '{request.checkpoint_name}' saved at {checkpoint_dir}"
+            )
+        else:
+            logger.warning(
+                f"Checkpoint response missing directory for {request.checkpoint_name}"
+            )
+
+        return checkpoint_dir
+
+    def stop_training(self, timeout: float = 300.0):
+        if not self.trainer_controller:
+            raise RuntimeError("Trainer controller is not initialized for this job")
+
+        if self.stopping_training:
+            logger.info("Stop request already in progress for this job")
+            return
+
+        self.stopping_training = True
+        try:
+            logger.info("Sending stop request to trainer")
+            response = self.trainer_controller.request_stop()
+            logger.debug(f"Trainer stop response: {response}")
+
+            if self.process_runner and self.process_runner.is_running():
+                logger.info("Waiting for training process to exit after stop request")
+                deadline = time.time() + timeout
+                while time.time() < deadline and self.process_runner.is_running():
+                    time.sleep(5)
+                    logger.info("Training process still stopping...")
+
+                if self.process_runner.is_running():
+                    logger.warning(
+                        "Training process still running after stop timeout; proceeding without force termination"
+                    )
+            else:
+                logger.info("Training process already stopped")
+            return response
+        finally:
+            self.stopping_training = False
 
     def cancel(self):
         """Cancel the GRPO training job"""
@@ -349,74 +391,10 @@ class GRPOJob(Job):
         logger.info(f"Cancelling GRPOJob {self.id}")
 
         # Terminate without saving model for faster cancellation
-        self.terminate(save_model=False)
+        self.terminate()
 
-    def terminate(self, save_model: bool = True):
-        """Clean up resources and optionally save the final model.
 
-        Args:
-            save_model: Whether to save the model before terminating
-        """
-        # if save_model:
-        #     logger.info("Terminating with model saving...")
-        #     time.sleep(5)
-
-        #     while (
-        #         self.inference_job and self.inference_job.is_updating
-        #     ):  # Use the property instead of direct access
-        #         logger.info(
-        #             "Waiting for final weight updates to finish before saving..."
-        #         )
-        #         time.sleep(5)
-
-        #     logger.info("Sending save model command")
-        #     self.saving_model = True
-        #     self.server_comms_handler.send_command({"command": "save_model"})
-        #     while self.saving_model:
-        #         logger.info("Waiting for final model to be saved...")
-        #         time.sleep(5)
-        # else:
-        #     logger.info("Terminating without model saving...")
-
-        # Send termination command if we have comms
-        if self.server_comms_handler:
-            try:
-                logger.info("Sending termination command")
-                self.terminating = True
-                self.server_comms_handler.send_command({"command": "terminate"})
-
-                # Wait time depends on whether we're saving model or not
-                max_wait_time = 15 if save_model else 5
-                start_time = time.time()
-                while self.terminating:
-                    if time.time() - start_time > max_wait_time:
-                        logger.warning(
-                            f"Termination wait timed out after {max_wait_time} seconds, proceeding with cleanup..."
-                        )
-                        break
-                    logger.info("Waiting for run to be terminated...")
-                    time.sleep(3)
-            except Exception as e:
-                logger.warning(f"Error sending termination command: {e}")
-
-        logger.info("Starting cleanup")
-        self.cleanup_termination()
-
-        if save_model and self.train_kwargs and "output_dir" in self.train_kwargs:
-            # output_dir = self.train_kwargs["output_dir"]
-            # logger.info(f"Training completed. Model saved to {output_dir}")
-            # logger.info(f"Training logs and checkpoints are stored in: {output_dir}")
-            # if not os.path.exists(output_dir):
-            #     logger.warning(f"Output directory {output_dir} does not exist")
-            self.train_kwargs = None
-        else:
-            logger.info(
-                "Training terminated, no output directory specified"
-                + (" (model not saved)" if not save_model else "")
-            )
-            self.train_kwargs = None
-
-    def cleanup_termination(self):
+    def terminate(self):
         try:
             # Terminate training process using ProcessRunner
             if self.process_runner:

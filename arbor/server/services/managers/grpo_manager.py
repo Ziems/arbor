@@ -6,6 +6,7 @@ from arbor.server.api.models.schemas import (
     GRPOStatus,
     GRPOStepRequest,
     GRPOTerminateRequest,
+    GRPOStopRequest,
 )
 from arbor.server.core.config import Config
 from arbor.server.services.jobs.grpo_job import GRPOJob
@@ -57,12 +58,9 @@ class GRPOManager(BaseManager):
 
         return grpo_job.get_status()
 
-    def terminate(self, request: GRPOTerminateRequest):
+    def stop(self, request: GRPOStopRequest) -> GRPOStatus:
         grpo_job = self.grpo_jobs[request.job_id]
-        grpo_job.terminate()
-        # TODO: inference_manager.terminate_job(grpo_job.inference_job)
-        # TODO: Maybe also update job_manager or resource manager
-
+        grpo_job.stop_training()
         return grpo_job.get_status()
 
     def cleanup(self) -> None:
@@ -75,8 +73,8 @@ class GRPOManager(BaseManager):
         for job_id, grpo_job in self.grpo_jobs.items():
             try:
                 self.logger.debug(f"Cleaning up GRPO job {job_id}")
-                # All GRPO jobs have terminate method
-                grpo_job.terminate()
+                # All GRPO jobs have cancel method
+                grpo_job.cancel()
             except Exception as e:
                 self.logger.error(f"Error cleaning up GRPO job {job_id}: {e}")
 
