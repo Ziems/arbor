@@ -2,7 +2,7 @@ fail_fast: true
 repos:
   # Code formatting and import organization
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.4
+    rev: v0.14.0
     hooks:
       - id: ruff
         args: ["--fix"]

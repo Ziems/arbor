@@ -342,7 +342,7 @@ def watch_job(
         session = requests.Session()
 
         print(f"👁️  Watching job {job_id}")
-        print(f"⏰ Max watch time: {max_time//60} minutes")
+        print(f"⏰ Max watch time: {max_time // 60} minutes")
         print("=" * 60)
 
         start_time = time.time()
@@ -411,7 +411,7 @@ def watch_job(
                 time.sleep(update_interval)
 
         else:
-            print(f"\n⏰ Stopped watching after {max_time//60} minutes")
+            print(f"\n⏰ Stopped watching after {max_time // 60} minutes")
 
     except ImportError:
         raise ImportError("requests package required for job watching")

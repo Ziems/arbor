@@ -44,7 +44,7 @@ def main():
 
         # Mock some training steps
         for i in range(3):
-            print(f"Mock: DPO training step {i+1}/3")
+            print(f"Mock: DPO training step {i + 1}/3")
             time.sleep(0.1)
 
         print("Mock: DPO training completed successfully!")

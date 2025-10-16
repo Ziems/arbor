@@ -55,7 +55,7 @@ dev = [
     "pytest-timeout",
     "pytest-cov",
     "pre-commit",
-    "ruff",
+    "ruff==0.14.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -102,7 +102,7 @@ Issues = "https://github.com/Ziems/arbor/issues"
 [tool.ruff]
 line-length = 88
 indent-width = 4
-target-version = "py310"
+target-version = "py311"
 extend-exclude = ["examples"]
 
 [tool.ruff.lint]
@@ -153,6 +153,7 @@ ignore = [
     "UP037",  # Allow quoted annotations until upgrade
     "UP038",  # Allow isinstance tuple patterns
     "UP039",  # Allow explicit base class parentheses
+    "UP045",  # Allow non-runtime Union type expressions
     "W291",  # Allow trailing whitespace in generated blocks
     "W292",  # Allow missing newline at EOF in legacy files
     "W293",  # Allow whitespace on blank lines
