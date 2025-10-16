@@ -14,6 +14,7 @@ dependencies = [
     "click",
     "python-multipart",
     "pydantic-settings",
+    "dspy",
     "vllm>=0.9.1",
     "transformers",
     "trl==0.23.1",

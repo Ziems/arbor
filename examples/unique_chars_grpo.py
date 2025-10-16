@@ -4,6 +4,7 @@ import dspy
 from datasets import load_dataset
 
 import arbor
+from arbor import ArborGRPO
 
 # Start Arbor server (starts in background)
 arbor_server_info = arbor.init()
@@ -46,8 +47,6 @@ def _unique_letter_reward(input, pred, trace=None) -> float:
     return float(len(set(letters)))
 
 
-from dspy.teleprompt.grpo import GRPO
-
 train_kwargs = {
     "per_device_train_batch_size": 8,
     "temperature": 1.0,
@@ -73,7 +72,7 @@ train_kwargs = {
     },
 }
 
-compiler = GRPO(
+compiler = ArborGRPO(
     metric=_unique_letter_reward,
     num_dspy_examples_per_grpo_step=1,
     num_rollouts_per_grpo_step=24,

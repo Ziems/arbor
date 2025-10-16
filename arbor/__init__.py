@@ -23,6 +23,7 @@ from arbor.client import (
     stop,
     watch_job,
 )
+from arbor.dspy_optimizers import ArborGRPO
 
 __all__ = [
     "__version__",
@@ -34,4 +35,5 @@ __all__ = [
     "start",
     "stop",
     "watch_job",
+    "ArborGRPO",
 ]
