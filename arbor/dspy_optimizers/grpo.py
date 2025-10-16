@@ -12,6 +12,7 @@ import logging
 import random
 import time
 from collections import Counter, deque
+from itertools import chain
 from typing import Any, Callable, Literal
 
 from dspy.adapters.base import Adapter
@@ -56,7 +57,9 @@ class ArborGRPO(FinetuneTeleprompter):
         variably_invoked_predictor_grouping_mode: Literal["truncate"]
         | Literal["fill"]
         | Literal["ragged"] = "truncate",
-        variably_invoked_predictor_fill_strategy: Literal["randint"] | Literal["max"] | None = None,
+        variably_invoked_predictor_fill_strategy: Literal["randint"]
+        | Literal["max"]
+        | None = None,
     ):
         super().__init__(train_kwargs=train_kwargs)
         self.metric = metric
@@ -79,14 +82,18 @@ class ArborGRPO(FinetuneTeleprompter):
         ), "failure_score must be greater than format_failure_score since the range [format_failure_score, failure_score] is used to provide dspy formatting rewards"
 
         if self.use_train_as_val:
-            assert report_train_scores, "If use_train_as_val is True, report_train_scores must be True."
+            assert (
+                report_train_scores
+            ), "If use_train_as_val is True, report_train_scores must be True."
 
-        assert exclude_demos, "exclude_demos==False is not supported yet. Please set it to True."
         assert (
-            multitask
-        ), "independent GRPO training jobs for each predictor in the student program is not supported yet. Please set multitask=True."
+            exclude_demos
+        ), "exclude_demos==False is not supported yet. Please set it to True."
+        assert multitask, "independent GRPO training jobs for each predictor in the student program is not supported yet. Please set multitask=True."
 
-        self.variably_invoked_predictor_grouping_mode = variably_invoked_predictor_grouping_mode
+        self.variably_invoked_predictor_grouping_mode = (
+            variably_invoked_predictor_grouping_mode
+        )
         if variably_invoked_predictor_grouping_mode == "fill":
             assert (
                 variably_invoked_predictor_fill_strategy is not None
@@ -94,7 +101,9 @@ class ArborGRPO(FinetuneTeleprompter):
             assert (
                 variably_invoked_predictor_fill_strategy in ["randint", "max"]
             ), "variably_invoked_predictor_fill_strategy must be either 'randint' or 'max'"
-        self.variably_invoked_predictor_fill_strategy = variably_invoked_predictor_fill_strategy
+        self.variably_invoked_predictor_fill_strategy = (
+            variably_invoked_predictor_fill_strategy
+        )
 
         self.shuffled_trainset_ids = []
         self.epoch = -1
@@ -110,10 +119,12 @@ class ArborGRPO(FinetuneTeleprompter):
         num_samples_per_input: int,
         pred_signature_hash_to_ind: dict[int, int],
     ):
-        assert len(trace_data) == len(
-            subsample_training_dataset
+        assert (
+            len(trace_data) == len(subsample_training_dataset)
         ), f"Trace data length {len(trace_data)} does not match the number of examples {len(subsample_training_dataset)}"
-        assert len(trace_data[0]) == num_teachers, f"Trace data length {len(trace_data[0])} does not match the number of teachers {num_teachers}"
+        assert (
+            len(trace_data[0]) == num_teachers
+        ), f"Trace data length {len(trace_data[0])} does not match the number of teachers {num_teachers}"
         if len(trace_data[0][0]) == 0:
             logger.warning(
                 "Trace data for example 0 and teacher 0 is empty. This is likely due to all examples in the training set input, resulting in the model generating output not following the dspy response format."
@@ -122,7 +133,9 @@ class ArborGRPO(FinetuneTeleprompter):
             logger.warning(
                 f"Trace data length {len(trace_data[0][0])} does not match the expected number of samples per input {num_samples_per_input}"
             )
-            assert "trace" in trace_data[0][0][0], "Trace data does not contain the 'trace' key"
+            assert (
+                "trace" in trace_data[0][0][0]
+            ), "Trace data does not contain the 'trace' key"
             assert len(trace_data[0][0][0]["trace"]) > 0, "Trace data is empty"
             assert (
                 len(trace_data[0][0][0]["trace"][0]) == 3
@@ -135,14 +148,22 @@ class ArborGRPO(FinetuneTeleprompter):
                         assert hash(t[0].signature) in pred_signature_hash_to_ind
 
     def report_validation_metrics(self, student, trainset, valset, logger, step_idx=-1):
-        if step_idx == -1 or step_idx == self.num_train_steps - 1 or (step_idx + 1) % self.num_steps_for_val == 0:
+        if (
+            step_idx == -1
+            or step_idx == self.num_train_steps - 1
+            or (step_idx + 1) % self.num_steps_for_val == 0
+        ):
             pass
         else:
             return
 
         if valset is not None:
-            assert not self.use_train_as_val, "If valset is provided, use_train_as_val must be False."
-            assert isinstance(self.num_steps_for_val, int) and self.num_steps_for_val > 0, "num_steps_for_val must be a positive integer."
+            assert (
+                not self.use_train_as_val
+            ), "If valset is provided, use_train_as_val must be False."
+            assert (
+                isinstance(self.num_steps_for_val, int) and self.num_steps_for_val > 0
+            ), "num_steps_for_val must be a positive integer."
             if self.report_train_scores:
                 if step_idx == -1:
                     logger.info(
@@ -165,13 +186,21 @@ class ArborGRPO(FinetuneTeleprompter):
                         f"Evaluating the student program on the validation set after training step {step_idx + 1}/{self.num_train_steps}"
                     )
                 valset_evaluation = valset_evaluator(student, metric=self.metric)
-                trainset_scores = [r[-1] for r in valset_evaluation.results[len(valset) :]]
-                valset_scores = [r[-1] for r in valset_evaluation.results[: len(valset)]]
+                trainset_scores = [
+                    r[-1] for r in valset_evaluation.results[len(valset) :]
+                ]
+                valset_scores = [
+                    r[-1] for r in valset_evaluation.results[: len(valset)]
+                ]
                 trainset_agg = sum(trainset_scores) / len(trainset_scores)
                 valset_agg = sum(valset_scores) / len(valset_scores)
                 if step_idx == -1:
-                    logger.info(f"Student program training set score before training loop: {trainset_agg}")
-                    logger.info(f"Student program validation set score before training loop: {valset_agg}")
+                    logger.info(
+                        f"Student program training set score before training loop: {trainset_agg}"
+                    )
+                    logger.info(
+                        f"Student program validation set score before training loop: {valset_agg}"
+                    )
                 else:
                     logger.info(
                         f"Student program training set score after training step {step_idx + 1}/{self.num_train_steps}: {trainset_agg}"
@@ -181,7 +210,9 @@ class ArborGRPO(FinetuneTeleprompter):
                     )
             else:
                 if step_idx == -1:
-                    logger.info("Using user provided validation set and not reporting train scores.")
+                    logger.info(
+                        "Using user provided validation set and not reporting train scores."
+                    )
                 valset_evaluator = Evaluate(
                     devset=valset,
                     num_threads=self.num_threads,
@@ -191,7 +222,9 @@ class ArborGRPO(FinetuneTeleprompter):
                     failure_score=self.failure_score,
                 )
                 if step_idx == -1:
-                    logger.info("Evaluating the student program on the validation set before training loop...")
+                    logger.info(
+                        "Evaluating the student program on the validation set before training loop..."
+                    )
                 else:
                     logger.info(
                         f"Evaluating the student program on the validation set after training step {step_idx + 1}/{self.num_train_steps}"
@@ -207,10 +240,11 @@ class ArborGRPO(FinetuneTeleprompter):
                     )
         else:
             if self.report_train_scores:
+                assert self.use_train_as_val, "If report_train_scores is True, use_train_as_val must be True when valset is not provided explicitly."
                 assert (
-                    self.use_train_as_val
-                ), "If report_train_scores is True, use_train_as_val must be True when valset is not provided explicitly."
-                assert isinstance(self.num_steps_for_val, int) and self.num_steps_for_val > 0, "num_steps_for_val must be a positive integer."
+                    isinstance(self.num_steps_for_val, int)
+                    and self.num_steps_for_val > 0
+                ), "num_steps_for_val must be a positive integer."
                 if step_idx == -1:
                     logger.info("Using trainset as validation set.")
                 valset_evaluator = Evaluate(
@@ -222,7 +256,9 @@ class ArborGRPO(FinetuneTeleprompter):
                     failure_score=self.failure_score,
                 )
                 if step_idx == -1:
-                    logger.info("Evaluating the student program on the validation set before training loop...")
+                    logger.info(
+                        "Evaluating the student program on the validation set before training loop..."
+                    )
                 else:
                     logger.info(
                         f"Evaluating the student program on the validation set after training step {step_idx + 1}/{self.num_train_steps}"
@@ -237,9 +273,13 @@ class ArborGRPO(FinetuneTeleprompter):
                         f"Student program training set score after training step {step_idx + 1}/{self.num_train_steps}: {valset_evaluation.score}"
                     )
             else:
-                assert not self.use_train_as_val, "If report_train_scores is False, use_train_as_val must be False."
+                assert (
+                    not self.use_train_as_val
+                ), "If report_train_scores is False, use_train_as_val must be False."
                 if step_idx == -1:
-                    logger.info("Not using any validation set and not reporting train scores.")
+                    logger.info(
+                        "Not using any validation set and not reporting train scores."
+                    )
 
     def update_shuffled_trainset(self, original_trainset):
         self.shuffled_trainset_ids = list(range(len(original_trainset)))
@@ -296,7 +336,9 @@ class ArborGRPO(FinetuneTeleprompter):
         )
         logger.info("Validating the inputs...")
 
-        assert len(trainset) > 0, "Training set is empty. Please provide a non-empty training set."
+        assert (
+            len(trainset) > 0
+        ), "Training set is empty. Please provide a non-empty training set."
 
         if len(trainset) < self.num_dspy_examples_per_grpo_step:
             logger.warning(
@@ -330,7 +372,9 @@ class ArborGRPO(FinetuneTeleprompter):
 
         logger.info("Preparing the student program...")
         all_predictors_have_lms(student)
-        pred_signature_hash_to_ind = {hash(pred.signature): ind for ind, pred in enumerate(student.predictors())}
+        pred_signature_hash_to_ind = {
+            hash(pred.signature): ind for ind, pred in enumerate(student.predictors())
+        }
         num_student_predictors = len(student.predictors())
 
         logging.info(
@@ -346,9 +390,7 @@ class ArborGRPO(FinetuneTeleprompter):
         assert (
             student in teachers
         ), f"Student program {student} is not in the list of teachers {teachers}. Please provide the student program as one of the teachers. Alternatively, you can leave the teacher argument as None, and the student program will be used as the teacher program."
-        assert (
-            self.num_rollouts_per_grpo_step % len(teachers) == 0
-        ), (
+        assert self.num_rollouts_per_grpo_step % len(teachers) == 0, (
             f"The GRPO group size (num_rollouts_per_grpo_step) {self.num_rollouts_per_grpo_step} is not divisible by the number of teachers {len(teachers)}. "
             "This is required to ensure that each teacher gets the same number of examples."
             "Please provide a number of examples that is divisible by the number of teachers."
@@ -387,11 +429,15 @@ class ArborGRPO(FinetuneTeleprompter):
         group_queues = {}
         logger.info("Starting the GRPO training loop...")
         for train_step_idx in range(self.num_train_steps):
-            logger.info(f"GRPO training step {train_step_idx + 1}/{self.num_train_steps}...")
+            logger.info(
+                f"GRPO training step {train_step_idx + 1}/{self.num_train_steps}..."
+            )
 
-            subsample_training_dataset = self.select_training_sample_and_update_shuffled_trainset(
-                original_trainset=trainset,
-                train_step_idx=train_step_idx,
+            subsample_training_dataset = (
+                self.select_training_sample_and_update_shuffled_trainset(
+                    original_trainset=trainset,
+                    train_step_idx=train_step_idx,
+                )
             )
 
             def _any_available_for_step():
@@ -407,10 +453,15 @@ class ArborGRPO(FinetuneTeleprompter):
                 time.sleep(1)
 
             logger.info("Bootstrapping data...")
-            trace_data = [[[] for _ in range(len(teachers))] for _ in range(len(subsample_training_dataset))]
+            trace_data = [
+                [[] for _ in range(len(teachers))]
+                for _ in range(len(subsample_training_dataset))
+            ]
             for tind, teacher in enumerate(teachers):
                 subsample_training_dataset_repeated = [
-                    example for _ in range(num_samples_per_input) for example in subsample_training_dataset
+                    example
+                    for _ in range(num_samples_per_input)
+                    for example in subsample_training_dataset
                 ]
                 round_data = bootstrap_trace_data(
                     program=teacher,
@@ -424,7 +475,9 @@ class ArborGRPO(FinetuneTeleprompter):
                     log_format_failures=True,
                 )
                 for data_dict in round_data:
-                    example_ind_in_subsample = data_dict["example_ind"] % len(subsample_training_dataset)
+                    example_ind_in_subsample = data_dict["example_ind"] % len(
+                        subsample_training_dataset
+                    )
                     data_dict["example_ind"] = example_ind_in_subsample
                     trace_data[example_ind_in_subsample][tind].append(data_dict)
 
@@ -436,8 +489,12 @@ class ArborGRPO(FinetuneTeleprompter):
                 pred_signature_hash_to_ind=pred_signature_hash_to_ind,
             )
 
-            logger.info("Preparing the training data batch from bootstrapped examples for GRPO...")
-            train_batch_per_predictor: list[list[GRPOGroup]] = [[] for _ in range(num_student_predictors)]
+            logger.info(
+                "Preparing the training data batch from bootstrapped examples for GRPO..."
+            )
+            train_batch_per_predictor: list[list[GRPOGroup]] = [
+                [] for _ in range(num_student_predictors)
+            ]
             for pred_id in range(num_student_predictors):
                 for example_ind, example_data in enumerate(trace_data):
                     predictor_example_invocations: list[list[tuple]] = []
@@ -453,24 +510,35 @@ class ArborGRPO(FinetuneTeleprompter):
                                 == hash(student.predictors()[pred_id].signature)
                             ]
 
-                            predictor_example_invocations.append(trace_instances_for_current_pred)
+                            predictor_example_invocations.append(
+                                trace_instances_for_current_pred
+                            )
 
                     if len(predictor_example_invocations) == 0:
                         logger.warning(
                             f"Skipping example {example_ind} for predictor {pred_id} as it has no invocations. This is likely due to all examples in the training set input, resulting in the model generating output not following the dspy response format."
                         )
                         continue
-                    elif len(predictor_example_invocations) != self.num_rollouts_per_grpo_step:
+                    elif (
+                        len(predictor_example_invocations)
+                        != self.num_rollouts_per_grpo_step
+                    ):
                         logger.warning(
                             f"Number of predictor example invocations {len(predictor_example_invocations)} does not match the expected batch size {self.num_rollouts_per_grpo_step}. This is likely due to all examples in the training set input, resulting in the model generating output not following the dspy response format."
                         )
 
-                    min_len = min([
-                        len(predictor_example_invocations[i]) for i in range(len(predictor_example_invocations))
-                    ])
-                    max_len = max([
-                        len(predictor_example_invocations[i]) for i in range(len(predictor_example_invocations))
-                    ])
+                    min_len = min(
+                        [
+                            len(predictor_example_invocations[i])
+                            for i in range(len(predictor_example_invocations))
+                        ]
+                    )
+                    max_len = max(
+                        [
+                            len(predictor_example_invocations[i])
+                            for i in range(len(predictor_example_invocations))
+                        ]
+                    )
                     if min_len == 0:
                         logger.warning(
                             f"Skipping example {example_ind} for predictor {pred_id} as it has no invocations."
@@ -478,7 +546,10 @@ class ArborGRPO(FinetuneTeleprompter):
                         continue
 
                     if self.variably_invoked_predictor_grouping_mode == "truncate":
-                        predictor_example_invocations = [invocation[:min_len] for invocation in predictor_example_invocations]
+                        predictor_example_invocations = [
+                            invocation[:min_len]
+                            for invocation in predictor_example_invocations
+                        ]
                     elif self.variably_invoked_predictor_grouping_mode == "fill":
                         if self.variably_invoked_predictor_fill_strategy == "randint":
                             selector = lambda l: self.rng.choice(l)  # noqa: E731, E741
@@ -486,28 +557,44 @@ class ArborGRPO(FinetuneTeleprompter):
                             selector = lambda l: l[-1]  # noqa: E731, E741
                         predictor_example_invocations = [
                             invocation
-                            + [selector(invocation) for _ in range(max_len - len(invocation))]
+                            + [
+                                selector(invocation)
+                                for _ in range(max_len - len(invocation))
+                            ]
                             for invocation in predictor_example_invocations
                         ]
                     else:
                         assert self.variably_invoked_predictor_grouping_mode == "ragged"
-                    max_len = max([
-                        len(predictor_example_invocations[i]) for i in range(len(predictor_example_invocations))
-                    ])
+                    max_len = max(
+                        [
+                            len(predictor_example_invocations[i])
+                            for i in range(len(predictor_example_invocations))
+                        ]
+                    )
 
-                    example_training_data: list[GRPOGroup] = [[] for _ in range(max_len)]
+                    example_training_data: list[GRPOGroup] = [
+                        [] for _ in range(max_len)
+                    ]
 
                     for group_idx in range(max_len):
                         for rollout_idx in range(len(predictor_example_invocations)):
-                            trace_instance = predictor_example_invocations[rollout_idx][group_idx]
+                            trace_instance = predictor_example_invocations[rollout_idx][
+                                group_idx
+                            ]
                             score = trace_instance[3]
 
-                            trace_pred_id = pred_signature_hash_to_ind.get(hash(trace_instance[0].signature))
+                            trace_pred_id = pred_signature_hash_to_ind.get(
+                                hash(trace_instance[0].signature)
+                            )
                             assert trace_pred_id == pred_id
 
                             predictor = trace_instance[0]
                             pred_lm = predictor.lm
-                            adapter = self.adapter[pred_lm] or settings.adapter or XMLAdapter()
+                            adapter = (
+                                self.adapter[pred_lm]
+                                or settings.adapter
+                                or XMLAdapter()
+                            )
                             assert isinstance(
                                 adapter, ChatAdapter
                             ), f"Adapter {adapter} is not a ChatAdapter. GRPO training is not supported for this adapter."
@@ -519,13 +606,18 @@ class ArborGRPO(FinetuneTeleprompter):
                             )
 
                             if isinstance(trace_instance[2], FailedPrediction):
-                                score = trace_instance[2].format_reward or self.format_failure_score
+                                score = (
+                                    trace_instance[2].format_reward
+                                    or self.format_failure_score
+                                )
                                 example_training_data[group_idx].append(
                                     {
                                         "messages": inp_messages,
                                         "completion": {
                                             "role": "assistant",
-                                            "content": trace_instance[2].completion_text,
+                                            "content": trace_instance[
+                                                2
+                                            ].completion_text,
                                         },
                                         "reward": float(score),
                                     }
@@ -578,19 +670,35 @@ class ArborGRPO(FinetuneTeleprompter):
                         )
 
             logger.info("Invoking GRPO training step...")
+            all_train_data: list[GRPOGroup] = list(
+                chain.from_iterable(train_batch_per_predictor)
+            )
             for (lm_for_job, data_key), job in grpo_training_jobs.items():
-                train_data: list[GRPOGroup] = sum(train_batch_per_predictor, []) if data_key is None else train_batch_per_predictor[data_key]
+                train_data: list[GRPOGroup] = (
+                    all_train_data
+                    if data_key is None
+                    else train_batch_per_predictor[data_key]
+                )
                 for group in train_data:
                     if len(group) != self.num_rollouts_per_grpo_step:
                         while len(group) < self.num_rollouts_per_grpo_step:
-                            group.extend(group[: min(self.num_rollouts_per_grpo_step - len(group), len(group))])
+                            group.extend(
+                                group[
+                                    : min(
+                                        self.num_rollouts_per_grpo_step - len(group),
+                                        len(group),
+                                    )
+                                ]
+                            )
                     assert (
                         len(group) == self.num_rollouts_per_grpo_step
                     ), f"Number of completions {len(group)} does not match the expected number self.num_rollouts_per_grpo_step={self.num_rollouts_per_grpo_step}"
 
                 grpo_status: GRPOStatus = job.get_status()
                 pending_batch_ids = grpo_status["pending_batch_ids"]
-                available_batch_ids = list(set(pending_batch_ids) - set(self.fulfilled_batch_ids))
+                available_batch_ids = list(
+                    set(pending_batch_ids) - set(self.fulfilled_batch_ids)
+                )
                 if not available_batch_ids:
                     continue
 
@@ -609,7 +717,9 @@ class ArborGRPO(FinetuneTeleprompter):
                     if q:
                         grp = q.popleft()
                     else:
-                        fallback_pool = train_data if len(train_data) > 0 else sum(train_batch_per_predictor, [])
+                        fallback_pool = (
+                            train_data if len(train_data) > 0 else all_train_data
+                        )
                         if len(fallback_pool) == 0:
                             continue
                         grp = self.rng.choice(fallback_pool)
@@ -618,11 +728,18 @@ class ArborGRPO(FinetuneTeleprompter):
                 if not final_train_data:
                     continue
 
-                self.fulfilled_batch_ids.extend([item["batch_id"] for item in final_train_data])
+                self.fulfilled_batch_ids.extend(
+                    [item["batch_id"] for item in final_train_data]
+                )
 
-                job.step(train_data=final_train_data, train_data_format=TrainDataFormat.GRPO_CHAT)
+                job.step(
+                    train_data=final_train_data,
+                    train_data_format=TrainDataFormat.GRPO_CHAT,
+                )
 
-            logger.info(f"GRPO training step {train_step_idx + 1}/{self.num_train_steps} completed.")
+            logger.info(
+                f"GRPO training step {train_step_idx + 1}/{self.num_train_steps} completed."
+            )
 
             self.report_validation_metrics(
                 student=student,
@@ -650,7 +767,9 @@ def disable_lm_cache(program: Module, lm_cache_dict: dict):
 
     for pred in program.predictors():
         if not pred.lm:
-            raise ValueError(f"Cannot disable cache: predictor {pred} does not have an LM set.")
+            raise ValueError(
+                f"Cannot disable cache: predictor {pred} does not have an LM set."
+            )
         if pred.lm not in lm_cache_dict:
             lm_cache_dict[pred.lm] = pred.lm.cache
         pred.lm.cache = False
@@ -667,4 +786,3 @@ def recover_lm_cache(program: Module, lm_cache_dict: dict):
 
 
 __all__ = ["ArborGRPO", "disable_lm_cache", "recover_lm_cache"]
-
