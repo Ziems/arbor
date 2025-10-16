@@ -70,10 +70,10 @@ student_lm = dspy.LM(
 student_classify = classify.deepcopy()
 student_classify.set_lm(student_lm)
 
-# Optimize with GRPO (requires 2+ GPUs)
-from dspy.teleprompt.grpo import GRPO
+# Optimize with Arbor's GRPO trainer (requires 2+ GPUs)
+from arbor import ArborGRPO
 
-compiler = GRPO(
+compiler = ArborGRPO(
     metric=lambda x, y: x.label == y.label,
 )
 
