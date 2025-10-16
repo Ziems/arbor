@@ -151,7 +151,6 @@ ignore = [
     "UP031",  # Allow percent format
     "UP035",  # Allow python typing modules
     "UP037",  # Allow quoted annotations until upgrade
-    "UP038",  # Allow isinstance tuple patterns
     "UP039",  # Allow explicit base class parentheses
     "UP045",  # Allow non-runtime Union type expressions
     "W291",  # Allow trailing whitespace in generated blocks
