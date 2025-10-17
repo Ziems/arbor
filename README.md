@@ -233,12 +233,3 @@ If you use this code in your research, please cite:
   year={2025}
 }
 ```
-
-```bibtex
-@misc{ziems2025arbor,
-  title={Arbor: Open Source Language Model Post Training},
-  author={Ziems, Noah and Agrawal, Lakshya A and Soylu, Dilara and Lai, Liheng and Miller, Isaac and Qian, Chen and Jiang, Meng and Khattab, Omar},
-  howpublished = {\url{https://github.com/Ziems/arbor}},
-  year={2025}
-}
-```
