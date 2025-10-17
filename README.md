@@ -88,7 +88,7 @@ optimized_classify = compiler.compile(
 ```
 
 
-### Traditional Fine-tuning (SFT & DPO)
+<!-- ### Traditional Fine-tuning (SFT & DPO)
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Ziems/arbor/blob/main/examples/colab_quickstart.ipynb)
 
@@ -122,7 +122,7 @@ job = client.fine_tuning.jobs.create(
 
 # Monitor training
 arbor.watch_job(job.id)
-```
+``` -->
 
 ### Remote GPU Setup (Alternative)
 
