@@ -360,7 +360,7 @@ class GRPOJob(Job):
 
     def checkpoint(self, request: GRPOCheckpointRequest):
         self.trainer_controller.request_checkpoint(request.checkpoint_name)
-        logger.info("Checkpoint '%s' requested", request.checkpoint_name)
+        logger.info("Checkpoint requested", checkpoint_name=request.checkpoint_name)
         return None
 
     def terminate_training(self, timeout: float = 300.0):
@@ -459,13 +459,13 @@ class GRPOJob(Job):
         logger.info("Received checkpoint saved status")
         checkpoint = event.get("checkpoint")
         if not isinstance(checkpoint, dict):
-            logger.warning("Malformed checkpoint event: %s", event)
+            logger.warning("Malformed checkpoint event", event=event)
             return
 
         name = checkpoint.get("checkpoint_name")
         path = checkpoint.get("checkpoint_dir")
         if not name or not path:
-            logger.warning("Incomplete checkpoint event payload: %s", event)
+            logger.warning("Incomplete checkpoint event payload", event=event)
             return
 
         self.checkpoints[name] = checkpoint

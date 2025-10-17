@@ -54,7 +54,7 @@ logger.setLevel(logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARN)
 
 if is_peft_available():
-    from peft import PeftConfig, PeftModel  # noqa: F401
+    pass
 
 
 class _ExternalBatchDataset(Dataset):
