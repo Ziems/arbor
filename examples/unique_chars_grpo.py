@@ -62,7 +62,7 @@ train_kwargs = {
     "report_to": "wandb",  # 'wandb'
     "log_completions": False,
     "max_context_length": None,
-    "max_steps": 1000,
+    "max_steps": 20,
     "logging_steps": 1,
     "lora_config": {
         "lora_alpha": 16,
