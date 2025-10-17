@@ -506,8 +506,7 @@ class ArborGRPOTrainer(Trainer):
 
     def training_step(self, *args, **kwargs):  # type: ignore[override]
         """Wrap the base training step to coordinate with external checkpoints."""
-        with self._checkpoint_lock:
-            return super().training_step(*args, **kwargs)
+        return super().training_step(*args, **kwargs)
 
     def request_checkpoint(
         self,
