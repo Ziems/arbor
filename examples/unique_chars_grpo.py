@@ -4,7 +4,7 @@ import dspy
 from datasets import load_dataset
 
 import arbor
-from arbor import ArborGRPO
+from arbor import ArborGRPO, ArborProvider
 
 # Start Arbor server (starts in background)
 arbor_server_info = arbor.init()
@@ -23,7 +23,6 @@ print(trainset[0])
 
 unique_chars = dspy.Predict(f"english -> french")
 
-from dspy.clients.lm_local_arbor import ArborProvider
 # Get Arbor server info from init()
 provider = ArborProvider()
 

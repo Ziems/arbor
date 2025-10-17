@@ -315,21 +315,14 @@ class ArborGRPO(FinetuneTeleprompter):
 
         self.validation_scores[step_idx] = score
 
-        improved = (
-            step_idx != -1
-            and (
-                self.best_validation_score is None
-                or score > self.best_validation_score
-            )
+        improved = step_idx != -1 and (
+            self.best_validation_score is None or score > self.best_validation_score
         )
 
         if improved:
             self.best_validation_score = score
             self.best_validation_step = step_idx
-            if (
-                self.checkpoint_mode != "none"
-                and grpo_training_jobs is not None
-            ):
+            if self.checkpoint_mode != "none" and grpo_training_jobs is not None:
                 checkpoint_name = (
                     "model_checkpoint_best"
                     if self.checkpoint_mode == "single-best"
@@ -836,16 +829,15 @@ class ArborGRPO(FinetuneTeleprompter):
             lm_for_job, data_key = job_key
             if not hasattr(job, "save_checkpoint"):
                 logger.warning(
-                    "Checkpoint requested but job %s does not support save_checkpoint", job
+                    "Checkpoint requested but job %s does not support save_checkpoint",
+                    job,
                 )
                 continue
 
             try:
                 job.save_checkpoint(checkpoint_name=checkpoint_name)
             except TypeError:
-                logger.exception(
-                    "save_checkpoint signature mismatch for job %s", job
-                )
+                logger.exception("save_checkpoint signature mismatch for job %s", job)
                 continue
             except Exception:
                 logger.exception("Failed to save checkpoint '%s'", checkpoint_name)
@@ -857,10 +849,9 @@ class ArborGRPO(FinetuneTeleprompter):
             if last_checkpoint and isinstance(checkpoints, dict):
                 checkpoint_record = checkpoints.get(last_checkpoint)
                 if isinstance(checkpoint_record, dict):
-                    checkpoint_path = (
-                        checkpoint_record.get("model_path")
-                        or checkpoint_record.get("checkpoint_dir")
-                    )
+                    checkpoint_path = checkpoint_record.get(
+                        "model_path"
+                    ) or checkpoint_record.get("checkpoint_dir")
                 elif isinstance(checkpoint_record, str):
                     checkpoint_path = checkpoint_record
 
