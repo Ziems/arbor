@@ -47,7 +47,7 @@ class TrainerControlClient(threading.Thread):
                 try:
                     message = socket.recv_json()
                     try:
-                        response = self._handle(message)
+                        response = self._handle_message(message)
                     except Exception as handler_exc:
                         response = {"ok": False, "error": str(handler_exc)}
                     socket.send_json(response)
@@ -75,7 +75,7 @@ class TrainerControlClient(threading.Thread):
             except Exception:
                 pass
 
-    def _handle(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    def _handle_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
         cmd = message.get("cmd")
         requester = self.trainer.async_requester
 
