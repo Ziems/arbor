@@ -551,8 +551,6 @@ class ArborGRPOTrainer(Trainer):
             if self._pending_checkpoint_requests:
                 request = self._pending_checkpoint_requests.popleft()
 
-        super()._save_checkpoint(model, trial)
-
         run_dir = self._get_output_dir(trial=trial)
         checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
         default_path = os.path.abspath(os.path.join(run_dir, checkpoint_folder))
@@ -568,18 +566,7 @@ class ArborGRPOTrainer(Trainer):
             requested_name = request.get("checkpoint_name")
             if requested_name:
                 checkpoint_name = requested_name
-                target_dir = os.path.abspath(os.path.join(run_dir, requested_name))
-                if target_dir != default_path:
-                    if os.path.exists(target_dir):
-                        shutil.rmtree(target_dir)
-                    os.replace(default_path, target_dir)
-                    checkpoint_path = target_dir
-                else:
-                    checkpoint_path = default_path
-            else:
-                checkpoint_path = default_path
-        if requested and self.state.best_model_checkpoint == default_path:
-            self.state.best_model_checkpoint = checkpoint_path
+                checkpoint_path = os.path.abspath(os.path.join(run_dir, requested_name))
 
         record = {
             "checkpoint_name": checkpoint_name,
@@ -591,10 +578,33 @@ class ArborGRPOTrainer(Trainer):
         }
 
         with self._checkpoint_lock:
-            self._checkpoint_records.append(record)
-            self._last_checkpoint_record = record
+            self._last_checkpoint_record = dict(record)
             self.last_checkpoint_name = checkpoint_name
             self.checkpoint_dir = os.path.dirname(checkpoint_path)
+
+        super()._save_checkpoint(model, trial)
+
+        final_path = default_path
+        if request is not None:
+            requested_name = request.get("checkpoint_name")
+            if requested_name:
+                final_path = record["checkpoint_dir"]
+                if final_path != default_path:
+                    if os.path.exists(final_path):
+                        shutil.rmtree(final_path)
+                    os.replace(default_path, final_path)
+
+        if requested and self.state.best_model_checkpoint == default_path:
+            self.state.best_model_checkpoint = final_path
+
+        record["checkpoint_dir"] = final_path
+        record["timestamp"] = time.time()
+
+        with self._checkpoint_lock:
+            self._checkpoint_records.append(dict(record))
+            self._last_checkpoint_record = dict(record)
+            self.last_checkpoint_name = checkpoint_name
+            self.checkpoint_dir = os.path.dirname(final_path)
 
         return None
 
