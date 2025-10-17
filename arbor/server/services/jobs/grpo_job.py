@@ -359,18 +359,8 @@ class GRPOJob(Job):
             logger.debug(f"Trainer terminate response: {response}")
 
             if self.process_runner and self.process_runner.is_running():
-                logger.info(
-                    "Waiting for training process to exit after terminate request"
-                )
-                deadline = time.time() + timeout
-                while time.time() < deadline and self.process_runner.is_running():
-                    time.sleep(5)
-                    logger.info("Training process still terminating...")
-
-                if self.process_runner.is_running():
-                    logger.warning(
-                        "Training process still running after terminate timeout; proceeding without force termination"
-                    )
+                logger.info("Terminating training process after terminate request")
+                self.process_runner.terminate()
             else:
                 logger.info("Training process already stopped")
             return response
