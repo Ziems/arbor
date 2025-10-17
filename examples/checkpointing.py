@@ -198,7 +198,7 @@ def main():
                     print(f"Checkpoint created: {last_checkpoint}")
                 else:
                     print("Checkpoint response did not include a checkpoint name")
-            
+
         terminate_response = terminate_grpo(job_id=job_id)
         print(
             f"GRPO terminated: status={terminate_response.status}, pending_batches={terminate_response.pending_batch_ids}"
