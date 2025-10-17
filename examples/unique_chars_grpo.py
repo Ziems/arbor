@@ -17,6 +17,7 @@ raw_data = [
 
 random.Random(43).shuffle(raw_data)
 trainset = raw_data[:1000]
+testset = raw_data[1000:1100]
 
 print(trainset[0])
 
@@ -84,25 +85,15 @@ compiler = ArborGRPO(
     train_kwargs=train_kwargs,
 )
 
-try:
-    classify_ft = compiler.compile(
-        student=student_unique_chars,
-        trainset=trainset,
-    )
-except Exception as e:
-    print(dspy.inspect_history())
-    import pdb
-    pdb.set_trace()
-    raise e
+classify_ft = compiler.compile(
+    student=student_unique_chars,
+    trainset=trainset,
+)
 
-# evaluate = dspy.Evaluate(
-#     devset=testset,
-#     metric=metric,
-#     display_progress=True,
-#     display_table=5,
-#     num_threads=16,
-# )
-
-# import pdb
-
-# pdb.set_trace()
+evaluate = dspy.Evaluate(
+    devset=testset,
+    metric=_unique_letter_reward,
+    display_progress=True,
+    display_table=5,
+    num_threads=16,
+)
