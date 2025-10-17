@@ -361,8 +361,9 @@ class GRPOJob(Job):
         self.saving_checkpoint = True
         try:
             self.trainer_controller.request_checkpoint(request.checkpoint_name)
-        finally:
+        except Exception:
             self.saving_checkpoint = False
+            raise
 
         try:
             status = self.trainer_controller.get_status()
@@ -384,6 +385,7 @@ class GRPOJob(Job):
                     request.checkpoint_name,
                     checkpoint_dir,
                 )
+                self.saving_checkpoint = False
                 return checkpoint_dir
 
         logger.info(
