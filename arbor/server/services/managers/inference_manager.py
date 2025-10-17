@@ -63,9 +63,9 @@ class InferenceManager(BaseManager):
             )
 
         assert launch_config.gpu_ids is not None, "GPU IDs must be set before launching"
-        assert (
-            len(launch_config.gpu_ids) > 0
-        ), f"Inference Job must have at least one GPU in gpu_ids. Currently set to {launch_config.gpu_ids}"
+        assert len(launch_config.gpu_ids) > 0, (
+            f"Inference Job must have at least one GPU in gpu_ids. Currently set to {launch_config.gpu_ids}"
+        )
 
         inference_job.launch(model, launch_config, trainer_controller)
         if launch_config.is_grpo and launch_config.grpo_job_id:

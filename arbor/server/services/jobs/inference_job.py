@@ -82,9 +82,9 @@ class InferenceJob(Job):
         if launch_config.is_grpo and launch_config.grpo_job_id:
             self.id = f"{launch_config.grpo_job_id}-inference"
             self._is_grpo_sub_job = True
-            assert (
-                trainer_controller is not None
-            ), "Trainer controller is required for GRPO inference jobs"
+            assert trainer_controller is not None, (
+                "Trainer controller is required for GRPO inference jobs"
+            )
             self.trainer_controller = trainer_controller
             # Don't create separate directories for GRPO inference jobs
             # The log file path will be set by the parent GRPO job
@@ -292,7 +292,7 @@ def kill_vllm_server(main_process_pid):
         parent.send_signal(signal.SIGTERM)
 
         # Wait for processes to terminate gracefully
-        gone, alive = psutil.wait_procs(children + [parent], timeout=10)
+        _, alive = psutil.wait_procs(children + [parent], timeout=10)
 
         # If any processes are still alive, force kill them
         for p in alive:

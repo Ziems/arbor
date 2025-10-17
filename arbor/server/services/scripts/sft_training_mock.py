@@ -16,7 +16,7 @@ class MockSFTTrainer:
     def train(self):
         print("Mock: Starting SFT training...")
         for i in range(4):  # Mock 4 training steps
-            print(f"Mock: SFT training step {i+1}/4")
+            print(f"Mock: SFT training step {i + 1}/4")
             time.sleep(0.1)  # Simulate training time
         print("Mock: SFT training completed!")
 
