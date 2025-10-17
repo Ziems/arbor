@@ -1,4 +1,5 @@
 import os
+import shutil
 import torch
 from arbor.server.services.comms.control_client import TrainerControlClient
 import json
@@ -33,7 +34,7 @@ from trl.trainer.utils import (
     selective_log_softmax,
 )
 from trl.models import prepare_peft_model, prepare_deepspeed
-from transformers.trainer_utils import seed_worker
+from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, seed_worker
 import logging
 from trl.trainer.callbacks import SyncRefModelCallback
 from arbor.server.services.comms.async_batch_requester import (
@@ -139,6 +140,13 @@ class ArborGRPOTrainer(Trainer):
         self.logger = logging.getLogger(__name__)
         self.logger.debug("Starting __init__")
         self._checkpoint_lock = threading.RLock()
+        self._checkpoint_records: list[dict[str, Any]] = []
+        self._pending_checkpoint_requests: deque[dict[str, Any]] = deque()
+        self._last_checkpoint_record: Optional[dict[str, Any]] = None
+        self.last_checkpoint_name: Optional[str] = None
+        self.checkpoint_dir = (
+            os.path.abspath(args.output_dir) if args.output_dir else ""
+        )
         self._control_client: Optional[TrainerControlClient] = None
 
         # Trained model
@@ -501,6 +509,95 @@ class ArborGRPOTrainer(Trainer):
         with self._checkpoint_lock:
             return super().training_step(*args, **kwargs)
 
+    def request_checkpoint(
+        self,
+        checkpoint_name: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """Queue an external checkpoint request and trigger Trainer save."""
+
+        if metadata is not None and not isinstance(metadata, dict):
+            raise TypeError("Checkpoint metadata must be a mapping if provided")
+
+        request = {
+            "checkpoint_name": checkpoint_name,
+            "metadata": metadata,
+            "queued_at": time.time(),
+        }
+        with self._checkpoint_lock:
+            self._pending_checkpoint_requests.append(request)
+        if hasattr(self, "control"):
+            self.control.should_save = True
+
+    def get_checkpoint_records(self) -> list[dict[str, Any]]:
+        """Return a copy of recorded checkpoints."""
+
+        with self._checkpoint_lock:
+            return [dict(record) for record in self._checkpoint_records]
+
+    def get_last_checkpoint_record(self) -> Optional[dict[str, Any]]:
+        """Return the most recent checkpoint record if available."""
+
+        with self._checkpoint_lock:
+            if self._last_checkpoint_record is None:
+                return None
+            return dict(self._last_checkpoint_record)
+
+    def _save_checkpoint(self, model, trial):  # type: ignore[override]
+        """Capture checkpoint metadata when Hugging Face saves."""
+
+        request: Optional[dict[str, Any]] = None
+        with self._checkpoint_lock:
+            if self._pending_checkpoint_requests:
+                request = self._pending_checkpoint_requests.popleft()
+
+        super()._save_checkpoint(model, trial)
+
+        run_dir = self._get_output_dir(trial=trial)
+        checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
+        default_path = os.path.abspath(os.path.join(run_dir, checkpoint_folder))
+
+        checkpoint_name = checkpoint_folder
+        checkpoint_path = default_path
+        requested = False
+        metadata: Optional[dict[str, Any]] = None
+
+        if request is not None:
+            requested = True
+            metadata = request.get("metadata")
+            requested_name = request.get("checkpoint_name")
+            if requested_name:
+                checkpoint_name = requested_name
+                target_dir = os.path.abspath(os.path.join(run_dir, requested_name))
+                if target_dir != default_path:
+                    if os.path.exists(target_dir):
+                        shutil.rmtree(target_dir)
+                    os.replace(default_path, target_dir)
+                    checkpoint_path = target_dir
+                else:
+                    checkpoint_path = default_path
+            else:
+                checkpoint_path = default_path
+        if requested and self.state.best_model_checkpoint == default_path:
+            self.state.best_model_checkpoint = checkpoint_path
+
+        record = {
+            "checkpoint_name": checkpoint_name,
+            "checkpoint_dir": checkpoint_path,
+            "global_step": int(self.state.global_step),
+            "requested": requested,
+            "metadata": metadata,
+            "timestamp": time.time(),
+        }
+
+        with self._checkpoint_lock:
+            self._checkpoint_records.append(record)
+            self._last_checkpoint_record = record
+            self.last_checkpoint_name = checkpoint_name
+            self.checkpoint_dir = os.path.dirname(checkpoint_path)
+
+        return None
+
     def _enable_gradient_checkpointing(
         self, model: PreTrainedModel, args: ArborGRPOConfig
     ) -> PreTrainedModel:
@@ -663,44 +760,6 @@ class ArborGRPOTrainer(Trainer):
             ):
                 self.async_requester.stop()
             self._async_started = False
-
-    def save_external_checkpoint(self, checkpoint_name: Optional[str]) -> str:
-        """Save a checkpoint triggered by an external control request.
-
-        Args:
-            checkpoint_name: Name provided by the caller. If None, defaults to the
-                current global step.
-
-        Returns:
-            Absolute path to the checkpoint directory written on disk.
-        """
-
-        if not self.accelerator.is_main_process:
-            raise RuntimeError("External checkpoints must run on the main process")
-
-        base_dir = self.args.output_dir
-        if not base_dir:
-            raise ValueError("Trainer output directory is not configured")
-
-        if checkpoint_name:
-            target_name = checkpoint_name
-        else:
-            target_name = f"checkpoint-{int(self.state.global_step)}"
-
-        checkpoint_dir = os.path.abspath(os.path.join(base_dir, target_name))
-
-        with self._checkpoint_lock:
-            os.makedirs(checkpoint_dir, exist_ok=True)
-            self.save_model(checkpoint_dir)
-
-            if hasattr(self, "deepspeed") and self.deepspeed:  # type: ignore[attr-defined]
-                # DeepSpeed integrates optimizer/sharded weights saving
-                self.deepspeed.save_checkpoint(checkpoint_dir)  # type: ignore[attr-defined]
-
-            if hasattr(self, "_save_training_state"):
-                self._save_training_state(checkpoint_dir)  # type: ignore[attr-defined]
-
-        return checkpoint_dir
 
     def _prepare_inputs(  # type: ignore
         self, inputs: list[dict[str, Any]]

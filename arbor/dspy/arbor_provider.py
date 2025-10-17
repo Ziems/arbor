@@ -267,11 +267,22 @@ class ArborReinforceJob(ReinforceJob):
 
         last_checkpoint = response["last_checkpoint"]
         checkpoints = response["checkpoints"]
-        checkpoint_model_path = checkpoints[last_checkpoint]
+        checkpoint_record = checkpoints.get(last_checkpoint)
+        checkpoint_model_path = None
+        metadata = None
+        if isinstance(checkpoint_record, dict):
+            checkpoint_model_path = checkpoint_record.get(
+                "model_path"
+            ) or checkpoint_record.get("checkpoint_dir")
+            metadata = checkpoint_record.get("metadata")
+        else:
+            checkpoint_model_path = checkpoint_record
         self.checkpoints[last_checkpoint] = {
             "model_path": checkpoint_model_path,
             "score": score,
         }
+        if metadata is not None:
+            self.checkpoints[last_checkpoint]["metadata"] = metadata
         self.last_checkpoint = last_checkpoint
 
     def terminate(self):

@@ -77,6 +77,34 @@ class GRPOJob(Job):
         self.last_inference_update = 0
         self.pending_data = set()
 
+    def _update_checkpoint_records(self, records: list[dict[str, Any]] | None) -> None:
+        if not records:
+            return
+
+        updated: dict[str, dict[str, Any]] = {}
+        latest_name = None
+        latest_timestamp = -1.0
+
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            name = record.get("checkpoint_name")
+            path = record.get("checkpoint_dir")
+            if not name or not path:
+                continue
+            updated[name] = record
+            timestamp = record.get("timestamp")
+            if isinstance(timestamp, (int, float)) and timestamp > latest_timestamp:
+                latest_timestamp = timestamp
+                latest_name = name
+
+        if not updated:
+            return
+
+        self.checkpoints = updated
+        if latest_name:
+            self.last_checkpoint = latest_name
+
     def _make_job_id(self, request: GRPOInitializeRequest):
         slug = coolname.generate_slug(2)
         model = request.model.split("/")[-1].lower()
@@ -332,25 +360,37 @@ class GRPOJob(Job):
     def checkpoint(self, request: GRPOCheckpointRequest):
         self.saving_checkpoint = True
         try:
-            response = self.trainer_controller.request_checkpoint(
-                request.checkpoint_name
-            )
+            self.trainer_controller.request_checkpoint(request.checkpoint_name)
         finally:
             self.saving_checkpoint = False
 
-        checkpoint_dir = response.get("checkpoint_dir") if response else None
-        if checkpoint_dir:
-            self.checkpoints[request.checkpoint_name] = checkpoint_dir
-            self.last_checkpoint = request.checkpoint_name
-            logger.info(
-                f"Checkpoint '{request.checkpoint_name}' saved at {checkpoint_dir}"
-            )
-        else:
+        try:
+            status = self.trainer_controller.get_status()
+        except Exception as exc:
             logger.warning(
-                f"Checkpoint response missing directory for {request.checkpoint_name}"
+                "Failed to refresh trainer status after checkpoint request: %s", exc
             )
+            status = None
 
-        return checkpoint_dir
+        records = status.get("checkpoints") if isinstance(status, dict) else None
+        self._update_checkpoint_records(records)
+
+        record = self.checkpoints.get(request.checkpoint_name)
+        if isinstance(record, dict):
+            checkpoint_dir = record.get("checkpoint_dir")
+            if checkpoint_dir:
+                logger.info(
+                    "Checkpoint '%s' recorded at %s",
+                    request.checkpoint_name,
+                    checkpoint_dir,
+                )
+                return checkpoint_dir
+
+        logger.info(
+            "Checkpoint '%s' requested; waiting for trainer save",
+            request.checkpoint_name,
+        )
+        return None
 
     def terminate_training(self, timeout: float = 300.0):
         if not self.trainer_controller:
@@ -446,8 +486,19 @@ class GRPOJob(Job):
 
     def _handle_checkpoint_saved_event(self, event: dict):
         logger.info("Received checkpoint saved status")
-        self.checkpoints[event["checkpoint_name"]] = event["output_dir"]
-        self.last_checkpoint = event["checkpoint_name"]
+        checkpoint = event.get("checkpoint")
+        if not isinstance(checkpoint, dict):
+            logger.warning("Malformed checkpoint event: %s", event)
+            return
+
+        name = checkpoint.get("checkpoint_name")
+        path = checkpoint.get("checkpoint_dir")
+        if not name or not path:
+            logger.warning("Incomplete checkpoint event payload: %s", event)
+            return
+
+        self.checkpoints[name] = checkpoint
+        self.last_checkpoint = name
         self.saving_checkpoint = False
         logger.info("Checkpoint saved")
 

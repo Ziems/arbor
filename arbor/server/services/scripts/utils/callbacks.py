@@ -126,11 +126,13 @@ class WeightUpdateCallback(TrainerCallback):
         control,  #: TrainerControl,
         **kwargs,
     ):
+        if not self.comms_handler or not self.trainer:
+            return
+
+        record = self.trainer.get_last_checkpoint_record()
+        if record is None:
+            return
+
         self.comms_handler.send_status(
-            {
-                "status": "checkpoint_saved",
-                "checkpoint_name": self.trainer.last_checkpoint_name,
-                "output_dir": self.trainer.checkpoint_dir
-                + f"/{self.trainer.last_checkpoint_name}/",
-            }
+            {"status": "checkpoint_saved", "checkpoint": record}
         )

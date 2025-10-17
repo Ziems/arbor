@@ -205,7 +205,7 @@ class GRPOStatus(StrictBaseModel):
     job_id: str
     status: Optional[str] = None
     current_model: str
-    checkpoints: dict[str, str]
+    checkpoints: dict[str, dict[str, Any]]
     last_checkpoint: Optional[str] = None
     pending_batch_ids: List[int] = []
 
