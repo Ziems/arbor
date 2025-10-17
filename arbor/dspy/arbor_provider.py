@@ -258,21 +258,51 @@ class ArborReinforceJob(ReinforceJob):
         api_base = self.lm.kwargs["api_base"]
         url = urljoin(api_base, "fine_tuning/grpo/checkpoint")
         headers = {"Content-Type": "application/json"}
-        body = {"checkpoint_name": checkpoint_name, "job_id": self.provider_job_id}
+        body: dict[str, Any] = {
+            "checkpoint_name": checkpoint_name,
+            "job_id": self.provider_job_id,
+        }
+        metadata: dict[str, Any] = {}
+        if score is not None:
+            metadata["score"] = score
+        if metadata:
+            body["metadata"] = metadata
         response = requests.post(url, headers=headers, json=body)
         assert response.status_code == 200, (
             f"Failed to save checkpoint: {response.text}"
         )
-        response = response.json()
+        payload = response.json()
 
-        last_checkpoint = response["last_checkpoint"]
-        checkpoints = response["checkpoints"]
-        checkpoint_model_path = checkpoints[last_checkpoint]
-        self.checkpoints[last_checkpoint] = {
-            "model_path": checkpoint_model_path,
-            "score": score,
-        }
-        self.last_checkpoint = last_checkpoint
+        checkpoints: dict[str, Any] = payload.get("checkpoints", {})
+        checkpoint_metadata: dict[str, dict[str, Any]] = payload.get(
+            "checkpoint_metadata", {}
+        )
+        checkpoint_errors: dict[str, str] = payload.get("checkpoint_errors", {})
+
+        for name, checkpoint_dir in checkpoints.items():
+            entry = self.checkpoints.get(name, {})
+            if checkpoint_dir:
+                entry["model_path"] = checkpoint_dir
+                entry["checkpoint_dir"] = checkpoint_dir
+            if name in checkpoint_metadata:
+                metadata_entry = entry.get("metadata", {})
+                metadata_entry.update(checkpoint_metadata[name])
+                entry["metadata"] = metadata_entry
+            if name in checkpoint_errors:
+                entry["error"] = checkpoint_errors[name]
+            elif "error" in entry and name not in checkpoint_errors:
+                entry.pop("error", None)
+            self.checkpoints[name] = entry
+
+        last_checkpoint = payload.get("last_checkpoint")
+        if last_checkpoint:
+            self.last_checkpoint = last_checkpoint
+            entry = self.checkpoints.setdefault(last_checkpoint, {})
+            if score is not None:
+                entry["score"] = score
+                metadata_entry = entry.get("metadata", {})
+                metadata_entry.setdefault("score", score)
+                entry["metadata"] = metadata_entry
 
     def terminate(self):
         api_base = self.lm.kwargs["api_base"]

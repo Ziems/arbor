@@ -1,8 +1,8 @@
 import threading
-import zmq
-import wandb
-
 from typing import Any, Dict, Optional, TYPE_CHECKING
+
+import wandb
+import zmq
 from arbor.server.services.comms.async_batch_requester import BatchResult
 
 if TYPE_CHECKING:
@@ -26,7 +26,6 @@ class TrainerControlClient(threading.Thread):
         self._stop_event = threading.Event()
         self._ctx = zmq.Context.instance()
         self._socket: Optional[zmq.Socket] = None
-        self._lock = threading.Lock()
 
     def run(self) -> None:  # pragma: no cover - network loop
         socket = self._ctx.socket(zmq.REP)
@@ -80,6 +79,7 @@ class TrainerControlClient(threading.Thread):
         requester = self.trainer.async_requester
 
         if cmd == "status":
+            checkpoint_state = self.trainer.get_checkpoint_state()
             return {
                 "ok": True,
                 "pending_ids": requester.get_pending_batch_ids(),
@@ -87,6 +87,7 @@ class TrainerControlClient(threading.Thread):
                 "completed_count": requester.get_completed_count(),
                 "global_step": int(self.trainer.state.global_step),
                 "wandb_run_id": wandb.run.id if wandb.run is not None else None,
+                **checkpoint_state,
             }
         if cmd == "submit_batch":
             batch_payload = message.get("batch")
@@ -100,14 +101,23 @@ class TrainerControlClient(threading.Thread):
             return {"ok": True}
         if cmd == "checkpoint":
             checkpoint_name = message.get("checkpoint_name")
+            metadata = message.get("metadata") or {}
+            if not isinstance(metadata, dict):
+                return {"ok": False, "error": "metadata must be a JSON object"}
             try:
-                checkpoint_dir = self.trainer.save_external_checkpoint(checkpoint_name)
+                self._schedule_checkpoint(checkpoint_name, metadata)
             except Exception as exc:
                 return {"ok": False, "error": str(exc)}
-            return {"ok": True, "checkpoint_dir": checkpoint_dir}
+            return {"ok": True, "accepted": True}
         if cmd == "terminate":
             self.trainer.control.should_training_stop = True  # type: ignore[attr-defined]
             return {"ok": True}
         if cmd == "noop":
             return {"ok": True}
         return {"ok": False, "error": f"unknown command: {cmd}"}
+
+    def _schedule_checkpoint(
+        self, checkpoint_name: Optional[str], metadata: Dict[str, Any]
+    ) -> None:
+        metadata_copy = dict(metadata)
+        self.trainer.request_external_checkpoint(checkpoint_name, metadata_copy)

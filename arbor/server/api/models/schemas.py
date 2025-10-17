@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Generic, List, Literal, Optional, TypeVar
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 # Generic type for list items
 T = TypeVar("T")
@@ -205,9 +205,11 @@ class GRPOStatus(StrictBaseModel):
     job_id: str
     status: Optional[str] = None
     current_model: str
-    checkpoints: dict[str, str]
+    checkpoints: dict[str, Optional[str]] = Field(default_factory=dict)
     last_checkpoint: Optional[str] = None
-    pending_batch_ids: List[int] = []
+    pending_batch_ids: List[int] = Field(default_factory=list)
+    checkpoint_metadata: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    checkpoint_errors: dict[str, str] = Field(default_factory=dict)
 
 
 class LoRAConfigRequest(StrictBaseModel):
@@ -277,6 +279,7 @@ class GRPOStepRequest(GRPOBaseRequest):
 
 class GRPOCheckpointRequest(GRPOBaseRequest):
     checkpoint_name: str
+    metadata: Optional[dict[str, Any]] = None
 
 
 class GRPOTerminateRequest(GRPOBaseRequest):

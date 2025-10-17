@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Mapping, Optional
 import threading
 import time
+from typing import Any, Dict, Mapping, Optional
 
 import zmq
 
@@ -115,8 +115,13 @@ class TrainerControlServer:
             )
         return resp
 
-    def request_checkpoint(self, checkpoint_name: str) -> Dict[str, Any]:
-        resp = self._request({"cmd": "checkpoint", "checkpoint_name": checkpoint_name})
+    def request_checkpoint(
+        self, checkpoint_name: str, metadata: Mapping[str, Any] | None = None
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"cmd": "checkpoint", "checkpoint_name": checkpoint_name}
+        if metadata is not None:
+            payload["metadata"] = metadata
+        resp = self._request(payload)
         if not resp.get("ok", False):
             raise RuntimeError(
                 f"Error requesting checkpoint: {resp.get('error', 'Unknown error')}"

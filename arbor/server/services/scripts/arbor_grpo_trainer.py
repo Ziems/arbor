@@ -1,4 +1,5 @@
 import os
+import shutil
 import torch
 from arbor.server.services.comms.control_client import TrainerControlClient
 import json
@@ -140,6 +141,16 @@ class ArborGRPOTrainer(Trainer):
         self.logger.debug("Starting __init__")
         self._checkpoint_lock = threading.RLock()
         self._control_client: Optional[TrainerControlClient] = None
+        self._pending_checkpoint_requests: deque[
+            tuple[Optional[str], dict[str, Any]]
+        ] = deque()
+        self._active_checkpoint_request: Optional[
+            tuple[Optional[str], dict[str, Any]]
+        ] = None
+        self._saved_checkpoints: dict[str, str] = {}
+        self._saved_checkpoint_metadata: dict[str, dict[str, Any]] = {}
+        self._checkpoint_errors: dict[str, str] = {}
+        self._last_checkpoint_name: Optional[str] = None
 
         # Trained model
         model_init_kwargs = args.model_init_kwargs or {}
@@ -499,7 +510,9 @@ class ArborGRPOTrainer(Trainer):
     def training_step(self, *args, **kwargs):  # type: ignore[override]
         """Wrap the base training step to coordinate with external checkpoints."""
         with self._checkpoint_lock:
-            return super().training_step(*args, **kwargs)
+            output = super().training_step(*args, **kwargs)
+            self._process_pending_checkpoint_requests()
+            return output
 
     def _enable_gradient_checkpointing(
         self, model: PreTrainedModel, args: ArborGRPOConfig
@@ -664,43 +677,171 @@ class ArborGRPOTrainer(Trainer):
                 self.async_requester.stop()
             self._async_started = False
 
-    def save_external_checkpoint(self, checkpoint_name: Optional[str]) -> str:
-        """Save a checkpoint triggered by an external control request.
+    def _save_checkpoint(self, model, trial, metrics=None):  # type: ignore[override]
+        requested_name: Optional[str] = None
+        metadata: dict[str, Any] = {}
+        is_external = False
 
-        Args:
-            checkpoint_name: Name provided by the caller. If None, defaults to the
-                current global step.
+        with self._checkpoint_lock:
+            if self._active_checkpoint_request is not None:
+                requested_name, request_metadata = self._active_checkpoint_request
+                metadata = dict(request_metadata)
+                self._active_checkpoint_request = None
+                is_external = True
 
-        Returns:
-            Absolute path to the checkpoint directory written on disk.
-        """
+        try:
+            super()._save_checkpoint(model, trial, metrics=metrics)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            if not is_external:
+                raise
 
-        if not self.accelerator.is_main_process:
-            raise RuntimeError("External checkpoints must run on the main process")
+            actual_name = self._resolve_checkpoint_name(requested_name, None)
+            with self._checkpoint_lock:
+                self._checkpoint_errors[actual_name] = str(exc)
+                existing_metadata = self._saved_checkpoint_metadata.get(actual_name, {})
+                if metadata:
+                    existing_metadata.update(metadata)
+                self._saved_checkpoint_metadata[actual_name] = existing_metadata
+            self.logger.error(
+                "Failed to save checkpoint '%s': %s",
+                actual_name,
+                exc,
+            )
+            return
+
+        if not is_external:
+            return
 
         base_dir = self.args.output_dir
         if not base_dir:
-            raise ValueError("Trainer output directory is not configured")
+            error_message = (
+                "Trainer output directory is not configured; cannot record checkpoint"
+            )
+            actual_name = self._resolve_checkpoint_name(requested_name, None)
+            with self._checkpoint_lock:
+                self._checkpoint_errors[actual_name] = error_message
+                existing_metadata = self._saved_checkpoint_metadata.get(actual_name, {})
+                if metadata:
+                    existing_metadata.update(metadata)
+                self._saved_checkpoint_metadata[actual_name] = existing_metadata
+            self.logger.error(error_message)
+            return
 
-        if checkpoint_name:
-            target_name = checkpoint_name
-        else:
-            target_name = f"checkpoint-{int(self.state.global_step)}"
+        checkpoint_folder = f"checkpoint-{int(self.state.global_step)}"
+        checkpoint_dir = os.path.abspath(os.path.join(base_dir, checkpoint_folder))
 
-        checkpoint_dir = os.path.abspath(os.path.join(base_dir, target_name))
+        desired_dir = checkpoint_dir
+        if requested_name:
+            desired_dir = os.path.abspath(os.path.join(base_dir, requested_name))
+            if desired_dir != checkpoint_dir:
+                if os.path.exists(desired_dir):
+                    shutil.rmtree(desired_dir)
+                try:
+                    os.replace(checkpoint_dir, desired_dir)
+                except OSError as exc:  # pragma: no cover - filesystem edge case
+                    actual_name = self._resolve_checkpoint_name(
+                        requested_name, checkpoint_dir
+                    )
+                    with self._checkpoint_lock:
+                        self._saved_checkpoints[actual_name] = checkpoint_dir
+                        existing_metadata = self._saved_checkpoint_metadata.get(
+                            actual_name, {}
+                        )
+                        if metadata:
+                            existing_metadata.update(metadata)
+                        self._saved_checkpoint_metadata[actual_name] = existing_metadata
+                        self._checkpoint_errors[actual_name] = str(exc)
+                    self.logger.error(
+                        "Failed to move checkpoint '%s' to %s: %s",
+                        actual_name,
+                        desired_dir,
+                        exc,
+                    )
+                    return
+                checkpoint_dir = desired_dir
+
+        actual_name = self._resolve_checkpoint_name(requested_name, checkpoint_dir)
 
         with self._checkpoint_lock:
-            os.makedirs(checkpoint_dir, exist_ok=True)
-            self.save_model(checkpoint_dir)
+            self._saved_checkpoints[actual_name] = checkpoint_dir
+            existing_metadata = self._saved_checkpoint_metadata.get(actual_name, {})
+            if metadata:
+                existing_metadata.update(metadata)
+            self._saved_checkpoint_metadata[actual_name] = existing_metadata
+            self._checkpoint_errors.pop(actual_name, None)
+            self._last_checkpoint_name = actual_name
 
-            if hasattr(self, "deepspeed") and self.deepspeed:  # type: ignore[attr-defined]
-                # DeepSpeed integrates optimizer/sharded weights saving
-                self.deepspeed.save_checkpoint(checkpoint_dir)  # type: ignore[attr-defined]
+        self.logger.info(
+            "Saved checkpoint '%s' at %s (metadata=%s)",
+            actual_name,
+            checkpoint_dir,
+            metadata,
+        )
 
-            if hasattr(self, "_save_training_state"):
-                self._save_training_state(checkpoint_dir)  # type: ignore[attr-defined]
+    def request_external_checkpoint(
+        self, checkpoint_name: Optional[str], metadata: dict[str, Any] | None = None
+    ) -> None:
+        """Queue a checkpoint to be saved on the next training step."""
 
-        return checkpoint_dir
+        metadata_copy = dict(metadata or {})
+        with self._checkpoint_lock:
+            self._pending_checkpoint_requests.append((checkpoint_name, metadata_copy))
+
+    def get_checkpoint_state(self) -> dict[str, Any]:
+        """Return a snapshot of saved checkpoints and pending requests."""
+
+        with self._checkpoint_lock:
+            pending_names = [name for name, _ in self._pending_checkpoint_requests]
+            if self._active_checkpoint_request is not None:
+                active_name, _ = self._active_checkpoint_request
+                pending_names.append(self._resolve_checkpoint_name(active_name, None))
+
+            return {
+                "checkpoints": dict(self._saved_checkpoints),
+                "checkpoint_metadata": {
+                    name: dict(metadata)
+                    for name, metadata in self._saved_checkpoint_metadata.items()
+                },
+                "checkpoint_errors": dict(self._checkpoint_errors),
+                "last_checkpoint": self._last_checkpoint_name,
+                "pending_checkpoint_names": pending_names,
+            }
+
+    def _process_pending_checkpoint_requests(self) -> None:
+        if self._active_checkpoint_request is not None:
+            return
+
+        if not self._pending_checkpoint_requests:
+            return
+
+        requested_name, metadata = self._pending_checkpoint_requests.popleft()
+        actual_name = self._resolve_checkpoint_name(requested_name, None)
+        self._checkpoint_errors.pop(actual_name, None)
+        self._active_checkpoint_request = (requested_name, metadata)
+        self.logger.info(
+            "Queued checkpoint request '%s' for saving (metadata=%s)",
+            actual_name,
+            metadata,
+        )
+
+        if hasattr(self, "control"):
+            self.control.should_save = True
+        else:
+            self.logger.warning(
+                "Trainer control is unavailable; cannot trigger checkpoint save immediately"
+            )
+
+    def _resolve_checkpoint_name(
+        self, requested_name: Optional[str], checkpoint_dir: Optional[str]
+    ) -> str:
+        if checkpoint_dir:
+            normalized = checkpoint_dir.rstrip("/\\")
+            basename = os.path.basename(normalized)
+            if basename:
+                return basename
+        if requested_name:
+            return requested_name
+        return f"checkpoint-{int(self.state.global_step)}"
 
     def _prepare_inputs(  # type: ignore
         self, inputs: list[dict[str, Any]]

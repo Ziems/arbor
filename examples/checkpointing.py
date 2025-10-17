@@ -112,9 +112,15 @@ def checkpoint(
     checkpoint_name,
     job_id,
     url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/checkpoint",
+    metadata: dict | None = None,
 ) -> GRPOStatus:
     headers = {"Content-Type": "application/json"}
-    data = {"checkpoint_name": checkpoint_name, "job_id": job_id}
+    data: dict[str, object] = {
+        "checkpoint_name": checkpoint_name,
+        "job_id": job_id,
+    }
+    if metadata:
+        data["metadata"] = metadata
     response = requests.post(url, headers=headers, json=data)
     response.raise_for_status()
     return GRPOStatus.model_validate(response.json())
@@ -175,6 +181,15 @@ def main():
         fulfilled_batch_ids = []
         while len(fulfilled_batch_ids) < 100:
             status: GRPOStatus = get_grpo_status(job_id)
+            if status.last_checkpoint and status.last_checkpoint != last_checkpoint:
+                last_checkpoint = status.last_checkpoint
+                checkpoint_dir = status.checkpoints.get(last_checkpoint)
+                metadata = status.checkpoint_metadata.get(last_checkpoint, {})
+                print(
+                    "Checkpoint ready: %s -> %s (metadata=%s)"
+                    % (last_checkpoint, checkpoint_dir, metadata)
+                )
+
             pending_batch_ids = status.pending_batch_ids
             for batch_id in pending_batch_ids:
                 if batch_id not in fulfilled_batch_ids:
@@ -190,14 +205,21 @@ def main():
                 print("All batches are fulfilled")
                 time.sleep(1)
             if len(fulfilled_batch_ids) % 51 == 0 and len(fulfilled_batch_ids) > 0:
-                checkpoint_response = checkpoint(
-                    checkpoint_name=f"checkpoint_{len(fulfilled_batch_ids)}", job_id=job_id
+                checkpoint_name = f"checkpoint_{len(fulfilled_batch_ids)}"
+                request_metadata = {
+                    "name": checkpoint_name,
+                    "step": len(fulfilled_batch_ids),
+                    "pending_batches": len(pending_batch_ids),
+                }
+                checkpoint(
+                    checkpoint_name=checkpoint_name,
+                    job_id=job_id,
+                    metadata=request_metadata,
                 )
-                last_checkpoint = checkpoint_response.last_checkpoint
-                if last_checkpoint:
-                    print(f"Checkpoint created: {last_checkpoint}")
-                else:
-                    print("Checkpoint response did not include a checkpoint name")
+                print(
+                    "Requested checkpoint %s with metadata %s"
+                    % (checkpoint_name, request_metadata)
+                )
 
         terminate_response = terminate_grpo(job_id=job_id)
         print(

@@ -1,16 +1,18 @@
 import json
-from trl.data_utils import apply_chat_template
-
-from transformers import AutoTokenizer
-from typing import Any, Dict, Sequence
-from arbor.server.services.comms.async_batch_requester import ProcessedOutputs
 import os
 import threading
 import time
 from datetime import datetime
-from typing import Optional, List
-from arbor.server.services.comms.async_batch_requester import BatchResult
+from typing import Any, Dict, List, Optional, Sequence
+
 import coolname
+from trl.data_utils import apply_chat_template
+from transformers import AutoTokenizer
+
+from arbor.server.services.comms.async_batch_requester import (
+    BatchResult,
+    ProcessedOutputs,
+)
 
 from arbor.server.api.models.schemas import (
     GRPOCheckpointRequest,
@@ -71,7 +73,9 @@ class GRPOJob(Job):
         self.pending_batch_ids: List[int] = []
         self.no_submit_streak = 0
 
-        self.checkpoints = {}
+        self.checkpoints: dict[str, Optional[str]] = {}
+        self.checkpoint_metadata: dict[str, dict[str, Any]] = {}
+        self.checkpoint_errors: dict[str, str] = {}
         self.last_checkpoint = None
         self.batch_count = 0
         self.last_inference_update = 0
@@ -265,6 +269,30 @@ class GRPOJob(Job):
         else:
             self.no_submit_streak = 0
 
+    def _handle_checkpoint_updates(self, status: dict) -> None:
+        checkpoints = status.get("checkpoints") or {}
+        metadata = status.get("checkpoint_metadata") or {}
+        errors = status.get("checkpoint_errors") or {}
+        last_checkpoint = status.get("last_checkpoint")
+        pending_names = status.get("pending_checkpoint_names") or []
+
+        checkpoint_names: list[str] = list(checkpoints.keys())
+        for name in metadata.keys():
+            if name not in checkpoint_names:
+                checkpoint_names.append(name)
+        for name in errors.keys():
+            if name not in checkpoint_names:
+                checkpoint_names.append(name)
+
+        self.checkpoints = {name: checkpoints.get(name) for name in checkpoint_names}
+        self.checkpoint_metadata = {
+            name: dict(metadata.get(name, {})) for name in checkpoint_names
+        }
+        self.checkpoint_errors = dict(errors)
+        if last_checkpoint:
+            self.last_checkpoint = last_checkpoint
+        self.saving_checkpoint = bool(pending_names)
+
     def _handle_event_updates(self):
         """Handle event updates from training process using ZMQ SUB socket"""
         logger.info("Starting event update handler...")
@@ -280,6 +308,7 @@ class GRPOJob(Job):
                     break
                 self.wandb_run_id = status.get("wandb_run_id", None)
 
+                self._handle_checkpoint_updates(status)
                 self._handle_submit_batches(status)
             # Always ensure GPU cleanup happens, even if job crashes
             self._ensure_gpu_cleanup()
@@ -330,27 +359,23 @@ class GRPOJob(Job):
             raise
 
     def checkpoint(self, request: GRPOCheckpointRequest):
+        checkpoint_name = request.checkpoint_name
+        metadata = dict(request.metadata or {})
         self.saving_checkpoint = True
+        self.checkpoint_errors.pop(checkpoint_name, None)
+
         try:
-            response = self.trainer_controller.request_checkpoint(
-                request.checkpoint_name
+            self.trainer_controller.request_checkpoint(
+                checkpoint_name, metadata=metadata
             )
-        finally:
-            self.saving_checkpoint = False
-
-        checkpoint_dir = response.get("checkpoint_dir") if response else None
-        if checkpoint_dir:
-            self.checkpoints[request.checkpoint_name] = checkpoint_dir
-            self.last_checkpoint = request.checkpoint_name
             logger.info(
-                f"Checkpoint '{request.checkpoint_name}' saved at {checkpoint_dir}"
+                "Dispatched checkpoint request '%s' with metadata %s",
+                checkpoint_name,
+                metadata,
             )
-        else:
-            logger.warning(
-                f"Checkpoint response missing directory for {request.checkpoint_name}"
-            )
-
-        return checkpoint_dir
+        except Exception:
+            self.saving_checkpoint = False
+            raise
 
     def terminate_training(self, timeout: float = 300.0):
         if not self.trainer_controller:
@@ -442,6 +467,8 @@ class GRPOJob(Job):
             checkpoints=self.checkpoints,
             last_checkpoint=self.last_checkpoint,
             pending_batch_ids=self.pending_batch_ids,
+            checkpoint_metadata=self.checkpoint_metadata,
+            checkpoint_errors=self.checkpoint_errors,
         )
 
     def _handle_checkpoint_saved_event(self, event: dict):
