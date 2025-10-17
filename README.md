@@ -58,7 +58,7 @@ CLASSES = ["transfer", "balance", "card_issues", "pin_change"]
 classify = dspy.ChainOfThought(f"text -> label: Literal{CLASSES}")
 
 # Set up DSPy with Arbor backend
-from dspy.clients.lm_local_arbor import ArborProvider
+from arbor import ArborProvider
 provider = ArborProvider()
 student_lm = dspy.LM(
     model="openai/arbor:Qwen/Qwen2-0.5B-Instruct",
@@ -88,7 +88,7 @@ optimized_classify = compiler.compile(
 ```
 
 
-### Traditional Fine-tuning (SFT & DPO)
+<!-- ### Traditional Fine-tuning (SFT & DPO)
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Ziems/arbor/blob/main/examples/colab_quickstart.ipynb)
 
@@ -122,7 +122,7 @@ job = client.fine_tuning.jobs.create(
 
 # Monitor training
 arbor.watch_job(job.id)
-```
+``` -->
 
 ### Remote GPU Setup (Alternative)
 

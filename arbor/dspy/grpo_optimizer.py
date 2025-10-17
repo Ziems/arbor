@@ -60,6 +60,7 @@ class ArborGRPO(FinetuneTeleprompter):
         variably_invoked_predictor_fill_strategy: Literal["randint"]
         | Literal["max"]
         | None = None,
+        checkpoint: Literal["single-best", "improvements", "none"] = "improvements",
     ):
         super().__init__(train_kwargs=train_kwargs)
         self.metric = metric
@@ -107,6 +108,17 @@ class ArborGRPO(FinetuneTeleprompter):
             variably_invoked_predictor_fill_strategy
         )
 
+        if checkpoint not in {"single-best", "improvements", "none"}:
+            raise ValueError(
+                "checkpoint must be one of 'single-best', 'improvements', or 'none'"
+            )
+        self.checkpoint_mode = checkpoint
+
+        self.best_validation_score: float | None = None
+        self.best_validation_step: int | None = None
+        self.validation_scores: dict[int, float] = {}
+        self.best_checkpoint_paths: dict[tuple[LM, int | None], str | None] = {}
+
         self.shuffled_trainset_ids = []
         self.epoch = -1
         self.id_freqs = Counter()
@@ -149,7 +161,15 @@ class ArborGRPO(FinetuneTeleprompter):
                     for t in sample["trace"]:
                         assert hash(t[0].signature) in pred_signature_hash_to_ind
 
-    def report_validation_metrics(self, student, trainset, valset, logger, step_idx=-1):
+    def report_validation_metrics(
+        self,
+        student,
+        trainset,
+        valset,
+        logger,
+        step_idx: int = -1,
+        grpo_training_jobs: dict | None = None,
+    ):
         if (
             step_idx == -1
             or step_idx == self.num_train_steps - 1
@@ -158,6 +178,8 @@ class ArborGRPO(FinetuneTeleprompter):
             pass
         else:
             return
+
+        score: float | None = None
 
         if valset is not None:
             assert not self.use_train_as_val, (
@@ -196,6 +218,7 @@ class ArborGRPO(FinetuneTeleprompter):
                 ]
                 trainset_agg = sum(trainset_scores) / len(trainset_scores)
                 valset_agg = sum(valset_scores) / len(valset_scores)
+                score = valset_agg
                 if step_idx == -1:
                     logger.info(
                         f"Student program training set score before training loop: {trainset_agg}"
@@ -232,6 +255,7 @@ class ArborGRPO(FinetuneTeleprompter):
                         f"Evaluating the student program on the validation set after training step {step_idx + 1}/{self.num_train_steps}"
                     )
                 valset_evaluation = valset_evaluator(student, metric=self.metric)
+                score = valset_evaluation.score
                 if step_idx == -1:
                     logger.info(
                         f"Student program validation set score before training loop: {valset_evaluation.score}"
@@ -268,6 +292,7 @@ class ArborGRPO(FinetuneTeleprompter):
                         f"Evaluating the student program on the validation set after training step {step_idx + 1}/{self.num_train_steps}"
                     )
                 valset_evaluation = valset_evaluator(student, metric=self.metric)
+                score = valset_evaluation.score
                 if step_idx == -1:
                     logger.info(
                         f"Student program training set score before training loop: {valset_evaluation.score}"
@@ -284,6 +309,36 @@ class ArborGRPO(FinetuneTeleprompter):
                     logger.info(
                         "Not using any validation set and not reporting train scores."
                     )
+
+        if score is None:
+            return
+
+        self.validation_scores[step_idx] = score
+
+        if step_idx == -1:
+            if self.best_validation_score is None or score > self.best_validation_score:
+                self.best_validation_score = score
+                self.best_validation_step = step_idx
+            return
+
+        improved = (
+            self.best_validation_score is None or score > self.best_validation_score
+        )
+
+        if improved:
+            self.best_validation_score = score
+            self.best_validation_step = step_idx
+            if self.checkpoint_mode != "none" and grpo_training_jobs is not None:
+                checkpoint_name = (
+                    "model_checkpoint_best"
+                    if self.checkpoint_mode == "single-best"
+                    else f"model_checkpoint_step_{step_idx + 1}"
+                )
+                checkpoint_paths = self._save_checkpoints_for_jobs(
+                    grpo_training_jobs, checkpoint_name
+                )
+                if checkpoint_paths:
+                    self.best_checkpoint_paths.update(checkpoint_paths)
 
     def update_shuffled_trainset(self, original_trainset):
         self.shuffled_trainset_ids = list(range(len(original_trainset)))
@@ -428,6 +483,7 @@ class ArborGRPO(FinetuneTeleprompter):
             valset=valset,
             logger=logger,
             step_idx=-1,
+            grpo_training_jobs=grpo_training_jobs,
         )
 
         group_queues = {}
@@ -753,6 +809,7 @@ class ArborGRPO(FinetuneTeleprompter):
                 valset=valset,
                 logger=logger,
                 step_idx=train_step_idx,
+                grpo_training_jobs=grpo_training_jobs,
             )
 
         logger.info("Done with the iterations! Retrieving the final model(s)...")
@@ -764,8 +821,79 @@ class ArborGRPO(FinetuneTeleprompter):
             recover_lm_cache(program=t, lm_cache_dict=lm_cache_dict)
 
         logger.info("GRPO compiler has finished compiling the student program")
+        self._log_checkpoint_locations()
         student._compiled = True
         return student
+
+    def _log_checkpoint_locations(self) -> None:
+        """Log a structured summary of recorded checkpoint paths."""
+        if not self.best_checkpoint_paths:
+            logger.info("Checkpoint locations: none recorded")
+            return
+
+        checkpoint_descriptions = []
+        for (lm, data_key), checkpoint_path in self.best_checkpoint_paths.items():
+            lm_label = getattr(lm, "model", None) or getattr(lm, "name", None)
+            if not lm_label:
+                lm_label = lm.__class__.__name__
+
+            data_key_label = (
+                f"data_key={data_key}" if data_key is not None else "data_key=<default>"
+            )
+            checkpoint_label = checkpoint_path or "<unspecified>"
+            checkpoint_descriptions.append(
+                f"lm={lm_label}, {data_key_label}, path={checkpoint_label}"
+            )
+
+        lines = "\n".join(f"  - {item}" for item in checkpoint_descriptions)
+        logger.info("Checkpoint locations:\n%s", lines)
+
+    def _save_checkpoints_for_jobs(
+        self, grpo_training_jobs: dict, checkpoint_name: str
+    ) -> dict[tuple[LM, int | None], str | None]:
+        """Trigger checkpoints for all jobs and return discovered paths."""
+
+        saved_paths: dict[tuple[LM, int | None], str | None] = {}
+
+        for job_key, job in grpo_training_jobs.items():
+            lm_for_job, data_key = job_key
+            if not hasattr(job, "save_checkpoint"):
+                logger.warning(
+                    "Checkpoint requested but job %s does not support save_checkpoint",
+                    job,
+                )
+                continue
+
+            try:
+                job.save_checkpoint(checkpoint_name=checkpoint_name)
+            except TypeError:
+                logger.exception("save_checkpoint signature mismatch for job %s", job)
+                continue
+            except Exception:
+                logger.exception("Failed to save checkpoint '%s'", checkpoint_name)
+                continue
+
+            checkpoint_path: str | None = None
+            last_checkpoint = getattr(job, "last_checkpoint", None)
+            checkpoints = getattr(job, "checkpoints", None)
+            if last_checkpoint and isinstance(checkpoints, dict):
+                checkpoint_record = checkpoints.get(last_checkpoint)
+                if isinstance(checkpoint_record, dict):
+                    checkpoint_path = checkpoint_record.get(
+                        "model_path"
+                    ) or checkpoint_record.get("checkpoint_dir")
+                elif isinstance(checkpoint_record, str):
+                    checkpoint_path = checkpoint_record
+
+            saved_paths[(lm_for_job, data_key)] = checkpoint_path
+            logger.info(
+                "Saved checkpoint '%s' for job %s (path=%s)",
+                checkpoint_name,
+                job_key,
+                checkpoint_path,
+            )
+
+        return saved_paths
 
 
 def disable_lm_cache(program: Module, lm_cache_dict: dict):
