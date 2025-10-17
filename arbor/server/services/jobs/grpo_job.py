@@ -81,29 +81,10 @@ class GRPOJob(Job):
         if not records:
             return
 
-        updated: dict[str, dict[str, Any]] = {}
-        latest_name = None
-        latest_timestamp = -1.0
-
-        for record in records:
-            if not isinstance(record, dict):
-                continue
-            name = record.get("checkpoint_name")
-            path = record.get("checkpoint_dir")
-            if not name or not path:
-                continue
-            updated[name] = record
-            timestamp = record.get("timestamp")
-            if isinstance(timestamp, (int, float)) and timestamp > latest_timestamp:
-                latest_timestamp = timestamp
-                latest_name = name
-
-        if not updated:
-            return
-
-        self.checkpoints = updated
-        if latest_name:
-            self.last_checkpoint = latest_name
+        checkpoints = {record["checkpoint_name"]: record for record in records}
+        self.checkpoints = checkpoints
+        latest = max(records, key=lambda r: r.get("timestamp", 0))
+        self.last_checkpoint = latest.get("checkpoint_name")
 
     def _make_job_id(self, request: GRPOInitializeRequest):
         slug = coolname.generate_slug(2)
@@ -457,17 +438,8 @@ class GRPOJob(Job):
 
     def _handle_checkpoint_saved_event(self, event: dict):
         logger.info("Received checkpoint saved status")
-        checkpoint = event.get("checkpoint")
-        if not isinstance(checkpoint, dict):
-            logger.warning("Malformed checkpoint event", event=event)
-            return
-
-        name = checkpoint.get("checkpoint_name")
-        path = checkpoint.get("checkpoint_dir")
-        if not name or not path:
-            logger.warning("Incomplete checkpoint event payload", event=event)
-            return
-
+        checkpoint = event["checkpoint"]
+        name = checkpoint["checkpoint_name"]
         self.checkpoints[name] = checkpoint
         self.last_checkpoint = name
         self.saving_checkpoint = False

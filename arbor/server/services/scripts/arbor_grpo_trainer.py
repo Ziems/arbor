@@ -1,5 +1,4 @@
 import os
-import shutil
 import torch
 from arbor.server.services.comms.control_client import TrainerControlClient
 import json
@@ -12,7 +11,6 @@ import threading
 import transformers
 from accelerate.utils import broadcast_object_list, is_peft_model
 from torch.utils.data import DataLoader, Dataset
-from transformers.utils import is_peft_available
 from transformers.trainer import Trainer
 from typing import Any, Dict, List, Optional, Union
 from transformers.trainer_callback import TrainerCallback
@@ -34,7 +32,7 @@ from trl.trainer.utils import (
     selective_log_softmax,
 )
 from trl.models import prepare_peft_model, prepare_deepspeed
-from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, seed_worker
+from transformers.trainer_utils import seed_worker
 import logging
 from trl.trainer.callbacks import SyncRefModelCallback
 from arbor.server.services.comms.async_batch_requester import (
@@ -52,9 +50,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 logging.getLogger("httpx").setLevel(logging.WARN)
-
-if is_peft_available():
-    pass
 
 
 class _ExternalBatchDataset(Dataset):
@@ -143,10 +138,6 @@ class ArborGRPOTrainer(Trainer):
         self._checkpoint_records: list[dict[str, Any]] = []
         self._pending_checkpoint_requests: deque[dict[str, Any]] = deque()
         self._last_checkpoint_record: Optional[dict[str, Any]] = None
-        self.last_checkpoint_name: Optional[str] = None
-        self.checkpoint_dir = (
-            os.path.abspath(args.output_dir) if args.output_dir else ""
-        )
         self._control_client: Optional[TrainerControlClient] = None
 
         # Trained model
@@ -504,9 +495,11 @@ class ArborGRPOTrainer(Trainer):
         )
         return self.accelerator.prepare(self._async_dataloader)
 
-    def training_step(self, *args, **kwargs):  # type: ignore[override]
-        """Wrap the base training step to coordinate with external checkpoints."""
-        return super().training_step(*args, **kwargs)
+    def _dequeue_checkpoint_request(self) -> Optional[dict[str, Any]]:
+        with self._checkpoint_lock:
+            if not self._pending_checkpoint_requests:
+                return None
+            return self._pending_checkpoint_requests.popleft()
 
     def request_checkpoint(
         self,
@@ -545,65 +538,40 @@ class ArborGRPOTrainer(Trainer):
     def _save_checkpoint(self, model, trial):  # type: ignore[override]
         """Capture checkpoint metadata when Hugging Face saves."""
 
-        request: Optional[dict[str, Any]] = None
-        with self._checkpoint_lock:
-            if self._pending_checkpoint_requests:
-                request = self._pending_checkpoint_requests.popleft()
+        request = self._dequeue_checkpoint_request() or {}
 
         run_dir = self._get_output_dir(trial=trial)
-        checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
-        default_path = os.path.abspath(os.path.join(run_dir, checkpoint_folder))
+        checkpoint_name = (
+            request.get("checkpoint_name") or f"checkpoint-{self.state.global_step}"
+        )
+        checkpoint_dir = os.path.abspath(os.path.join(run_dir, checkpoint_name))
 
-        checkpoint_name = checkpoint_folder
-        checkpoint_path = default_path
-        requested = False
-        metadata: Optional[dict[str, Any]] = None
-
-        if request is not None:
-            requested = True
-            metadata = request.get("metadata")
-            requested_name = request.get("checkpoint_name")
-            if requested_name:
-                checkpoint_name = requested_name
-                checkpoint_path = os.path.abspath(os.path.join(run_dir, requested_name))
+        metadata = request.get("metadata")
 
         record = {
             "checkpoint_name": checkpoint_name,
-            "checkpoint_dir": checkpoint_path,
+            "checkpoint_dir": checkpoint_dir,
             "global_step": int(self.state.global_step),
-            "requested": requested,
+            "requested": bool(request),
             "metadata": metadata,
             "timestamp": time.time(),
         }
 
         with self._checkpoint_lock:
             self._last_checkpoint_record = dict(record)
-            self.last_checkpoint_name = checkpoint_name
-            self.checkpoint_dir = os.path.dirname(checkpoint_path)
 
         super()._save_checkpoint(model, trial)
 
-        final_path = default_path
-        if request is not None:
-            requested_name = request.get("checkpoint_name")
-            if requested_name:
-                final_path = record["checkpoint_dir"]
-                if final_path != default_path:
-                    if os.path.exists(final_path):
-                        shutil.rmtree(final_path)
-                    os.replace(default_path, final_path)
+        if metadata:
+            metadata_path = os.path.join(checkpoint_dir, "metadata.json")
+            with open(metadata_path, "w", encoding="utf-8") as fh:
+                json.dump(metadata, fh, indent=2, sort_keys=True)
 
-        if requested and self.state.best_model_checkpoint == default_path:
-            self.state.best_model_checkpoint = final_path
-
-        record["checkpoint_dir"] = final_path
         record["timestamp"] = time.time()
 
         with self._checkpoint_lock:
             self._checkpoint_records.append(dict(record))
             self._last_checkpoint_record = dict(record)
-            self.last_checkpoint_name = checkpoint_name
-            self.checkpoint_dir = os.path.dirname(final_path)
 
         return None
 
