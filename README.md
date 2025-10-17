@@ -58,7 +58,7 @@ CLASSES = ["transfer", "balance", "card_issues", "pin_change"]
 classify = dspy.ChainOfThought(f"text -> label: Literal{CLASSES}")
 
 # Set up DSPy with Arbor backend
-from dspy.clients.lm_local_arbor import ArborProvider
+from arbor import ArborProvider
 provider = ArborProvider()
 student_lm = dspy.LM(
     model="openai/arbor:Qwen/Qwen2-0.5B-Instruct",

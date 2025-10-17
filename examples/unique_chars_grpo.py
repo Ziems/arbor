@@ -62,7 +62,7 @@ train_kwargs = {
     "report_to": "wandb",  # 'wandb'
     "log_completions": False,
     "max_context_length": None,
-    "max_steps": 20,
+    "max_steps": 1000,
     "logging_steps": 1,
     "lora_config": {
         "lora_alpha": 16,
@@ -77,16 +77,18 @@ compiler = ArborGRPO(
     num_dspy_examples_per_grpo_step=1,
     num_rollouts_per_grpo_step=24,
     exclude_demos=True,
-    num_train_steps=10,
+    num_train_steps=20,
     num_threads=1,
     use_train_as_val=False,
     num_steps_for_val=10,
     train_kwargs=train_kwargs,
+    checkpoint="single-best",
 )
 
 classify_ft = compiler.compile(
     student=student_unique_chars,
     trainset=trainset,
+    valset=testset,
 )
 
 evaluate = dspy.Evaluate(

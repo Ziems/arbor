@@ -321,7 +321,9 @@ class ArborGRPO(FinetuneTeleprompter):
                 self.best_validation_step = step_idx
             return
 
-        improved = self.best_validation_score is None or score > self.best_validation_score
+        improved = (
+            self.best_validation_score is None or score > self.best_validation_score
+        )
 
         if improved:
             self.best_validation_score = score
@@ -819,8 +821,32 @@ class ArborGRPO(FinetuneTeleprompter):
             recover_lm_cache(program=t, lm_cache_dict=lm_cache_dict)
 
         logger.info("GRPO compiler has finished compiling the student program")
+        self._log_checkpoint_locations()
         student._compiled = True
         return student
+
+    def _log_checkpoint_locations(self) -> None:
+        """Log a structured summary of recorded checkpoint paths."""
+        if not self.best_checkpoint_paths:
+            logger.info("Checkpoint locations: none recorded")
+            return
+
+        checkpoint_descriptions = []
+        for (lm, data_key), checkpoint_path in self.best_checkpoint_paths.items():
+            lm_label = getattr(lm, "model", None) or getattr(lm, "name", None)
+            if not lm_label:
+                lm_label = lm.__class__.__name__
+
+            data_key_label = (
+                f"data_key={data_key}" if data_key is not None else "data_key=<default>"
+            )
+            checkpoint_label = checkpoint_path or "<unspecified>"
+            checkpoint_descriptions.append(
+                f"lm={lm_label}, {data_key_label}, path={checkpoint_label}"
+            )
+
+        lines = "\n".join(f"  - {item}" for item in checkpoint_descriptions)
+        logger.info("Checkpoint locations:\n%s", lines)
 
     def _save_checkpoints_for_jobs(
         self, grpo_training_jobs: dict, checkpoint_name: str
