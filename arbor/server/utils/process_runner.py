@@ -221,7 +221,7 @@ class AccelerateProcessRunner(ProcessRunner):
             log_callback: Function to call with each log line
         """
         command = [
-            "python",
+            sys.executable,
             "-m",
             "accelerate.commands.launch",
             "--num_processes",
