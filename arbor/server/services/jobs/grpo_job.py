@@ -307,6 +307,7 @@ class GRPOJob(Job):
                     )
                     break
                 self.wandb_run_id = status.get("wandb_run_id", None)
+                self._update_checkpoint_records(status.get("checkpoints"))
 
                 self._handle_submit_batches(status)
             # Always ensure GPU cleanup happens, even if job crashes
@@ -358,40 +359,8 @@ class GRPOJob(Job):
             raise
 
     def checkpoint(self, request: GRPOCheckpointRequest):
-        self.saving_checkpoint = True
-        try:
-            self.trainer_controller.request_checkpoint(request.checkpoint_name)
-        except Exception:
-            self.saving_checkpoint = False
-            raise
-
-        try:
-            status = self.trainer_controller.get_status()
-        except Exception as exc:
-            logger.warning(
-                "Failed to refresh trainer status after checkpoint request: %s", exc
-            )
-            status = None
-
-        records = status.get("checkpoints") if isinstance(status, dict) else None
-        self._update_checkpoint_records(records)
-
-        record = self.checkpoints.get(request.checkpoint_name)
-        if isinstance(record, dict):
-            checkpoint_dir = record.get("checkpoint_dir")
-            if checkpoint_dir:
-                logger.info(
-                    "Checkpoint '%s' recorded at %s",
-                    request.checkpoint_name,
-                    checkpoint_dir,
-                )
-                self.saving_checkpoint = False
-                return checkpoint_dir
-
-        logger.info(
-            "Checkpoint '%s' requested; waiting for trainer save",
-            request.checkpoint_name,
-        )
+        self.trainer_controller.request_checkpoint(request.checkpoint_name)
+        logger.info("Checkpoint '%s' requested", request.checkpoint_name)
         return None
 
     def terminate_training(self, timeout: float = 300.0):
