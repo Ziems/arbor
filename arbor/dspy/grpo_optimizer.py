@@ -315,9 +315,13 @@ class ArborGRPO(FinetuneTeleprompter):
 
         self.validation_scores[step_idx] = score
 
-        improved = step_idx != -1 and (
-            self.best_validation_score is None or score > self.best_validation_score
-        )
+        if step_idx == -1:
+            if self.best_validation_score is None or score > self.best_validation_score:
+                self.best_validation_score = score
+                self.best_validation_step = step_idx
+            return
+
+        improved = self.best_validation_score is None or score > self.best_validation_score
 
         if improved:
             self.best_validation_score = score
