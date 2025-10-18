@@ -167,7 +167,8 @@ class ArborGRPO(FinetuneTeleprompter):
         valset,
         logger,
         step_idx: int = -1,
-        grpo_training_jobs: dict | None = None,
+        grpo_training_job: Any | None = None,
+        lm_for_job: LM | None = None,
     ):
         if (
             step_idx == -1
@@ -327,13 +328,19 @@ class ArborGRPO(FinetuneTeleprompter):
         if improved:
             self.best_validation_score = score
             self.best_validation_step = step_idx
-            if self.checkpoint_mode != "none" and grpo_training_jobs is not None:
+            if (
+                self.checkpoint_mode != "none"
+                and grpo_training_job is not None
+                and lm_for_job is not None
+            ):
                 checkpoint_name = (
                     "model_checkpoint_best"
                     if self.checkpoint_mode == "single-best"
                     else f"model_checkpoint_step_{step_idx + 1}"
                 )
-                self._save_checkpoints_for_jobs(grpo_training_jobs, checkpoint_name)
+                self._save_checkpoint_for_job(
+                    grpo_training_job, lm_for_job, checkpoint_name
+                )
 
     def update_shuffled_trainset(self, original_trainset):
         self.shuffled_trainset_ids = list(range(len(original_trainset)))
@@ -462,15 +469,16 @@ class ArborGRPO(FinetuneTeleprompter):
             train_kwargs["num_generations"] = self.num_rollouts_per_grpo_step
             self.train_kwargs[pred.lm] = train_kwargs
 
-        logger.info("Preparing the GRPO training job(s)...")
-        grpo_training_jobs = {}
-        for pred_ind, pred in enumerate(student.predictors()):
-            data_key = None if self.multitask else pred_ind
-            job_key = (pred.lm, data_key)
-            if job_key not in grpo_training_jobs:
-                train_kwargs = self.train_kwargs[pred.lm]
-                job = pred.lm.reinforce(train_kwargs=train_kwargs)
-                grpo_training_jobs[job_key] = job
+        logger.info("Preparing the GRPO training job...")
+        student_predictors = list(student.predictors())
+        assert student_predictors, "Student program must define at least one predictor."
+        first_lm = student_predictors[0].lm
+        for pred in student_predictors[1:]:
+            assert pred.lm is first_lm, (
+                "Multiple LMs detected for student predictors; only one GRPO training job is supported."
+            )
+        train_kwargs = self.train_kwargs[first_lm]
+        grpo_training_job = first_lm.reinforce(train_kwargs=train_kwargs)
 
         self.report_validation_metrics(
             student=student,
@@ -478,10 +486,11 @@ class ArborGRPO(FinetuneTeleprompter):
             valset=valset,
             logger=logger,
             step_idx=-1,
-            grpo_training_jobs=grpo_training_jobs,
+            grpo_training_job=grpo_training_job,
+            lm_for_job=first_lm,
         )
 
-        group_queues = {}
+        group_queue: deque = deque()
         logger.info("Starting the GRPO training loop...")
         for train_step_idx in range(self.num_train_steps):
             logger.info(
@@ -496,13 +505,10 @@ class ArborGRPO(FinetuneTeleprompter):
             )
 
             def _any_available_for_step():
-                for _, job in grpo_training_jobs.items():
-                    grpo_status: GRPOStatus = job.get_status()
-                    pending_batch_ids = grpo_status["pending_batch_ids"]
-                    available = set(pending_batch_ids) - set(self.fulfilled_batch_ids)
-                    if available:
-                        return True
-                return False
+                grpo_status: GRPOStatus = grpo_training_job.get_status()
+                pending_batch_ids = grpo_status["pending_batch_ids"]
+                available = set(pending_batch_ids) - set(self.fulfilled_batch_ids)
+                return bool(available)
 
             while not _any_available_for_step():
                 time.sleep(1)
@@ -730,69 +736,61 @@ class ArborGRPO(FinetuneTeleprompter):
             all_train_data: list[GRPOGroup] = list(
                 chain.from_iterable(train_batch_per_predictor)
             )
-            for (lm_for_job, data_key), job in grpo_training_jobs.items():
-                train_data: list[GRPOGroup] = (
-                    all_train_data
-                    if data_key is None
-                    else train_batch_per_predictor[data_key]
-                )
-                for group in train_data:
-                    if len(group) != self.num_rollouts_per_grpo_step:
-                        while len(group) < self.num_rollouts_per_grpo_step:
-                            group.extend(
-                                group[
-                                    : min(
-                                        self.num_rollouts_per_grpo_step - len(group),
-                                        len(group),
-                                    )
-                                ]
-                            )
-                    assert len(group) == self.num_rollouts_per_grpo_step, (
-                        f"Number of completions {len(group)} does not match the expected number self.num_rollouts_per_grpo_step={self.num_rollouts_per_grpo_step}"
-                    )
-
-                grpo_status: GRPOStatus = job.get_status()
-                pending_batch_ids = grpo_status["pending_batch_ids"]
-                available_batch_ids = list(
-                    set(pending_batch_ids) - set(self.fulfilled_batch_ids)
-                )
-                if not available_batch_ids:
-                    continue
-
-                job_key = (lm_for_job, data_key)
-                q = group_queues.setdefault(job_key, deque())
-
-                if len(q) < len(available_batch_ids) and len(train_data) > 0:
-                    need = len(available_batch_ids) - len(q)
-                    while need > 0:
-                        shuffled = self.rng.sample(train_data, k=len(train_data))
-                        q.extend(shuffled)
-                        need -= len(shuffled)
-
-                final_train_data: list[GRPOGroup] = []
-                for bid in available_batch_ids:
-                    if q:
-                        grp = q.popleft()
-                    else:
-                        fallback_pool = (
-                            train_data if len(train_data) > 0 else all_train_data
+            train_data: list[GRPOGroup] = all_train_data
+            for group in train_data:
+                if len(group) != self.num_rollouts_per_grpo_step:
+                    while len(group) < self.num_rollouts_per_grpo_step:
+                        group.extend(
+                            group[
+                                : min(
+                                    self.num_rollouts_per_grpo_step - len(group),
+                                    len(group),
+                                )
+                            ]
                         )
-                        if len(fallback_pool) == 0:
-                            continue
-                        grp = self.rng.choice(fallback_pool)
-                    final_train_data.append({"batch_id": bid, "group": grp})
-
-                if not final_train_data:
-                    continue
-
-                self.fulfilled_batch_ids.extend(
-                    [item["batch_id"] for item in final_train_data]
+                assert len(group) == self.num_rollouts_per_grpo_step, (
+                    f"Number of completions {len(group)} does not match the expected number self.num_rollouts_per_grpo_step={self.num_rollouts_per_grpo_step}"
                 )
 
-                job.step(
-                    train_data=final_train_data,
-                    train_data_format=TrainDataFormat.GRPO_CHAT,
-                )
+            grpo_status: GRPOStatus = grpo_training_job.get_status()
+            pending_batch_ids = grpo_status["pending_batch_ids"]
+            available_batch_ids = list(
+                set(pending_batch_ids) - set(self.fulfilled_batch_ids)
+            )
+            if not available_batch_ids:
+                continue
+
+            if len(group_queue) < len(available_batch_ids) and len(train_data) > 0:
+                need = len(available_batch_ids) - len(group_queue)
+                while need > 0:
+                    shuffled = self.rng.sample(train_data, k=len(train_data))
+                    group_queue.extend(shuffled)
+                    need -= len(shuffled)
+
+            final_train_data: list[GRPOGroup] = []
+            for bid in available_batch_ids:
+                if group_queue:
+                    grp = group_queue.popleft()
+                else:
+                    fallback_pool = (
+                        train_data if len(train_data) > 0 else all_train_data
+                    )
+                    if len(fallback_pool) == 0:
+                        continue
+                    grp = self.rng.choice(fallback_pool)
+                final_train_data.append({"batch_id": bid, "group": grp})
+
+            if not final_train_data:
+                continue
+
+            self.fulfilled_batch_ids.extend(
+                [item["batch_id"] for item in final_train_data]
+            )
+
+            grpo_training_job.step(
+                train_data=final_train_data,
+                train_data_format=TrainDataFormat.GRPO_CHAT,
+            )
 
             logger.info(
                 f"GRPO training step {train_step_idx + 1}/{self.num_train_steps} completed."
@@ -804,12 +802,12 @@ class ArborGRPO(FinetuneTeleprompter):
                 valset=valset,
                 logger=logger,
                 step_idx=train_step_idx,
-                grpo_training_jobs=grpo_training_jobs,
+                grpo_training_job=grpo_training_job,
+                lm_for_job=first_lm,
             )
 
-        logger.info("Done with the iterations! Retrieving the final model(s)...")
-        for _, job in grpo_training_jobs.items():
-            job.terminate()
+        logger.info("Done with the iterations! Retrieving the final model...")
+        grpo_training_job.terminate()
 
         recover_lm_cache(program=student, lm_cache_dict=lm_cache_dict)
         for t in teachers:
@@ -819,54 +817,31 @@ class ArborGRPO(FinetuneTeleprompter):
         student._compiled = True
         return student
 
-    def _save_checkpoints_for_jobs(
-        self, grpo_training_jobs: dict, checkpoint_name: str
+    def _save_checkpoint_for_job(
+        self, grpo_training_job: Any, lm_for_job: LM, checkpoint_name: str
     ) -> None:
-        """Trigger checkpoints for all jobs and log their locations."""
-
-        for job_key, job in grpo_training_jobs.items():
-            lm_for_job, data_key = job_key
-            if not hasattr(job, "save_checkpoint"):
-                logger.warning(
-                    "Checkpoint requested but job %s does not support save_checkpoint",
-                    job,
-                )
-                continue
-
-            try:
-                job.save_checkpoint(checkpoint_name=checkpoint_name)
-            except TypeError:
-                logger.exception("save_checkpoint signature mismatch for job %s", job)
-                continue
-            except Exception:
-                logger.exception("Failed to save checkpoint '%s'", checkpoint_name)
-                continue
-
-            checkpoint_path: str | None = None
-            last_checkpoint = getattr(job, "last_checkpoint", None)
-            checkpoints = getattr(job, "checkpoints", None)
-            if last_checkpoint and isinstance(checkpoints, dict):
-                checkpoint_record = checkpoints.get(last_checkpoint)
-                if isinstance(checkpoint_record, dict):
-                    checkpoint_path = checkpoint_record.get(
-                        "model_path"
-                    ) or checkpoint_record.get("checkpoint_dir")
-                elif isinstance(checkpoint_record, str):
-                    checkpoint_path = checkpoint_record
-
-            job_label = (
-                getattr(lm_for_job, "model", None)
-                or getattr(lm_for_job, "name", None)
-                or lm_for_job.__class__.__name__
-            )
-            if data_key is not None:
-                job_label = f"{job_label} (data_key={data_key})"
-
-            if checkpoint_path:
-                message = f"Saved checkpoint {checkpoint_name} for {job_label} at {checkpoint_path}"
-            else:
-                message = f"Saved checkpoint {checkpoint_name} for {job_label} (path not reported)"
-            logger.info(message)
+        grpo_training_job.save_checkpoint(checkpoint_name=checkpoint_name)
+        checkpoints = grpo_training_job.checkpoints or {}
+        checkpoint_record = checkpoints.get(grpo_training_job.last_checkpoint)
+        checkpoint_path = (
+            checkpoint_record.get("model_path")
+            or checkpoint_record.get("checkpoint_dir")
+            if isinstance(checkpoint_record, dict)
+            else checkpoint_record
+        )
+        job_label = (
+            lm_for_job.model
+            if hasattr(lm_for_job, "model")
+            else lm_for_job.name
+            if hasattr(lm_for_job, "name")
+            else lm_for_job.__class__.__name__
+        )
+        message = (
+            f"Saved checkpoint {checkpoint_name} for {job_label} at {checkpoint_path}"
+            if checkpoint_path
+            else f"Saved checkpoint {checkpoint_name} for {job_label} (path not reported)"
+        )
+        logger.info(message)
 
 
 def disable_lm_cache(program: Module, lm_cache_dict: dict):
