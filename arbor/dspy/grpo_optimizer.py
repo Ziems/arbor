@@ -40,7 +40,6 @@ class ArborGRPO(FinetuneTeleprompter):
     def __init__(
         self,
         metric: Callable | None = None,
-        multitask: bool = True,
         train_kwargs: dict[str, Any] | dict[LM, dict[str, Any]] | None = None,
         adapter: Adapter | dict[LM, Adapter] | None = None,
         exclude_demos: bool = False,
@@ -64,7 +63,6 @@ class ArborGRPO(FinetuneTeleprompter):
     ):
         super().__init__(train_kwargs=train_kwargs)
         self.metric = metric
-        self.multitask = multitask
         self.adapter: dict[LM, Adapter] = self.convert_to_lm_dict(adapter)
         self.exclude_demos = exclude_demos
         self.num_threads = num_threads
@@ -89,9 +87,6 @@ class ArborGRPO(FinetuneTeleprompter):
 
         assert exclude_demos, (
             "exclude_demos==False is not supported yet. Please set it to True."
-        )
-        assert multitask, (
-            "independent GRPO training jobs for each predictor in the student program is not supported yet. Please set multitask=True."
         )
 
         self.variably_invoked_predictor_grouping_mode = (
@@ -414,12 +409,6 @@ class ArborGRPO(FinetuneTeleprompter):
                     f"Repeating the training set {multiplier} times to fill the GRPO step. This could lead to overfitting and training instability."
                 )
                 trainset = trainset * multiplier
-
-        if not self.multitask:
-            raise ValueError(
-                "Independent GRPO training jobs for each predictor in the student program "
-                "are not supported yet. Please set multitask=True."
-            )
 
         student_lms = {id(pred.lm) for pred in student.predictors()}
         assert len(student_lms) == 1, (
