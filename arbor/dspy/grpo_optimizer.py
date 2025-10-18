@@ -731,20 +731,15 @@ class ArborGRPO(FinetuneTeleprompter):
                         )
 
             logger.info("Invoking GRPO training step...")
-            train_data: list[GRPOGroup] = list(
+            all_train_data: list[GRPOGroup] = list(
                 chain.from_iterable(train_batch_per_predictor)
             )
+            train_data: list[GRPOGroup] = all_train_data
             for group in train_data:
                 if len(group) != self.num_rollouts_per_grpo_step:
                     while len(group) < self.num_rollouts_per_grpo_step:
-                        group.extend(
-                            group[
-                                : min(
-                                    self.num_rollouts_per_grpo_step - len(group),
-                                    len(group),
-                                )
-                            ]
-                        )
+                        needed = self.num_rollouts_per_grpo_step - len(group)
+                        group.extend(group[: min(needed, len(group))])
                 assert len(group) == self.num_rollouts_per_grpo_step, (
                     f"Number of completions {len(group)} does not match the expected number self.num_rollouts_per_grpo_step={self.num_rollouts_per_grpo_step}"
                 )
@@ -757,21 +752,20 @@ class ArborGRPO(FinetuneTeleprompter):
             if not available_batch_ids:
                 continue
 
-            if len(group_queue) < len(available_batch_ids) and len(train_data) > 0:
+            if len(group_queue) < len(available_batch_ids) and train_data:
                 need = len(available_batch_ids) - len(group_queue)
                 while need > 0:
-                    shuffled = self.rng.sample(train_data, k=len(train_data))
-                    group_queue.extend(shuffled)
-                    need -= len(shuffled)
+                    group_queue.extend(self.rng.sample(train_data, k=len(train_data)))
+                    need -= len(train_data)
 
             final_train_data: list[GRPOGroup] = []
             for bid in available_batch_ids:
                 if group_queue:
                     grp = group_queue.popleft()
-                else:
-                    if len(train_data) == 0:
-                        continue
+                elif train_data:
                     grp = self.rng.choice(train_data)
+                else:
+                    continue
                 final_train_data.append({"batch_id": bid, "group": grp})
 
             if not final_train_data:
@@ -799,7 +793,7 @@ class ArborGRPO(FinetuneTeleprompter):
                 grpo_training_job=grpo_training_job,
             )
 
-        logger.info("Done with the iterations! Retrieving the final model(s)...")
+        logger.info("Done with the iterations! Retrieving the final model...")
         grpo_training_job.terminate()
 
         recover_lm_cache(program=student, lm_cache_dict=lm_cache_dict)
@@ -844,24 +838,19 @@ class ArborGRPO(FinetuneTeleprompter):
             return None
 
         checkpoint_path: str | None = None
-        last_checkpoint = (
-            grpo_training_job.last_checkpoint
-            if hasattr(grpo_training_job, "last_checkpoint")
-            else None
-        )
-        checkpoints = (
-            grpo_training_job.checkpoints
-            if hasattr(grpo_training_job, "checkpoints")
-            else None
-        )
-        if last_checkpoint and isinstance(checkpoints, dict):
-            checkpoint_record = checkpoints.get(last_checkpoint)
-            if isinstance(checkpoint_record, dict):
-                checkpoint_path = checkpoint_record.get("model_path") or (
-                    checkpoint_record.get("checkpoint_dir")
-                )
-            elif isinstance(checkpoint_record, str):
-                checkpoint_path = checkpoint_record
+        if hasattr(grpo_training_job, "last_checkpoint") and hasattr(
+            grpo_training_job, "checkpoints"
+        ):
+            last_checkpoint = grpo_training_job.last_checkpoint
+            checkpoints = grpo_training_job.checkpoints
+            if last_checkpoint and isinstance(checkpoints, dict):
+                checkpoint_record = checkpoints.get(last_checkpoint)
+                if isinstance(checkpoint_record, dict):
+                    checkpoint_path = checkpoint_record.get("model_path") or (
+                        checkpoint_record.get("checkpoint_dir")
+                    )
+                elif isinstance(checkpoint_record, str):
+                    checkpoint_path = checkpoint_record
 
         logger.info(
             "Saved checkpoint '%s' (path=%s)",
