@@ -11,7 +11,6 @@ import threading
 import transformers
 from accelerate.utils import broadcast_object_list, is_peft_model
 from torch.utils.data import DataLoader, Dataset
-from transformers.utils import is_peft_available
 from transformers.trainer import Trainer
 from typing import Any, Dict, List, Optional, Union
 from transformers.trainer_callback import TrainerCallback
@@ -51,9 +50,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 logging.getLogger("httpx").setLevel(logging.WARN)
-
-if is_peft_available():
-    from peft import PeftConfig, PeftModel  # noqa: F401
 
 
 class _ExternalBatchDataset(Dataset):
@@ -139,6 +135,9 @@ class ArborGRPOTrainer(Trainer):
         self.logger = logging.getLogger(__name__)
         self.logger.debug("Starting __init__")
         self._checkpoint_lock = threading.RLock()
+        self._checkpoint_records: list[dict[str, Any]] = []
+        self._pending_checkpoint_requests: deque[dict[str, Any]] = deque()
+        self._last_checkpoint_record: Optional[dict[str, Any]] = None
         self._control_client: Optional[TrainerControlClient] = None
 
         # Trained model
@@ -496,10 +495,85 @@ class ArborGRPOTrainer(Trainer):
         )
         return self.accelerator.prepare(self._async_dataloader)
 
-    def training_step(self, *args, **kwargs):  # type: ignore[override]
-        """Wrap the base training step to coordinate with external checkpoints."""
+    def _dequeue_checkpoint_request(self) -> Optional[dict[str, Any]]:
         with self._checkpoint_lock:
-            return super().training_step(*args, **kwargs)
+            if not self._pending_checkpoint_requests:
+                return None
+            return self._pending_checkpoint_requests.popleft()
+
+    def request_checkpoint(
+        self,
+        checkpoint_name: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """Queue an external checkpoint request and trigger Trainer save."""
+
+        if metadata is not None and not isinstance(metadata, dict):
+            raise TypeError("Checkpoint metadata must be a mapping if provided")
+
+        request = {
+            "checkpoint_name": checkpoint_name,
+            "metadata": metadata,
+            "queued_at": time.time(),
+        }
+        with self._checkpoint_lock:
+            self._pending_checkpoint_requests.append(request)
+        if hasattr(self, "control"):
+            self.control.should_save = True
+
+    def get_checkpoint_records(self) -> list[dict[str, Any]]:
+        """Return a copy of recorded checkpoints."""
+
+        with self._checkpoint_lock:
+            return [dict(record) for record in self._checkpoint_records]
+
+    def get_last_checkpoint_record(self) -> Optional[dict[str, Any]]:
+        """Return the most recent checkpoint record if available."""
+
+        with self._checkpoint_lock:
+            if self._last_checkpoint_record is None:
+                return None
+            return dict(self._last_checkpoint_record)
+
+    def _save_checkpoint(self, model, trial):  # type: ignore[override]
+        """Capture checkpoint metadata when Hugging Face saves."""
+
+        request = self._dequeue_checkpoint_request() or {}
+
+        run_dir = self._get_output_dir(trial=trial)
+        checkpoint_name = (
+            request.get("checkpoint_name") or f"checkpoint-{self.state.global_step}"
+        )
+        checkpoint_dir = os.path.abspath(os.path.join(run_dir, checkpoint_name))
+
+        metadata = request.get("metadata")
+
+        record = {
+            "checkpoint_name": checkpoint_name,
+            "checkpoint_dir": checkpoint_dir,
+            "global_step": int(self.state.global_step),
+            "requested": bool(request),
+            "metadata": metadata,
+            "timestamp": time.time(),
+        }
+
+        with self._checkpoint_lock:
+            self._last_checkpoint_record = dict(record)
+
+        super()._save_checkpoint(model, trial)
+
+        if metadata:
+            metadata_path = os.path.join(checkpoint_dir, "metadata.json")
+            with open(metadata_path, "w", encoding="utf-8") as fh:
+                json.dump(metadata, fh, indent=2, sort_keys=True)
+
+        record["timestamp"] = time.time()
+
+        with self._checkpoint_lock:
+            self._checkpoint_records.append(dict(record))
+            self._last_checkpoint_record = dict(record)
+
+        return None
 
     def _enable_gradient_checkpointing(
         self, model: PreTrainedModel, args: ArborGRPOConfig
@@ -663,44 +737,6 @@ class ArborGRPOTrainer(Trainer):
             ):
                 self.async_requester.stop()
             self._async_started = False
-
-    def save_external_checkpoint(self, checkpoint_name: Optional[str]) -> str:
-        """Save a checkpoint triggered by an external control request.
-
-        Args:
-            checkpoint_name: Name provided by the caller. If None, defaults to the
-                current global step.
-
-        Returns:
-            Absolute path to the checkpoint directory written on disk.
-        """
-
-        if not self.accelerator.is_main_process:
-            raise RuntimeError("External checkpoints must run on the main process")
-
-        base_dir = self.args.output_dir
-        if not base_dir:
-            raise ValueError("Trainer output directory is not configured")
-
-        if checkpoint_name:
-            target_name = checkpoint_name
-        else:
-            target_name = f"checkpoint-{int(self.state.global_step)}"
-
-        checkpoint_dir = os.path.abspath(os.path.join(base_dir, target_name))
-
-        with self._checkpoint_lock:
-            os.makedirs(checkpoint_dir, exist_ok=True)
-            self.save_model(checkpoint_dir)
-
-            if hasattr(self, "deepspeed") and self.deepspeed:  # type: ignore[attr-defined]
-                # DeepSpeed integrates optimizer/sharded weights saving
-                self.deepspeed.save_checkpoint(checkpoint_dir)  # type: ignore[attr-defined]
-
-            if hasattr(self, "_save_training_state"):
-                self._save_training_state(checkpoint_dir)  # type: ignore[attr-defined]
-
-        return checkpoint_dir
 
     def _prepare_inputs(  # type: ignore
         self, inputs: list[dict[str, Any]]

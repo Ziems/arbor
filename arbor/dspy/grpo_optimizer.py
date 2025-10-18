@@ -117,7 +117,6 @@ class ArborGRPO(FinetuneTeleprompter):
         self.best_validation_score: float | None = None
         self.best_validation_step: int | None = None
         self.validation_scores: dict[int, float] = {}
-        self.best_checkpoint_paths: dict[tuple[LM, int | None], str | None] = {}
 
         self.shuffled_trainset_ids = []
         self.epoch = -1
@@ -334,11 +333,7 @@ class ArborGRPO(FinetuneTeleprompter):
                     if self.checkpoint_mode == "single-best"
                     else f"model_checkpoint_step_{step_idx + 1}"
                 )
-                checkpoint_paths = self._save_checkpoints_for_jobs(
-                    grpo_training_jobs, checkpoint_name
-                )
-                if checkpoint_paths:
-                    self.best_checkpoint_paths.update(checkpoint_paths)
+                self._save_checkpoints_for_jobs(grpo_training_jobs, checkpoint_name)
 
     def update_shuffled_trainset(self, original_trainset):
         self.shuffled_trainset_ids = list(range(len(original_trainset)))
@@ -821,39 +816,13 @@ class ArborGRPO(FinetuneTeleprompter):
             recover_lm_cache(program=t, lm_cache_dict=lm_cache_dict)
 
         logger.info("GRPO compiler has finished compiling the student program")
-        self._log_checkpoint_locations()
         student._compiled = True
         return student
 
-    def _log_checkpoint_locations(self) -> None:
-        """Log a structured summary of recorded checkpoint paths."""
-        if not self.best_checkpoint_paths:
-            logger.info("Checkpoint locations: none recorded")
-            return
-
-        checkpoint_descriptions = []
-        for (lm, data_key), checkpoint_path in self.best_checkpoint_paths.items():
-            lm_label = getattr(lm, "model", None) or getattr(lm, "name", None)
-            if not lm_label:
-                lm_label = lm.__class__.__name__
-
-            data_key_label = (
-                f"data_key={data_key}" if data_key is not None else "data_key=<default>"
-            )
-            checkpoint_label = checkpoint_path or "<unspecified>"
-            checkpoint_descriptions.append(
-                f"lm={lm_label}, {data_key_label}, path={checkpoint_label}"
-            )
-
-        lines = "\n".join(f"  - {item}" for item in checkpoint_descriptions)
-        logger.info("Checkpoint locations:\n%s", lines)
-
     def _save_checkpoints_for_jobs(
         self, grpo_training_jobs: dict, checkpoint_name: str
-    ) -> dict[tuple[LM, int | None], str | None]:
-        """Trigger checkpoints for all jobs and return discovered paths."""
-
-        saved_paths: dict[tuple[LM, int | None], str | None] = {}
+    ) -> None:
+        """Trigger checkpoints for all jobs and log their locations."""
 
         for job_key, job in grpo_training_jobs.items():
             lm_for_job, data_key = job_key
@@ -885,15 +854,19 @@ class ArborGRPO(FinetuneTeleprompter):
                 elif isinstance(checkpoint_record, str):
                     checkpoint_path = checkpoint_record
 
-            saved_paths[(lm_for_job, data_key)] = checkpoint_path
-            logger.info(
-                "Saved checkpoint '%s' for job %s (path=%s)",
-                checkpoint_name,
-                job_key,
-                checkpoint_path,
+            job_label = (
+                getattr(lm_for_job, "model", None)
+                or getattr(lm_for_job, "name", None)
+                or lm_for_job.__class__.__name__
             )
+            if data_key is not None:
+                job_label = f"{job_label} (data_key={data_key})"
 
-        return saved_paths
+            if checkpoint_path:
+                message = f"Saved checkpoint {checkpoint_name} for {job_label} at {checkpoint_path}"
+            else:
+                message = f"Saved checkpoint {checkpoint_name} for {job_label} (path not reported)"
+            logger.info(message)
 
 
 def disable_lm_cache(program: Module, lm_cache_dict: dict):

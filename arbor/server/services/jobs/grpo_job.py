@@ -77,6 +77,15 @@ class GRPOJob(Job):
         self.last_inference_update = 0
         self.pending_data = set()
 
+    def _update_checkpoint_records(self, records: list[dict[str, Any]] | None) -> None:
+        if not records:
+            return
+
+        checkpoints = {record["checkpoint_name"]: record for record in records}
+        self.checkpoints = checkpoints
+        latest = max(records, key=lambda r: r.get("timestamp", 0))
+        self.last_checkpoint = latest.get("checkpoint_name")
+
     def _make_job_id(self, request: GRPOInitializeRequest):
         slug = coolname.generate_slug(2)
         model = request.model.split("/")[-1].lower()
@@ -279,6 +288,7 @@ class GRPOJob(Job):
                     )
                     break
                 self.wandb_run_id = status.get("wandb_run_id", None)
+                self._update_checkpoint_records(status.get("checkpoints"))
 
                 self._handle_submit_batches(status)
             # Always ensure GPU cleanup happens, even if job crashes
@@ -330,27 +340,9 @@ class GRPOJob(Job):
             raise
 
     def checkpoint(self, request: GRPOCheckpointRequest):
-        self.saving_checkpoint = True
-        try:
-            response = self.trainer_controller.request_checkpoint(
-                request.checkpoint_name
-            )
-        finally:
-            self.saving_checkpoint = False
-
-        checkpoint_dir = response.get("checkpoint_dir") if response else None
-        if checkpoint_dir:
-            self.checkpoints[request.checkpoint_name] = checkpoint_dir
-            self.last_checkpoint = request.checkpoint_name
-            logger.info(
-                f"Checkpoint '{request.checkpoint_name}' saved at {checkpoint_dir}"
-            )
-        else:
-            logger.warning(
-                f"Checkpoint response missing directory for {request.checkpoint_name}"
-            )
-
-        return checkpoint_dir
+        self.trainer_controller.request_checkpoint(request.checkpoint_name)
+        logger.info("Checkpoint requested", checkpoint_name=request.checkpoint_name)
+        return None
 
     def terminate_training(self, timeout: float = 300.0):
         if not self.trainer_controller:
@@ -367,18 +359,8 @@ class GRPOJob(Job):
             logger.debug(f"Trainer terminate response: {response}")
 
             if self.process_runner and self.process_runner.is_running():
-                logger.info(
-                    "Waiting for training process to exit after terminate request"
-                )
-                deadline = time.time() + timeout
-                while time.time() < deadline and self.process_runner.is_running():
-                    time.sleep(5)
-                    logger.info("Training process still terminating...")
-
-                if self.process_runner.is_running():
-                    logger.warning(
-                        "Training process still running after terminate timeout; proceeding without force termination"
-                    )
+                logger.info("Terminating training process after terminate request")
+                self.process_runner.terminate()
             else:
                 logger.info("Training process already stopped")
             return response
@@ -446,8 +428,10 @@ class GRPOJob(Job):
 
     def _handle_checkpoint_saved_event(self, event: dict):
         logger.info("Received checkpoint saved status")
-        self.checkpoints[event["checkpoint_name"]] = event["output_dir"]
-        self.last_checkpoint = event["checkpoint_name"]
+        checkpoint = event["checkpoint"]
+        name = checkpoint["checkpoint_name"]
+        self.checkpoints[name] = checkpoint
+        self.last_checkpoint = name
         self.saving_checkpoint = False
         logger.info("Checkpoint saved")
 

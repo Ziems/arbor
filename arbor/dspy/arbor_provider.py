@@ -263,15 +263,14 @@ class ArborReinforceJob(ReinforceJob):
         assert response.status_code == 200, (
             f"Failed to save checkpoint: {response.text}"
         )
-        response = response.json()
+        data = response.json()
 
-        last_checkpoint = response["last_checkpoint"]
-        checkpoints = response["checkpoints"]
-        checkpoint_model_path = checkpoints[last_checkpoint]
-        self.checkpoints[last_checkpoint] = {
-            "model_path": checkpoint_model_path,
-            "score": score,
-        }
+        last_checkpoint = data["last_checkpoint"]
+        record = data["checkpoints"].get(last_checkpoint, {})
+        if not isinstance(record, dict):
+            record = {"model_path": record}
+        record["score"] = score
+        self.checkpoints[last_checkpoint] = record
         self.last_checkpoint = last_checkpoint
 
     def terminate(self):
