@@ -139,6 +139,7 @@ class ArborGRPOTrainer(Trainer):
         self._checkpoint_records: list[dict[str, Any]] = []
         self._pending_checkpoint_requests: deque[dict[str, Any]] = deque()
         self._last_checkpoint_record: Optional[dict[str, Any]] = None
+        self._checkpoint_broadcast_payload: Optional[dict[str, Any]] = None
         self._control_client: Optional[TrainerControlClient] = None
 
         # Trained model
@@ -519,6 +520,8 @@ class ArborGRPOTrainer(Trainer):
         }
         with self._checkpoint_lock:
             self._pending_checkpoint_requests.append(request)
+            if self._checkpoint_broadcast_payload is None:
+                self._checkpoint_broadcast_payload = dict(request)
         if hasattr(self, "control"):
             self.control.should_save = True
 
@@ -527,6 +530,31 @@ class ArborGRPOTrainer(Trainer):
 
         with self._checkpoint_lock:
             return [dict(record) for record in self._checkpoint_records]
+
+    def _maybe_sync_checkpoint_requests(self) -> None:
+        """Ensure externally requested checkpoints reach every process."""
+
+        if self.accelerator.num_processes <= 1:
+            return
+
+        payload_list = [None]
+        if self.accelerator.is_main_process:
+            with self._checkpoint_lock:
+                if self._checkpoint_broadcast_payload is not None:
+                    payload_list[0] = dict(self._checkpoint_broadcast_payload)
+                    self._checkpoint_broadcast_payload = None
+
+        broadcast_object_list(payload_list, from_process=0)
+        payload = payload_list[0]
+        if payload is None:
+            return
+
+        if not self.accelerator.is_main_process:
+            with self._checkpoint_lock:
+                self._pending_checkpoint_requests.append(payload)
+
+        if hasattr(self, "control"):
+            self.control.should_save = True
 
     def get_last_checkpoint_record(self) -> Optional[dict[str, Any]]:
         """Return the most recent checkpoint record if available."""
@@ -857,6 +885,8 @@ class ArborGRPOTrainer(Trainer):
             broadcast_object_list(broadcast_list, from_process=0)
             broadcast_data = broadcast_list[0]
             self.accelerator.wait_for_everyone()
+
+            self._maybe_sync_checkpoint_requests()
 
             # Each process takes its slice based on the total broadcast batch size
             total_sequences = len(broadcast_data["prompt_ids"])
