@@ -216,7 +216,7 @@ class GRPOJob(Job):
         )
         # Ensure the trainer binds its control client to our generated endpoint
         self.trainer_config.control_endpoint = self.trainer_controller.endpoint
-        self.trainer_config.skip_generation_params_check = True
+        self.trainer_config.steps_per_generation = None
 
         config_dict = self.trainer_config.to_dict()
         trainer_config_json = json.dumps(config_dict, separators=(",", ":"))
