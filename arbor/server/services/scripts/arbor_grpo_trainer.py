@@ -8,6 +8,7 @@ import time
 import datasets
 from contextlib import nullcontext
 import threading
+import math
 import transformers
 from accelerate.utils import broadcast_object_list, is_peft_model
 from torch.utils.data import DataLoader, Dataset
@@ -857,11 +858,15 @@ class ArborGRPOTrainer(Trainer):
             broadcast_data = broadcast_list[0]
             self.accelerator.wait_for_everyone()
 
-            # Each process takes its slice
-            process_slice = slice(
-                self.accelerator.process_index * len(inputs),
-                (self.accelerator.process_index + 1) * len(inputs),
+            # Each process takes its slice based on the total broadcast batch size
+            total_sequences = len(broadcast_data["prompt_ids"])
+            world_size = max(1, self.accelerator.num_processes)
+            per_process = (
+                math.ceil(total_sequences / world_size) if total_sequences else 0
             )
+            slice_start = per_process * self.accelerator.process_index
+            slice_stop = min(slice_start + per_process, total_sequences)
+            process_slice = slice(slice_start, slice_stop)
 
             # Create rewards tensor and compute advantages using full batch
             assert (
@@ -876,8 +881,22 @@ class ArborGRPOTrainer(Trainer):
             input_ids_list = []
             attention_mask_list = []
 
-            upper_bound = min(process_slice.stop, len(broadcast_data["prompt_ids"]))
-            for i in range(process_slice.start, upper_bound):
+            slice_size = max(0, process_slice.stop - process_slice.start)
+            self.logger.debug(
+                "prepare_inputs process=%s start=%s stop=%s per_process=%s total_sequences=%s len_inputs=%s len_prompt_ids=%s len_completion_ids=%s len_prompt_mask=%s len_completion_mask=%s",
+                self.accelerator.process_index,
+                process_slice.start,
+                process_slice.stop,
+                per_process,
+                total_sequences,
+                len(inputs),
+                len(broadcast_data["prompt_ids"]),
+                len(broadcast_data["completion_ids"]),
+                len(broadcast_data["prompt_mask"]),
+                len(broadcast_data["completion_mask"]),
+            )
+
+            for i in range(process_slice.start, process_slice.stop):
                 input_ids_list.append(
                     torch.tensor(
                         broadcast_data["prompt_ids"][i]
@@ -891,6 +910,22 @@ class ArborGRPOTrainer(Trainer):
                         + broadcast_data["completion_mask"][i],
                         device=self.accelerator.device,
                     )
+                )
+
+            if not input_ids_list:
+                self.logger.debug(
+                    "prepare_inputs empty input_ids_list; process=%s slice_size=%s per_process=%s total_sequences=%s",
+                    self.accelerator.process_index,
+                    slice_size,
+                    per_process,
+                    total_sequences,
+                )
+            else:
+                self.logger.debug(
+                    "prepare_inputs padding %s sequences; input_lengths=%s mask_lengths=%s",
+                    len(input_ids_list),
+                    [tuple(t.shape) for t in input_ids_list],
+                    [tuple(t.shape) for t in attention_mask_list],
                 )
 
             input_ids = pad(

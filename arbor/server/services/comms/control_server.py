@@ -149,7 +149,7 @@ class TrainerControlServer:
         self,
         expected_count: int = 1,
         *,
-        timeout: float | None = 30.0,
+        timeout: float | None = 90.0,
         interval: float = 1,
         log_every: int = 10,
     ) -> None:
