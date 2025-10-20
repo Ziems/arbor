@@ -85,16 +85,10 @@ compiler = ArborGRPO(
     checkpoint="single-best",
 )
 
-classify_ft = compiler.compile(
+unique_chars_rl = compiler.compile(
     student=student_unique_chars,
     trainset=trainset,
     valset=testset,
 )
 
-evaluate = dspy.Evaluate(
-    devset=testset,
-    metric=_unique_letter_reward,
-    display_progress=True,
-    display_table=5,
-    num_threads=16,
-)
+print(unique_chars_rl(english="hello"))

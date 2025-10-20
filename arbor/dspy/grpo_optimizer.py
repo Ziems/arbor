@@ -334,7 +334,11 @@ class ArborGRPO(FinetuneTeleprompter):
                     else f"model_checkpoint_step_{step_idx + 1}"
                 )
                 self._save_checkpoint_for_job(
-                    grpo_training_job, lm_for_job, checkpoint_name
+                    grpo_training_job,
+                    lm_for_job,
+                    checkpoint_name,
+                    score=score,
+                    step_idx=step_idx,
                 )
 
     def update_shuffled_trainset(self, original_trainset):
@@ -807,9 +811,33 @@ class ArborGRPO(FinetuneTeleprompter):
         return student
 
     def _save_checkpoint_for_job(
-        self, grpo_training_job: Any, lm_for_job: LM, checkpoint_name: str
+        self,
+        grpo_training_job: Any,
+        lm_for_job: LM,
+        checkpoint_name: str,
+        *,
+        score: float | None = None,
+        step_idx: int | None = None,
     ) -> None:
-        grpo_training_job.save_checkpoint(checkpoint_name=checkpoint_name)
+        metadata = None
+        if score is not None or step_idx is not None:
+            metadata = {}
+            if score is not None:
+                metadata["score"] = float(score)
+            if step_idx is not None:
+                metadata["step_index"] = int(step_idx)
+
+        kwargs: dict[str, Any] = {"checkpoint_name": checkpoint_name}
+        if score is not None:
+            kwargs["score"] = score
+        if metadata:
+            kwargs["metadata"] = metadata
+
+        try:
+            grpo_training_job.save_checkpoint(**kwargs)
+        except TypeError:
+            kwargs.pop("metadata", None)
+            grpo_training_job.save_checkpoint(**kwargs)
         checkpoints = grpo_training_job.checkpoints or {}
         checkpoint_record = checkpoints.get(checkpoint_name, {})
         checkpoint_dir = checkpoint_record.get("checkpoint_dir")

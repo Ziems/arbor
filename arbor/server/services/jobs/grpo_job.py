@@ -332,7 +332,9 @@ class GRPOJob(Job):
         if not self.trainer_controller:
             raise RuntimeError("Trainer controller is not initialized for this job")
 
-        response = self.trainer_controller.request_checkpoint(request.checkpoint_name)
+        response = self.trainer_controller.request_checkpoint(
+            request.checkpoint_name, request.metadata
+        )
         if not response.get("ok", False):
             raise RuntimeError(
                 f"Checkpoint request failed: {response.get('error', 'Unknown error')}"
