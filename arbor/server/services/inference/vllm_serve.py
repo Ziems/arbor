@@ -3,6 +3,9 @@ import os
 import signal
 from argparse import Namespace
 from typing import Sequence
+from arbor.server.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 try:
     import torch  # type: ignore

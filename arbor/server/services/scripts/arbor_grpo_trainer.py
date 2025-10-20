@@ -506,6 +506,7 @@ class ArborGRPOTrainer(Trainer):
         self,
         checkpoint_name: Optional[str],
         metadata: Optional[dict[str, Any]] = None,
+        push_to_hub: bool = False,
     ) -> dict[str, Any]:
         if metadata is not None and not isinstance(metadata, dict):
             raise TypeError("Checkpoint metadata must be a mapping if provided")
@@ -523,6 +524,7 @@ class ArborGRPOTrainer(Trainer):
             self._checkpoint_request_data = {
                 "checkpoint_name": checkpoint_name,
                 "metadata": metadata,
+                "push_to_hub": push_to_hub,
             }
             self._checkpoint_result = None
             self._checkpoint_condition.notify_all()
@@ -650,7 +652,10 @@ class ArborGRPOTrainer(Trainer):
             time.sleep(sleep_s)
 
     def _execute_checkpoint(
-        self, checkpoint_name: Optional[str], metadata: Optional[dict[str, Any]]
+        self,
+        checkpoint_name: Optional[str],
+        metadata: Optional[dict[str, Any]],
+        push_to_hub: bool = False,
     ) -> dict[str, Any]:
         if metadata is not None and not isinstance(metadata, dict):
             raise TypeError("Checkpoint metadata must be a mapping if provided")
@@ -688,7 +693,9 @@ class ArborGRPOTrainer(Trainer):
                     "global_step": int(self.state.global_step),
                 },
             )
-            record = self._finalize_checkpoint_record(checkpoint_name, metadata)
+            record = self._finalize_checkpoint_record(
+                checkpoint_name, metadata, push_to_hub
+            )
         else:
             record = None
 
@@ -714,7 +721,10 @@ class ArborGRPOTrainer(Trainer):
         return record
 
     def _finalize_checkpoint_record(
-        self, checkpoint_name: Optional[str], metadata: Optional[dict[str, Any]]
+        self,
+        checkpoint_name: Optional[str],
+        metadata: Optional[dict[str, Any]],
+        push_to_hub: bool = False,
     ) -> dict[str, Any]:
         """Finalize a checkpoint after state has been saved by all ranks.
 
@@ -754,7 +764,12 @@ class ArborGRPOTrainer(Trainer):
             "requested": True,
             "metadata": metadata,
             "timestamp": time.time(),
+            "hf_hub_url": None,
         }
+        if push_to_hub:
+            record["hf_hub_url"] = self.push_to_hub(
+                commit_message=checkpoint_name, blocking=True
+            ).commit_url
         return record
 
     def get_checkpoint_records(self) -> list[dict[str, Any]]:

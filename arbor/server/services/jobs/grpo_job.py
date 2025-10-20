@@ -146,6 +146,7 @@ class GRPOJob(Job):
                 is_grpo=True,
                 grpo_job_id=self.id,
                 log_file_path=log_file_path,
+                hf_token=inference_config.hf_token,
             )
             logger.info("Launching inference server...")
             return inference_manager.launch_job(
@@ -333,7 +334,7 @@ class GRPOJob(Job):
             raise RuntimeError("Trainer controller is not initialized for this job")
 
         response = self.trainer_controller.request_checkpoint(
-            request.checkpoint_name, request.metadata
+            request.checkpoint_name, request.metadata, request.push_to_hub
         )
         if not response.get("ok", False):
             raise RuntimeError(

@@ -9,3 +9,4 @@ class InferenceLaunchConfig:
     is_grpo: Optional[bool] = False
     grpo_job_id: Optional[str] = None
     log_file_path: Optional[str] = None
+    hf_token: Optional[str] = None

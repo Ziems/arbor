@@ -177,6 +177,7 @@ class ArborReinforceJob(ReinforceJob):
             "inference_config": {
                 "model": finetune_model,
                 "max_context_length": max_context_length,
+                "hf_token": self.lm.kwargs.get("hf_token", None),
             },
             "gpu_config": {
                 "type": "multi",
@@ -259,11 +260,16 @@ class ArborReinforceJob(ReinforceJob):
         checkpoint_name: str,
         score: float | None = None,
         metadata: dict[str, Any] | None = None,
+        push_to_hub: bool = False,
     ):
         api_base = self.lm.kwargs["api_base"]
         url = urljoin(api_base, "fine_tuning/grpo/checkpoint")
         headers = {"Content-Type": "application/json"}
-        body = {"checkpoint_name": checkpoint_name, "job_id": self.provider_job_id}
+        body = {
+            "checkpoint_name": checkpoint_name,
+            "job_id": self.provider_job_id,
+            "push_to_hub": push_to_hub,
+        }
         if metadata is not None:
             body["metadata"] = metadata
         response = requests.post(url, headers=headers, json=body)
@@ -282,6 +288,9 @@ class ArborReinforceJob(ReinforceJob):
             checkpoint.setdefault("metadata", metadata)
         self.checkpoints[last_checkpoint] = checkpoint
         self.last_checkpoint = last_checkpoint
+
+    def push_to_hub(self):
+        raise NotImplementedError("Pushing to Hub is not implemented for Arbor")
 
     def terminate(self):
         api_base = self.lm.kwargs["api_base"]
@@ -324,13 +333,14 @@ class ArborProvider(Provider):
         model = ArborProvider._remove_provider_prefix(lm.model)
 
         api_base = lm.kwargs["api_base"]
+        hf_token = lm.kwargs.get("hf_token", None)
 
         launch_kwargs = launch_kwargs or lm.launch_kwargs
 
         # Make request to launch endpoint
         response = requests.post(
             urljoin(api_base, "chat/launch"),
-            json={"model": model, "launch_kwargs": launch_kwargs},
+            json={"model": model, "launch_kwargs": launch_kwargs, "hf_token": hf_token},
         )
 
         if response.status_code != 200:

@@ -33,6 +33,7 @@ class InferenceManager(BaseManager):
 
                 inference_launch_config = InferenceLaunchConfig(
                     gpu_ids=allocated_gpus,
+                    hf_token=request_json.get("hf_token", None),
                 )
 
                 inference_job.launch(model, inference_launch_config)
