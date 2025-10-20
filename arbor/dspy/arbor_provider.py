@@ -254,11 +254,18 @@ class ArborReinforceJob(ReinforceJob):
         )
         return GRPOStatus(**response.json())
 
-    def save_checkpoint(self, checkpoint_name: str, score: float | None = None):
+    def save_checkpoint(
+        self,
+        checkpoint_name: str,
+        score: float | None = None,
+        metadata: dict[str, Any] | None = None,
+    ):
         api_base = self.lm.kwargs["api_base"]
         url = urljoin(api_base, "fine_tuning/grpo/checkpoint")
         headers = {"Content-Type": "application/json"}
         body = {"checkpoint_name": checkpoint_name, "job_id": self.provider_job_id}
+        if metadata is not None:
+            body["metadata"] = metadata
         response = requests.post(url, headers=headers, json=body)
         response.raise_for_status()
         data = response.json()
@@ -271,6 +278,8 @@ class ArborReinforceJob(ReinforceJob):
         }
         if score is not None:
             checkpoint["score"] = score
+        if metadata is not None:
+            checkpoint.setdefault("metadata", metadata)
         self.checkpoints[last_checkpoint] = checkpoint
         self.last_checkpoint = last_checkpoint
 

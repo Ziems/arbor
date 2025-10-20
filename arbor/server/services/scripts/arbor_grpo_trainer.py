@@ -708,6 +708,8 @@ class ArborGRPOTrainer(Trainer):
                 self.logger.info(
                     "Waiting for background batch generation to complete before weight syncing."
                 )
+            # Allow checkpoint requests to be handled while waiting.
+            self._service_checkpoint_requests()
 
             # Check again and broadcast
             if self.accelerator.is_main_process:
@@ -763,6 +765,8 @@ class ArborGRPOTrainer(Trainer):
                 self.logger.info(
                     "Waiting for weight syncing background tasks to complete before submitting new batches."
                 )
+                # Service checkpoint requests while background tasks drain.
+                self._service_checkpoint_requests()
 
         # Ensure all processes wait for the main process to finish updating weights
         self.accelerator.wait_for_everyone()

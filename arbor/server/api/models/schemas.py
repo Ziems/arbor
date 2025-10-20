@@ -277,6 +277,7 @@ class GRPOStepRequest(GRPOBaseRequest):
 
 class GRPOCheckpointRequest(GRPOBaseRequest):
     checkpoint_name: str
+    metadata: Optional[dict[str, Any]] = None
 
 
 class GRPOTerminateRequest(GRPOBaseRequest):
