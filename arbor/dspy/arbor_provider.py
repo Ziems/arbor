@@ -83,8 +83,6 @@ class ArborReinforceJob(ReinforceJob):
         self.lm = lm
         self.train_kwargs = train_kwargs
         self.provider_job_id = None
-        self.checkpoints = {}
-        self.last_checkpoint = None
 
     def initialize(self):
         # TODO(GRPO Team): Set provider job ID
@@ -253,25 +251,6 @@ class ArborReinforceJob(ReinforceJob):
             f"Failed to get GRPO status: {response.text}"
         )
         return GRPOStatus(**response.json())
-
-    def save_checkpoint(self, checkpoint_name: str, score: float | None = None):
-        api_base = self.lm.kwargs["api_base"]
-        url = urljoin(api_base, "fine_tuning/grpo/checkpoint")
-        headers = {"Content-Type": "application/json"}
-        body = {"checkpoint_name": checkpoint_name, "job_id": self.provider_job_id}
-        response = requests.post(url, headers=headers, json=body)
-        assert response.status_code == 200, (
-            f"Failed to save checkpoint: {response.text}"
-        )
-        data = response.json()
-
-        last_checkpoint = data["last_checkpoint"]
-        record = data["checkpoints"].get(last_checkpoint, {})
-        if not isinstance(record, dict):
-            record = {"model_path": record}
-        record["score"] = score
-        self.checkpoints[last_checkpoint] = record
-        self.last_checkpoint = last_checkpoint
 
     def terminate(self):
         api_base = self.lm.kwargs["api_base"]

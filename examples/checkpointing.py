@@ -1,4 +1,3 @@
-import json
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -108,17 +107,6 @@ def run_grpo_step(
     return GRPOStatus.model_validate(response.json())
 
 
-def checkpoint(
-    checkpoint_name,
-    job_id,
-    url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/checkpoint",
-) -> GRPOStatus:
-    headers = {"Content-Type": "application/json"}
-    data = {"checkpoint_name": checkpoint_name, "job_id": job_id}
-    response = requests.post(url, headers=headers, json=data)
-    response.raise_for_status()
-    return GRPOStatus.model_validate(response.json())
-
 
 def terminate_grpo(
     job_id, url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/terminate"
@@ -148,8 +136,6 @@ def main():
         initialize_response = initialize_grpo(model=current_model)
         current_model = initialize_response.current_model
         job_id = initialize_response.job_id
-        last_checkpoint = None
-
         def _create_batch_result(batch_id):
             input_messages = dataset[batch_id]["prompt"]
             # input_messages = [dataset[batch_id]]
@@ -189,15 +175,6 @@ def main():
             else:
                 print("All batches are fulfilled")
                 time.sleep(1)
-            if len(fulfilled_batch_ids) % 51 == 0 and len(fulfilled_batch_ids) > 0:
-                checkpoint_response = checkpoint(
-                    checkpoint_name=f"checkpoint_{len(fulfilled_batch_ids)}", job_id=job_id
-                )
-                last_checkpoint = checkpoint_response.last_checkpoint
-                if last_checkpoint:
-                    print(f"Checkpoint created: {last_checkpoint}")
-                else:
-                    print("Checkpoint response did not include a checkpoint name")
 
         terminate_response = terminate_grpo(job_id=job_id)
         print(

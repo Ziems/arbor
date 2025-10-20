@@ -13,7 +13,6 @@ from arbor.server.services.comms.async_batch_requester import BatchResult
 import coolname
 
 from arbor.server.api.models.schemas import (
-    GRPOCheckpointRequest,
     GRPOGPUConfig,
     GRPOInitializeRequest,
     GRPOStatus,
@@ -41,14 +40,13 @@ class GRPOJob(Job):
         self, config: Config, request: GRPOInitializeRequest, gpu_manager=None
     ):
         id = self._make_job_id(request)
-        # GRPO jobs need all artifact types - logs, models, checkpoints, and metrics
+        # GRPO jobs need logs, models, and metrics
         super().__init__(
             config,
             id=id,
             artifacts=[
                 JobArtifact.LOGS,
                 JobArtifact.MODEL,
-                JobArtifact.CHECKPOINTS,
                 JobArtifact.METRICS,
             ],
         )
@@ -57,7 +55,6 @@ class GRPOJob(Job):
         self.base_model = None
         self.train_kwargs = None
         self.event_thread = None
-        self.saving_checkpoint = False
         self.saving_model = False
         self.terminating = False
         self.training_terminate_pending = False
@@ -71,20 +68,9 @@ class GRPOJob(Job):
         self.pending_batch_ids: List[int] = []
         self.no_submit_streak = 0
 
-        self.checkpoints = {}
-        self.last_checkpoint = None
         self.batch_count = 0
         self.last_inference_update = 0
         self.pending_data = set()
-
-    def _update_checkpoint_records(self, records: list[dict[str, Any]] | None) -> None:
-        if not records:
-            return
-
-        checkpoints = {record["checkpoint_name"]: record for record in records}
-        self.checkpoints = checkpoints
-        latest = max(records, key=lambda r: r.get("timestamp", 0))
-        self.last_checkpoint = latest.get("checkpoint_name")
 
     def _make_job_id(self, request: GRPOInitializeRequest):
         slug = coolname.generate_slug(2)
@@ -288,7 +274,6 @@ class GRPOJob(Job):
                     )
                     break
                 self.wandb_run_id = status.get("wandb_run_id", None)
-                self._update_checkpoint_records(status.get("checkpoints"))
 
                 self._handle_submit_batches(status)
             # Always ensure GPU cleanup happens, even if job crashes
@@ -338,11 +323,6 @@ class GRPOJob(Job):
         except Exception as e:
             logger.error(f"Failed to send batch to training process: {e}")
             raise
-
-    def checkpoint(self, request: GRPOCheckpointRequest):
-        self.trainer_controller.request_checkpoint(request.checkpoint_name)
-        logger.info("Checkpoint requested", checkpoint_name=request.checkpoint_name)
-        return None
 
     def terminate_training(self, timeout: float = 300.0):
         if not self.trainer_controller:
@@ -421,19 +401,8 @@ class GRPOJob(Job):
             job_id=self.id,
             status=self.status.value,
             current_model=self.id,
-            checkpoints=self.checkpoints,
-            last_checkpoint=self.last_checkpoint,
             pending_batch_ids=self.pending_batch_ids,
         )
-
-    def _handle_checkpoint_saved_event(self, event: dict):
-        logger.info("Received checkpoint saved status")
-        checkpoint = event["checkpoint"]
-        name = checkpoint["checkpoint_name"]
-        self.checkpoints[name] = checkpoint
-        self.last_checkpoint = name
-        self.saving_checkpoint = False
-        logger.info("Checkpoint saved")
 
     def _handle_error_event(self, event: dict):
         error_msg = event.get("error", "Unknown error")
