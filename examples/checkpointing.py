@@ -88,7 +88,6 @@ def get_grpo_status(
     response = requests.post(url, headers=headers, json=body)
     response.raise_for_status()
     res_json = response.json()
-    print(res_json)
     return GRPOStatus.model_validate(res_json)
 
 # "HuggingFaceTB/SmolLM2-135M-Instruct"
@@ -106,6 +105,18 @@ def run_grpo_step(
     response.raise_for_status()
     return GRPOStatus.model_validate(response.json())
 
+
+
+def checkpoint(
+    checkpoint_name,
+    job_id,
+    url=f"http://127.0.0.1:{arbor_port}/v1/fine_tuning/grpo/checkpoint",
+) -> GRPOStatus:
+    headers = {"Content-Type": "application/json"}
+    data = {"checkpoint_name": checkpoint_name, "job_id": job_id}
+    response = requests.post(url, headers=headers, json=data)
+    response.raise_for_status()
+    return GRPOStatus.model_validate(response.json())
 
 
 def terminate_grpo(
@@ -136,6 +147,10 @@ def main():
         initialize_response = initialize_grpo(model=current_model)
         current_model = initialize_response.current_model
         job_id = initialize_response.job_id
+        last_checkpoint = None
+        checkpoint_interval = 51
+        next_checkpoint_at = checkpoint_interval
+
         def _create_batch_result(batch_id):
             input_messages = dataset[batch_id]["prompt"]
             # input_messages = [dataset[batch_id]]
@@ -159,23 +174,62 @@ def main():
 
         pending_batch_ids = []
         fulfilled_batch_ids = []
+        fulfilled_batch_ids_set = set()
+        last_pending_ids: list[int] = []
+        status_idle_ticks = 0
+        idle_log_interval = 5
         while len(fulfilled_batch_ids) < 100:
             status: GRPOStatus = get_grpo_status(job_id)
             pending_batch_ids = status.pending_batch_ids
+            if pending_batch_ids != last_pending_ids:
+                print(
+                    f"Status update: pending={pending_batch_ids} "
+                    f"fulfilled={len(fulfilled_batch_ids)} "
+                    f"(next checkpoint at {next_checkpoint_at})"
+                )
+                last_pending_ids = list(pending_batch_ids)
+                status_idle_ticks = 0
+            else:
+                status_idle_ticks += 1
             for batch_id in pending_batch_ids:
-                if batch_id not in fulfilled_batch_ids:
+                if batch_id not in fulfilled_batch_ids_set:
                     batch_result = _create_batch_result(batch_id)
                     # with open(f"batch_result_simple.jsonl", "a") as f:
-                        # f.write(json.dumps(batch_result) + "\n")
+                    #     f.write(json.dumps(batch_result) + "\n")
                     run_grpo_step(
-                        model_name=current_model, batch=batch_result, job_id=job_id, batch_id=batch_id
+                        model_name=current_model,
+                        batch=batch_result,
+                        job_id=job_id,
+                        batch_id=batch_id,
                     )
                     fulfilled_batch_ids.append(batch_id)
+                    fulfilled_batch_ids_set.add(batch_id)
+                    print(
+                        f"Submitted batch {batch_id}; total fulfilled={len(fulfilled_batch_ids)} "
+                        f"(next checkpoint at {next_checkpoint_at})"
+                    )
 
-            else:
-                print("All batches are fulfilled")
+            fulfilled_count = len(fulfilled_batch_ids)
+            while fulfilled_count >= next_checkpoint_at and fulfilled_count > 0:
+                checkpoint_response = checkpoint(
+                    checkpoint_name=f"checkpoint_{fulfilled_count}",
+                    job_id=job_id,
+                )
+                last_checkpoint = checkpoint_response.last_checkpoint
+                if last_checkpoint:
+                    print(f"Checkpoint created: {last_checkpoint}")
+                else:
+                    print("Checkpoint response did not include a checkpoint name")
+                next_checkpoint_at += checkpoint_interval
+                fulfilled_count = len(fulfilled_batch_ids)
+
+            if not pending_batch_ids:
+                if status_idle_ticks and status_idle_ticks % idle_log_interval == 0:
+                    print(
+                        f"Waiting for trainer; fulfilled={len(fulfilled_batch_ids)} "
+                        f"(next checkpoint at {next_checkpoint_at})"
+                    )
                 time.sleep(1)
-
         terminate_response = terminate_grpo(job_id=job_id)
         print(
             f"GRPO terminated: status={terminate_response.status}, pending_batches={terminate_response.pending_batch_ids}"

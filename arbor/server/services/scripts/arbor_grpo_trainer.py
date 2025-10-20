@@ -1,3 +1,5 @@
+import os
+import shutil
 import torch
 from arbor.server.services.comms.control_client import TrainerControlClient
 import json
@@ -32,7 +34,7 @@ from trl.trainer.utils import (
     selective_log_softmax,
 )
 from trl.models import prepare_peft_model, prepare_deepspeed
-from transformers.trainer_utils import seed_worker
+from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, seed_worker
 import logging
 from trl.trainer.callbacks import SyncRefModelCallback
 from arbor.server.services.comms.async_batch_requester import (
@@ -134,6 +136,12 @@ class ArborGRPOTrainer(Trainer):
     ):
         self.logger = logging.getLogger(__name__)
         self.logger.debug("Starting __init__")
+        self._checkpoint_condition = threading.Condition()
+        self._checkpoint_request_data: Optional[dict[str, Any]] = None
+        self._checkpoint_result: Optional[dict[str, Any]] = None
+        self._checkpoint_records: list[dict[str, Any]] = []
+        self._last_checkpoint_record: Optional[dict[str, Any]] = None
+        self._checkpoint_records_lock = threading.Lock()
         self._control_client: Optional[TrainerControlClient] = None
 
         # Trained model
@@ -491,6 +499,130 @@ class ArborGRPOTrainer(Trainer):
         )
         return self.accelerator.prepare(self._async_dataloader)
 
+    def handle_checkpoint_request(
+        self,
+        checkpoint_name: Optional[str],
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        if metadata is not None and not isinstance(metadata, dict):
+            raise TypeError("Checkpoint metadata must be a mapping if provided")
+        with self._checkpoint_condition:
+            if self._checkpoint_request_data is not None:
+                raise RuntimeError("A checkpoint request is already in progress")
+            self._checkpoint_request_data = {
+                "checkpoint_name": checkpoint_name,
+                "metadata": metadata,
+            }
+            self._checkpoint_result = None
+            self._checkpoint_condition.notify_all()
+            while self._checkpoint_result is None:
+                self._checkpoint_condition.wait()
+            result = dict(self._checkpoint_result)
+            self._checkpoint_result = None
+            return result
+
+    def _service_checkpoint_requests(self) -> None:
+        payload = [None]
+        if self.accelerator.is_main_process:
+            with self._checkpoint_condition:
+                if self._checkpoint_request_data is not None:
+                    payload[0] = dict(self._checkpoint_request_data)
+        broadcast_object_list(payload, from_process=0)
+        request = payload[0]
+        if request is None:
+            return
+
+        record = self._execute_checkpoint(
+            checkpoint_name=request.get("checkpoint_name"),
+            metadata=request.get("metadata"),
+        )
+
+        if self.accelerator.is_main_process:
+            with self._checkpoint_records_lock:
+                self._checkpoint_records.append(dict(record))
+                self._last_checkpoint_record = dict(record)
+            with self._checkpoint_condition:
+                self._checkpoint_result = dict(record)
+                self._checkpoint_request_data = None
+                self._checkpoint_condition.notify_all()
+
+    def _execute_checkpoint(
+        self, checkpoint_name: Optional[str], metadata: Optional[dict[str, Any]]
+    ) -> dict[str, Any]:
+        if metadata is not None and not isinstance(metadata, dict):
+            raise TypeError("Checkpoint metadata must be a mapping if provided")
+        if self.accelerator.is_main_process:
+            self.logger.info(
+                "Checkpoint requested; pausing batch generation to save state."
+            )
+        self.accelerator.wait_for_everyone()
+
+        if self.accelerator.is_main_process:
+            record = self._save_checkpoint_blocking(checkpoint_name, metadata)
+        else:
+            record = None
+
+        self.accelerator.wait_for_everyone()
+        record_list = [record]
+        broadcast_object_list(record_list, from_process=0)
+        record = record_list[0]
+
+        if record and record.get("checkpoint_dir"):
+            self.state.best_model_checkpoint = record["checkpoint_dir"]
+
+        return record
+
+    def _save_checkpoint_blocking(
+        self, checkpoint_name: Optional[str], metadata: Optional[dict[str, Any]]
+    ) -> dict[str, Any]:
+        default_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
+        run_dir = self._get_output_dir(trial=None)
+        default_dir = os.path.abspath(os.path.join(run_dir, default_folder))
+        requested_name = checkpoint_name or default_folder
+        target_dir = os.path.abspath(os.path.join(run_dir, requested_name))
+
+        super()._save_checkpoint(self.model, trial=None)
+
+        if requested_name != default_folder:
+            if os.path.exists(target_dir):
+                shutil.rmtree(target_dir)
+            if os.path.exists(default_dir):
+                shutil.move(default_dir, target_dir)
+            else:
+                target_dir = os.path.abspath(os.path.join(run_dir, requested_name))
+        else:
+            target_dir = default_dir
+
+        if self.state.best_model_checkpoint:
+            best_path = os.path.abspath(self.state.best_model_checkpoint)
+            if best_path == os.path.abspath(default_dir):
+                self.state.best_model_checkpoint = target_dir
+
+        if metadata:
+            metadata_path = os.path.join(target_dir, "metadata.json")
+            with open(metadata_path, "w", encoding="utf-8") as fh:
+                json.dump(metadata, fh, indent=2, sort_keys=True)
+
+        record = {
+            "checkpoint_name": requested_name,
+            "checkpoint_dir": target_dir,
+            "global_step": int(self.state.global_step),
+            "requested": True,
+            "metadata": metadata,
+            "timestamp": time.time(),
+        }
+        return record
+
+    def get_checkpoint_records(self) -> list[dict[str, Any]]:
+        with self._checkpoint_records_lock:
+            return [dict(record) for record in self._checkpoint_records]
+
+    def get_last_checkpoint_record(self) -> Optional[dict[str, Any]]:
+        with self._checkpoint_records_lock:
+            if self._last_checkpoint_record is None:
+                return None
+            return dict(self._last_checkpoint_record)
+
     def _enable_gradient_checkpointing(
         self, model: PreTrainedModel, args: ArborGRPOConfig
     ) -> PreTrainedModel:
@@ -601,13 +733,11 @@ class ArborGRPOTrainer(Trainer):
 
                 # Update vLLM weights while parameters are gathered
                 for name, param in self.model.named_parameters():  # type: ignore
-                    # When using PEFT, we need to recover the original parameter name and discard some parameters
                     name = name.removeprefix("base_model.model.").replace(
                         ".base_layer", ""
                     )
                     if self.model.prefix in name:  # type: ignore
                         continue
-                    # When module to save, remove its prefix and discard the original module
                     if "original_module" in name:
                         continue
                     name = name.replace("modules_to_save.default.", "")
@@ -728,6 +858,7 @@ class ArborGRPOTrainer(Trainer):
                             "Async requester queue is full; batch %s not requested",
                             batch_id,
                         )
+                self._service_checkpoint_requests()
                 self.accelerator.wait_for_everyone()
 
             # Update next batch id
@@ -743,36 +874,53 @@ class ArborGRPOTrainer(Trainer):
             self.accelerator.wait_for_everyone()
 
             # Now retrieve the batch we need for this step
-            if self.accelerator.is_main_process:
-                # Get batch result
-                batch_result = self.async_requester.get_batch(batch_id_to_retrieve)
-                if batch_result.batch_id != batch_id_to_retrieve:
-                    raise ValueError(
-                        f"Retrieved batch {batch_result.batch_id} but expected {batch_id_to_retrieve}"
-                    )
-                processed_results = batch_result.processed_results
+            broadcast_data = None
+            while broadcast_data is None:
+                if self.accelerator.is_main_process:
+                    while True:
+                        try:
+                            batch_result = self.async_requester.get_batch(
+                                batch_id_to_retrieve, timeout=1.0
+                            )
+                            break
+                        except TimeoutError:
+                            self._service_checkpoint_requests()
+                    if batch_result.batch_id != batch_id_to_retrieve:
+                        raise ValueError(
+                            f"Retrieved batch {batch_result.batch_id} but expected {batch_id_to_retrieve}"
+                        )
+                    processed_results = batch_result.processed_results
 
-                # Package raw data for broadcast (not tensors yet)
-                broadcast_data = {
-                    "prompt_ids": processed_results.prompt_ids,
-                    "prompt_mask": processed_results.prompt_mask,
-                    "completion_ids": processed_results.completion_ids,
-                    "completion_mask": processed_results.completion_mask,
-                    "rewards": processed_results.rewards,
-                    "all_reward_dict": batch_result.all_reward_dict,
-                    "completions": batch_result.completions,
-                    "prompts": batch_result.prompts,
-                }
-            else:
-                broadcast_data = None
-            self.accelerator.wait_for_everyone()
+                    broadcast_data = {
+                        "prompt_ids": processed_results.prompt_ids,
+                        "prompt_mask": processed_results.prompt_mask,
+                        "completion_ids": processed_results.completion_ids,
+                        "completion_mask": processed_results.completion_mask,
+                        "rewards": processed_results.rewards,
+                        "all_reward_dict": batch_result.all_reward_dict,
+                        "completions": batch_result.completions,
+                        "prompts": batch_result.prompts,
+                    }
+                else:
+                    broadcast_data = None
+                self.accelerator.wait_for_everyone()
+                if not self.accelerator.is_main_process:
+                    self._service_checkpoint_requests()
 
-            # Broadcast processed data
-            broadcast_list = [broadcast_data]
-            broadcast_object_list(broadcast_list, from_process=0)
-            broadcast_data = broadcast_list[0]
-            self.accelerator.wait_for_everyone()
+                # Broadcast processed data
+                broadcast_list = [broadcast_data]
+                broadcast_object_list(broadcast_list, from_process=0)
+                broadcast_data = broadcast_list[0]
+                self.accelerator.wait_for_everyone()
 
+                if broadcast_data is None:
+                    if self.accelerator.is_main_process:
+                        self.logger.debug(
+                            "No broadcast data for batch %s yet; retrying.",
+                            batch_id_to_retrieve,
+                        )
+                    continue
+                break
             # Each process takes its slice based on the total broadcast batch size
             total_sequences = len(broadcast_data["prompt_ids"])
             world_size = max(1, self.accelerator.num_processes)

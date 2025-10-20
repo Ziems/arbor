@@ -4,6 +4,7 @@ from arbor.server.api.models.schemas import (
     GRPOInitializeRequest,
     GRPOStatus,
     GRPOStepRequest,
+    GRPOCheckpointRequest,
     GRPOTerminateRequest,
 )
 from arbor.server.core.config import Config
@@ -39,6 +40,10 @@ class GRPOManager(BaseManager):
         grpo_job.grpo_step(request)
 
         return grpo_job.get_status()
+
+    def route_grpo_checkpoint(self, request: GRPOCheckpointRequest) -> GRPOStatus:
+        grpo_job = self.grpo_jobs[request.job_id]
+        return grpo_job.checkpoint(request)
 
     def cancel(self, job_id: str) -> GRPOStatus:
         """Cancel a GRPO job"""

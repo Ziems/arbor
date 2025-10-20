@@ -87,6 +87,8 @@ class TrainerControlClient(threading.Thread):
                 "completed_count": requester.get_completed_count(),
                 "global_step": int(self.trainer.state.global_step),
                 "wandb_run_id": wandb.run.id if wandb.run is not None else None,
+                "checkpoints": self.trainer.get_checkpoint_records(),
+                "last_checkpoint": self.trainer.get_last_checkpoint_record(),
             }
         if cmd == "submit_batch":
             batch_payload = message.get("batch")
@@ -98,6 +100,17 @@ class TrainerControlClient(threading.Thread):
             except Exception as exc:
                 return {"ok": False, "error": str(exc)}
             return {"ok": True}
+
+        if cmd == "checkpoint":
+            checkpoint_name = message.get("checkpoint_name")
+            metadata = message.get("metadata")
+            try:
+                record = self.trainer.handle_checkpoint_request(
+                    checkpoint_name, metadata
+                )
+            except Exception as exc:
+                return {"ok": False, "error": str(exc)}
+            return {"ok": True, "checkpoint": record}
         if cmd == "terminate":
             self.trainer.control.should_training_stop = True  # type: ignore[attr-defined]
             return {"ok": True}
