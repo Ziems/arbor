@@ -38,7 +38,11 @@ async def run_inference(
 async def launch_inference(request: Request):
     inference_manager: InferenceManager = request.app.state.inference_manager
     raw_json = await request.json()
-    inference_manager.launch(raw_json["model"], raw_json["launch_kwargs"])
+    hf_token = raw_json.get("hf_token", None)
+    inference_manager.launch(
+        raw_json["model"], raw_json["launch_kwargs"], hf_token=hf_token
+    )
+    logger.info(f"Inference server launched with hf_token: {hf_token}")
     return {"message": "Inference server launched"}
 
 

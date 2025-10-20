@@ -188,6 +188,7 @@ class ChatCompletionModel(StrictBaseModel):
 class InferenceJobRequest(StrictBaseModel):
     model: str
     max_context_length: Optional[int] = None
+    hf_token: Optional[str] = None
 
 
 ### GRPO
@@ -277,6 +278,7 @@ class GRPOStepRequest(GRPOBaseRequest):
 
 class GRPOCheckpointRequest(GRPOBaseRequest):
     checkpoint_name: str
+    push_to_hub: bool = False
 
 
 class GRPOTerminateRequest(GRPOBaseRequest):

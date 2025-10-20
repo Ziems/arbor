@@ -58,6 +58,9 @@ dev = [
     "ruff==0.14.0",
 ]
 
+[tool.uv.sources]
+dspy = { path = "../dspy", editable = true }
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["arbor", "arbor.*"]

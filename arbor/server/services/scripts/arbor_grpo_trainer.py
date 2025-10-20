@@ -505,6 +505,7 @@ class ArborGRPOTrainer(Trainer):
         self,
         checkpoint_name: Optional[str] = None,
         metadata: Optional[dict[str, Any]] = None,
+        push_to_hub: bool = False,
     ) -> None:
         """Queue an external checkpoint request and trigger Trainer save."""
 
@@ -515,6 +516,7 @@ class ArborGRPOTrainer(Trainer):
             "checkpoint_name": checkpoint_name,
             "metadata": metadata,
             "queued_at": time.time(),
+            "push_to_hub": push_to_hub,
         }
         with self._checkpoint_lock:
             self._pending_checkpoint_requests.append(request)
@@ -547,6 +549,7 @@ class ArborGRPOTrainer(Trainer):
         checkpoint_dir = os.path.abspath(os.path.join(run_dir, checkpoint_name))
 
         metadata = request.get("metadata")
+        push_to_hub = request.get("push_to_hub", False)
 
         record = {
             "checkpoint_name": checkpoint_name,
@@ -555,6 +558,7 @@ class ArborGRPOTrainer(Trainer):
             "requested": bool(request),
             "metadata": metadata,
             "timestamp": time.time(),
+            "hf_hub_path": None,
         }
 
         with self._checkpoint_lock:
@@ -568,10 +572,16 @@ class ArborGRPOTrainer(Trainer):
                 json.dump(metadata, fh, indent=2, sort_keys=True)
 
         record["timestamp"] = time.time()
+        
+        if push_to_hub:
+            record["hf_hub_url"] = self.push_to_hub(
+                commit_message=checkpoint_name, 
+                blocking=True).commit_url
 
         with self._checkpoint_lock:
             self._checkpoint_records.append(dict(record))
             self._last_checkpoint_record = dict(record)
+        
 
         return None
 

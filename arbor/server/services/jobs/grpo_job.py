@@ -162,6 +162,7 @@ class GRPOJob(Job):
                 gpu_ids=inference_gpus,
                 is_grpo=True,
                 grpo_job_id=self.id,
+                hf_token=inference_config.hf_token,
             )
             logger.info("Launching inference server...")
             return inference_manager.launch_job(
@@ -340,7 +341,9 @@ class GRPOJob(Job):
             raise
 
     def checkpoint(self, request: GRPOCheckpointRequest):
-        self.trainer_controller.request_checkpoint(request.checkpoint_name)
+        self.trainer_controller.request_checkpoint(
+            request.checkpoint_name, push_to_hub=request.push_to_hub
+        )
         logger.info("Checkpoint requested", checkpoint_name=request.checkpoint_name)
         return None
 

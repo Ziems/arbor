@@ -97,6 +97,10 @@ class InferenceJob(Job):
         gpu_ids_str = ",".join(map(str, launch_config.gpu_ids))
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
 
+        # Set the HF_TOKEN environment variable
+        if launch_config.hf_token:
+            my_env["HF_TOKEN"] = launch_config.hf_token
+
         # Setup mock environment if needed
         my_env = setup_mock_environment(my_env)
 

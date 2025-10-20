@@ -102,8 +102,9 @@ class TrainerControlClient(threading.Thread):
         if cmd == "checkpoint":
             checkpoint_name = message.get("checkpoint_name")
             metadata = message.get("metadata")
+            push_to_hub = message.get("push_to_hub", False)
             try:
-                self.trainer.request_checkpoint(checkpoint_name, metadata)
+                self.trainer.request_checkpoint(checkpoint_name, metadata, push_to_hub)
             except Exception as exc:
                 return {"ok": False, "error": str(exc)}
             return {"ok": True}

@@ -33,6 +33,8 @@ from dspy.teleprompt.bootstrap_trace import FailedPrediction, bootstrap_trace_da
 
 logger = logging.getLogger(__name__)
 
+from typing import Optional
+
 
 class ArborGRPO(FinetuneTeleprompter):
     """Local copy of DSPy's GRPO finetuner with Arbor defaults."""
@@ -164,6 +166,7 @@ class ArborGRPO(FinetuneTeleprompter):
         step_idx: int = -1,
         grpo_training_job: Any | None = None,
         lm_for_job: LM | None = None,
+        push_to_hub: bool = False,
     ):
         if (
             step_idx == -1
@@ -334,7 +337,7 @@ class ArborGRPO(FinetuneTeleprompter):
                     else f"model_checkpoint_step_{step_idx + 1}"
                 )
                 self._save_checkpoint_for_job(
-                    grpo_training_job, lm_for_job, checkpoint_name
+                    grpo_training_job, lm_for_job, checkpoint_name, push_to_hub=push_to_hub
                 )
 
     def update_shuffled_trainset(self, original_trainset):
@@ -385,8 +388,17 @@ class ArborGRPO(FinetuneTeleprompter):
         trainset: list[Example],
         teacher: Module | list[Module] | None = None,
         valset: list[Example] | None = None,
+        push_to_hub: bool = False,
         **kwargs,
     ) -> Module:
+        """
+        Args:
+            student: The student program to train.
+            trainset: The training set to use.
+            teacher: The teacher program(s) to use.
+            valset: The validation set to use.
+            push_to_hub: Whether to push the final model to the Hugging Face Hub. (only works if you provide an api key with access to the model repo).
+        """
         logger.info(
             "Starting the GRPO compilation process... The LM(s) for the student program will be updated in place at the end of the training."
         )
@@ -793,6 +805,7 @@ class ArborGRPO(FinetuneTeleprompter):
                 step_idx=train_step_idx,
                 grpo_training_job=grpo_training_job,
                 lm_for_job=first_lm,
+                push_to_hub=push_to_hub and train_step_idx == self.num_train_steps - 1,
             )
 
         logger.info("Done with the iterations! Retrieving the final model...")
@@ -807,9 +820,9 @@ class ArborGRPO(FinetuneTeleprompter):
         return student
 
     def _save_checkpoint_for_job(
-        self, grpo_training_job: Any, lm_for_job: LM, checkpoint_name: str
+        self, grpo_training_job: Any, lm_for_job: LM, checkpoint_name: str, push_to_hub: bool = False
     ) -> None:
-        grpo_training_job.save_checkpoint(checkpoint_name=checkpoint_name)
+        grpo_training_job.save_checkpoint(checkpoint_name=checkpoint_name, push_to_hub=push_to_hub)
         checkpoints = grpo_training_job.checkpoints or {}
         checkpoint_record = checkpoints.get(grpo_training_job.last_checkpoint)
         checkpoint_path = (
