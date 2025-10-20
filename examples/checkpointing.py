@@ -234,6 +234,22 @@ def main():
         print(
             f"GRPO terminated: status={terminate_response.status}, pending_batches={terminate_response.pending_batch_ids}"
         )
+
+        # Run a lightweight inference request to confirm the server remains responsive
+        try:
+            health_response = client.chat.completions.create(
+                model=current_model,
+                messages=[
+                    {"role": "system", "content": "You are a quick health check."},
+                    {"role": "user", "content": "Say hello if the server is alive."},
+                ],
+                max_tokens=16,
+                temperature=0.0,
+            )
+            greeting = health_response.choices[0].message.content.strip()
+            print(f"Post-termination inference succeeded: {greeting}")
+        except Exception as health_exc:
+            print(f"Post-termination inference failed: {health_exc}")
     except Exception as e:
         print(e)
     finally:
