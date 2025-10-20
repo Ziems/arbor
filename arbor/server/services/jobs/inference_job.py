@@ -11,7 +11,7 @@ import requests
 from arbor.server.core.config import Config
 from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
 from arbor.server.services.comms.control_server import TrainerControlServer
-from arbor.server.services.jobs.job import Job
+from arbor.server.services.jobs.job import Job, JobArtifact
 from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
 from arbor.server.utils.mock_utils import (
@@ -31,7 +31,8 @@ logger = get_logger(__name__)
 
 
 class InferenceJob(Job):
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, *, is_grpo_sub_job: bool = False):
+        self._is_grpo_sub_job = is_grpo_sub_job
         super().__init__(
             config, prefix="infer"
         )  # Default artifacts=[JobArtifact.LOGS] is perfect for inference jobs
@@ -49,16 +50,19 @@ class InferenceJob(Job):
         self.launched_model_name = (
             None  # the name of the model that was originally launched
         )
-        self._is_grpo_sub_job = False  # Flag to track if this is a GRPO sub-job
+        # Ensure flag is initialized even when super().__init__ bypassed directory setup
+        self._is_grpo_sub_job = is_grpo_sub_job
 
     def _setup_directories(self, artifacts):
         """Override to skip directory creation for GRPO sub-jobs."""
-        if getattr(self, "_is_grpo_sub_job", False):
-            # Skip directory creation for GRPO sub-jobs
-            # The parent GRPO job will handle directory setup
+        if self._is_grpo_sub_job:
             return
-        # Call parent method for standalone inference jobs
+
         super()._setup_directories(artifacts)
+
+        if JobArtifact.LOGS in artifacts and self.log_file_path:
+            log_dir = os.path.dirname(self.log_file_path)
+            self.log_file_path = os.path.join(log_dir, "inference.log")
 
     def is_server_running(self) -> bool:
         """Check if vLLM server is running."""
@@ -79,15 +83,21 @@ class InferenceJob(Job):
         launch_config = launch_config or self.launch_config
 
         # If this is a GRPO inference job, inherit the parent job's ID and don't create separate directories
-        if launch_config.is_grpo and launch_config.grpo_job_id:
+        is_grpo_sub_job = bool(launch_config.is_grpo and launch_config.grpo_job_id)
+        if is_grpo_sub_job:
             self.id = f"{launch_config.grpo_job_id}-inference"
             self._is_grpo_sub_job = True
+        else:
+            self._is_grpo_sub_job = False
             assert trainer_controller is not None, (
                 "Trainer controller is required for GRPO inference jobs"
             )
             self.trainer_controller = trainer_controller
             # Don't create separate directories for GRPO inference jobs
             # The log file path will be set by the parent GRPO job
+
+        if launch_config.log_file_path:
+            self.log_file_path = launch_config.log_file_path
 
         logger.info(f"Grabbing a free port to launch a vLLM server for model {model}")
         self.port = get_free_port()
@@ -247,6 +257,13 @@ class InferenceJob(Job):
                     )
 
         return filtered_callback
+
+    def promote_to_standalone(self) -> None:
+        if not self._is_grpo_sub_job:
+            return
+
+        self._is_grpo_sub_job = False
+        self._setup_directories([JobArtifact.LOGS])
 
 
 def wait_for_server(base_url: str, timeout: int = None) -> None:
