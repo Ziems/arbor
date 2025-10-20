@@ -407,7 +407,12 @@ class GRPOJob(Job):
         # Terminate without saving model for faster cancellation
         self.terminate_process()
 
-    def terminate_process(self):
+    def terminate_process(
+        self,
+        *,
+        stop_inference: bool = True,
+        release_gpus: bool = True,
+    ) -> None:
         try:
             # Terminate training process using ProcessRunner
             if self.process_runner:
@@ -415,12 +420,24 @@ class GRPOJob(Job):
                 self.process_runner.terminate()
                 self.process_runner = None
 
-            if self.inference_job and self.inference_job.process is not None:
+            if (
+                stop_inference
+                and self.inference_job
+                and self.inference_job.process is not None
+            ):
                 logger.info("Terminating inference job...")
                 self.inference_job.terminate()
+                self.inference_job = None
+            elif not stop_inference:
+                logger.info(
+                    "Leaving inference server running after training termination"
+                )
 
-            # Release GPUs
-            self._ensure_gpu_cleanup()
+            if release_gpus:
+                # Release GPUs when we're fully shutting down the job
+                self._ensure_gpu_cleanup()
+            else:
+                logger.info("Skipping GPU cleanup to keep inference resources reserved")
 
             # Reinitialize in case we want to start a new training run
             self.training_process = None
@@ -433,6 +450,8 @@ class GRPOJob(Job):
             # Still reset state even if cleanup fails
             self.training_process = None
             self.process_runner = None
+            if stop_inference:
+                self.inference_job = None
             self.server_comms_handler = None
             self.event_thread = None
             self.batch_count = 0
