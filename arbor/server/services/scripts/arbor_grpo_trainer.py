@@ -572,16 +572,15 @@ class ArborGRPOTrainer(Trainer):
                 json.dump(metadata, fh, indent=2, sort_keys=True)
 
         record["timestamp"] = time.time()
-        
+
         if push_to_hub:
             record["hf_hub_url"] = self.push_to_hub(
-                commit_message=checkpoint_name, 
-                blocking=True).commit_url
+                commit_message=checkpoint_name, blocking=True
+            ).commit_url
 
         with self._checkpoint_lock:
             self._checkpoint_records.append(dict(record))
             self._last_checkpoint_record = dict(record)
-        
 
         return None
 

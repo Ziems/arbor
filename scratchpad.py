@@ -42,17 +42,13 @@ student_classify.set_lm(student_lm)
 # Optimize with Arbor's GRPO trainer (requires 2+ GPUs)
 from arbor import ArborGRPO
 
-# compiler = ArborGRPO(
-#     metric=lambda x, y: x.label == y.label, exclude_demos=True
-# )
+compiler = ArborGRPO(metric=lambda x, y: x.label == y.label, exclude_demos=True)
 
-# # Run optimization
-# optimized_classify = compiler.compile(
-#     student=student_classify,
-#     trainset=trainset,
-#     valset=valset
-# )
-print(student_classify(text="I want to transfer money"))
+# Run optimization
+optimized_classify = compiler.compile(
+    student=student_classify, trainset=trainset, valset=valset
+)
+# print(student_classify(text="I want to transfer money"))
 
 
 # Your classifier is now optimized with RL! 🎉
