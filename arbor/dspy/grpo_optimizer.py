@@ -59,6 +59,7 @@ class ArborGRPO(FinetuneTeleprompter):
         variably_invoked_predictor_fill_strategy: Literal["randint"]
         | Literal["max"]
         | None = None,
+        checkpoint: Literal["single-best", "improvements", "none"] = "improvements",
     ):
         super().__init__(train_kwargs=train_kwargs)
         self.metric = metric
@@ -104,6 +105,16 @@ class ArborGRPO(FinetuneTeleprompter):
         self.variably_invoked_predictor_fill_strategy = (
             variably_invoked_predictor_fill_strategy
         )
+
+        if checkpoint not in {"single-best", "improvements", "none"}:
+            raise ValueError(
+                "checkpoint must be one of 'single-best', 'improvements', or 'none'"
+            )
+        self.checkpoint_mode = checkpoint
+
+        self.best_validation_score: float | None = None
+        self.best_validation_step: int | None = None
+        self.validation_scores: dict[int, float] = {}
 
         self.shuffled_trainset_ids = []
         self.epoch = -1
@@ -299,6 +310,35 @@ class ArborGRPO(FinetuneTeleprompter):
 
         if score is None:
             return
+
+        self.validation_scores[step_idx] = score
+
+        if step_idx == -1:
+            if self.best_validation_score is None or score > self.best_validation_score:
+                self.best_validation_score = score
+                self.best_validation_step = step_idx
+            return
+
+        improved = (
+            self.best_validation_score is None or score > self.best_validation_score
+        )
+
+        if improved:
+            self.best_validation_score = score
+            self.best_validation_step = step_idx
+            if (
+                self.checkpoint_mode != "none"
+                and grpo_training_job is not None
+                and lm_for_job is not None
+            ):
+                checkpoint_name = (
+                    "model_checkpoint_best"
+                    if self.checkpoint_mode == "single-best"
+                    else f"model_checkpoint_step_{step_idx + 1}"
+                )
+                self._save_checkpoint_for_job(
+                    grpo_training_job, lm_for_job, checkpoint_name
+                )
 
     def update_shuffled_trainset(self, original_trainset):
         self.shuffled_trainset_ids = list(range(len(original_trainset)))
@@ -768,6 +808,30 @@ class ArborGRPO(FinetuneTeleprompter):
         logger.info("GRPO compiler has finished compiling the student program")
         student._compiled = True
         return student
+
+    def _save_checkpoint_for_job(
+        self, grpo_training_job: Any, lm_for_job: LM, checkpoint_name: str
+    ) -> None:
+        grpo_training_job.save_checkpoint(checkpoint_name=checkpoint_name)
+        checkpoints = grpo_training_job.checkpoints or {}
+        checkpoint_record = checkpoints.get(checkpoint_name, {})
+        checkpoint_dir = checkpoint_record.get("checkpoint_dir")
+        job_label = (
+            lm_for_job.model
+            if hasattr(lm_for_job, "model")
+            else lm_for_job.name
+            if hasattr(lm_for_job, "name")
+            else lm_for_job.__class__.__name__
+        )
+        if checkpoint_dir:
+            logger.info(
+                "Saved checkpoint %s for %s at %s",
+                checkpoint_name,
+                job_label,
+                checkpoint_dir,
+            )
+        else:
+            logger.info("Saved checkpoint %s for %s", checkpoint_name, job_label)
 
 
 def disable_lm_cache(program: Module, lm_cache_dict: dict):

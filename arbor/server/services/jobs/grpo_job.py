@@ -17,7 +17,9 @@ from arbor.server.api.models.schemas import (
     GRPOInitializeRequest,
     GRPOStatus,
     GRPOStepRequest,
+    GRPOCheckpointRequest,
     InferenceJobRequest,
+    JobStatus,
 )
 from arbor.server.core.config import Config
 from arbor.server.services.jobs.inference_job import InferenceJob
@@ -71,6 +73,18 @@ class GRPOJob(Job):
         self.batch_count = 0
         self.last_inference_update = 0
         self.pending_data = set()
+
+        self.checkpoints: dict[str, dict[str, Any]] = {}
+        self.last_checkpoint: str | None = None
+
+    def _update_checkpoint_records(self, records: list[dict[str, Any]] | None) -> None:
+        if not records:
+            return
+
+        checkpoints = {record["checkpoint_name"]: record for record in records}
+        self.checkpoints = checkpoints
+        latest = max(records, key=lambda r: r.get("timestamp", 0))
+        self.last_checkpoint = latest.get("checkpoint_name")
 
     def _make_job_id(self, request: GRPOInitializeRequest):
         slug = coolname.generate_slug(2)
@@ -239,6 +253,7 @@ class GRPOJob(Job):
             target=self._handle_event_updates, args=(), daemon=True
         )
         self.event_thread.start()
+        self.status = JobStatus.RUNNING
 
     def _handle_submit_batches(self, status: dict):
         pending_batch_ids = status.get("pending_ids", [])
@@ -274,6 +289,7 @@ class GRPOJob(Job):
                     )
                     break
                 self.wandb_run_id = status.get("wandb_run_id", None)
+                self._update_checkpoint_records(status.get("checkpoints"))
 
                 self._handle_submit_batches(status)
             # Always ensure GPU cleanup happens, even if job crashes
@@ -323,6 +339,24 @@ class GRPOJob(Job):
         except Exception as e:
             logger.error(f"Failed to send batch to training process: {e}")
             raise
+
+    def checkpoint(self, request: GRPOCheckpointRequest) -> GRPOStatus:
+        if not self.trainer_controller:
+            raise RuntimeError("Trainer controller is not initialized for this job")
+
+        response = self.trainer_controller.request_checkpoint(request.checkpoint_name)
+        if not response.get("ok", False):
+            raise RuntimeError(
+                f"Checkpoint request failed: {response.get('error', 'Unknown error')}"
+            )
+        checkpoint = response.get("checkpoint")
+        if not checkpoint:
+            raise RuntimeError("Trainer did not return checkpoint metadata")
+
+        self.checkpoints[checkpoint["checkpoint_name"]] = checkpoint
+        self.last_checkpoint = checkpoint["checkpoint_name"]
+        logger.info(f"Checkpoint completed for {checkpoint['checkpoint_name']}")
+        return self.get_status()
 
     def terminate_training(self, timeout: float = 300.0):
         if not self.trainer_controller:
@@ -401,6 +435,8 @@ class GRPOJob(Job):
             job_id=self.id,
             status=self.status.value,
             current_model=self.id,
+            checkpoints=self.checkpoints,
+            last_checkpoint=self.last_checkpoint,
             pending_batch_ids=self.pending_batch_ids,
         )
 
