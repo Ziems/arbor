@@ -358,6 +358,22 @@ class GRPOJob(Job):
         logger.info(f"Checkpoint completed for {checkpoint['checkpoint_name']}")
         return self.get_status()
 
+    def save_final_checkpoint(self, checkpoint_name: str = "checkpoint_final") -> None:
+        """Attempt to save a final checkpoint before shutting down training."""
+        if not self.trainer_controller:
+            logger.warning(
+                "Skipping final checkpoint because trainer controller is not initialized"
+            )
+            return
+
+        try:
+            request = GRPOCheckpointRequest(
+                job_id=self.id, checkpoint_name=checkpoint_name
+            )
+            self.checkpoint(request)
+        except Exception as exc:  # pragma: no cover - best effort logging
+            logger.error(f"Failed to save final checkpoint: {exc}")
+
     def terminate_training(self, timeout: float = 300.0):
         if not self.trainer_controller:
             raise RuntimeError("Trainer controller is not initialized for this job")

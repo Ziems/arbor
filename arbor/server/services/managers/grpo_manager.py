@@ -57,6 +57,7 @@ class GRPOManager(BaseManager):
 
     def terminate(self, request: GRPOTerminateRequest) -> GRPOStatus:
         grpo_job = self.grpo_jobs[request.job_id]
+        grpo_job.save_final_checkpoint()
         grpo_job.terminate_training()
         grpo_job.terminate_process()
         return grpo_job.get_status()
