@@ -15,8 +15,8 @@ class TrainerControlClient(threading.Thread):
     This thread runs inside the GRPO trainer process and exposes a REP socket
     that mirrors the interface provided by :class:`TrainerControlServer`. It
     receives requests such as status polling, inference lifecycle updates, batch
-    submissions, checkpoint triggers, and terminate signals, then routes them to the
-    underlying :class:`AsyncBatchRequester` and trainer control logic.
+    submissions and terminate signals, then routes them to the underlying
+    :class:`AsyncBatchRequester` and trainer control logic.
     """
 
     def __init__(self, trainer: "ArborGRPOTrainer", endpoint: str):
@@ -87,7 +87,6 @@ class TrainerControlClient(threading.Thread):
                 "completed_count": requester.get_completed_count(),
                 "global_step": int(self.trainer.state.global_step),
                 "wandb_run_id": wandb.run.id if wandb.run is not None else None,
-                "checkpoints": self.trainer.get_checkpoint_records(),
             }
         if cmd == "submit_batch":
             batch_payload = message.get("batch")
@@ -96,14 +95,6 @@ class TrainerControlClient(threading.Thread):
             try:
                 batch = BatchResult.model_validate(batch_payload)
                 requester.submit_batch_result(batch)
-            except Exception as exc:
-                return {"ok": False, "error": str(exc)}
-            return {"ok": True}
-        if cmd == "checkpoint":
-            checkpoint_name = message.get("checkpoint_name")
-            metadata = message.get("metadata")
-            try:
-                self.trainer.request_checkpoint(checkpoint_name, metadata)
             except Exception as exc:
                 return {"ok": False, "error": str(exc)}
             return {"ok": True}

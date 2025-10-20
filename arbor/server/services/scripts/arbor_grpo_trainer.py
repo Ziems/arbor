@@ -1,4 +1,3 @@
-import os
 import torch
 from arbor.server.services.comms.control_client import TrainerControlClient
 import json
@@ -135,11 +134,6 @@ class ArborGRPOTrainer(Trainer):
     ):
         self.logger = logging.getLogger(__name__)
         self.logger.debug("Starting __init__")
-        self._checkpoint_lock = threading.RLock()
-        self._checkpoint_records: list[dict[str, Any]] = []
-        self._pending_checkpoint_requests: deque[dict[str, Any]] = deque()
-        self._last_checkpoint_record: Optional[dict[str, Any]] = None
-        self._checkpoint_broadcast_payload: Optional[dict[str, Any]] = None
         self._control_client: Optional[TrainerControlClient] = None
 
         # Trained model
@@ -497,113 +491,6 @@ class ArborGRPOTrainer(Trainer):
         )
         return self.accelerator.prepare(self._async_dataloader)
 
-    def _dequeue_checkpoint_request(self) -> Optional[dict[str, Any]]:
-        with self._checkpoint_lock:
-            if not self._pending_checkpoint_requests:
-                return None
-            return self._pending_checkpoint_requests.popleft()
-
-    def request_checkpoint(
-        self,
-        checkpoint_name: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
-    ) -> None:
-        """Queue an external checkpoint request and trigger Trainer save."""
-
-        if metadata is not None and not isinstance(metadata, dict):
-            raise TypeError("Checkpoint metadata must be a mapping if provided")
-
-        request = {
-            "checkpoint_name": checkpoint_name,
-            "metadata": metadata,
-            "queued_at": time.time(),
-        }
-        with self._checkpoint_lock:
-            self._pending_checkpoint_requests.append(request)
-            if self._checkpoint_broadcast_payload is None:
-                self._checkpoint_broadcast_payload = dict(request)
-        if hasattr(self, "control"):
-            self.control.should_save = True
-
-    def get_checkpoint_records(self) -> list[dict[str, Any]]:
-        """Return a copy of recorded checkpoints."""
-
-        with self._checkpoint_lock:
-            return [dict(record) for record in self._checkpoint_records]
-
-    def _maybe_sync_checkpoint_requests(self) -> None:
-        """Ensure externally requested checkpoints reach every process."""
-
-        if self.accelerator.num_processes <= 1:
-            return
-
-        payload_list = [None]
-        if self.accelerator.is_main_process:
-            with self._checkpoint_lock:
-                if self._checkpoint_broadcast_payload is not None:
-                    payload_list[0] = dict(self._checkpoint_broadcast_payload)
-                    self._checkpoint_broadcast_payload = None
-
-        broadcast_object_list(payload_list, from_process=0)
-        payload = payload_list[0]
-        if payload is None:
-            return
-
-        if not self.accelerator.is_main_process:
-            with self._checkpoint_lock:
-                self._pending_checkpoint_requests.append(payload)
-
-        if hasattr(self, "control"):
-            self.control.should_save = True
-
-    def get_last_checkpoint_record(self) -> Optional[dict[str, Any]]:
-        """Return the most recent checkpoint record if available."""
-
-        with self._checkpoint_lock:
-            if self._last_checkpoint_record is None:
-                return None
-            return dict(self._last_checkpoint_record)
-
-    def _save_checkpoint(self, model, trial):  # type: ignore[override]
-        """Capture checkpoint metadata when Hugging Face saves."""
-
-        request = self._dequeue_checkpoint_request() or {}
-
-        run_dir = self._get_output_dir(trial=trial)
-        checkpoint_name = (
-            request.get("checkpoint_name") or f"checkpoint-{self.state.global_step}"
-        )
-        checkpoint_dir = os.path.abspath(os.path.join(run_dir, checkpoint_name))
-
-        metadata = request.get("metadata")
-
-        record = {
-            "checkpoint_name": checkpoint_name,
-            "checkpoint_dir": checkpoint_dir,
-            "global_step": int(self.state.global_step),
-            "requested": bool(request),
-            "metadata": metadata,
-            "timestamp": time.time(),
-        }
-
-        with self._checkpoint_lock:
-            self._last_checkpoint_record = dict(record)
-
-        super()._save_checkpoint(model, trial)
-
-        if metadata:
-            metadata_path = os.path.join(checkpoint_dir, "metadata.json")
-            with open(metadata_path, "w", encoding="utf-8") as fh:
-                json.dump(metadata, fh, indent=2, sort_keys=True)
-
-        record["timestamp"] = time.time()
-
-        with self._checkpoint_lock:
-            self._checkpoint_records.append(dict(record))
-            self._last_checkpoint_record = dict(record)
-
-        return None
-
     def _enable_gradient_checkpointing(
         self, model: PreTrainedModel, args: ArborGRPOConfig
     ) -> PreTrainedModel:
@@ -885,8 +772,6 @@ class ArborGRPOTrainer(Trainer):
             broadcast_object_list(broadcast_list, from_process=0)
             broadcast_data = broadcast_list[0]
             self.accelerator.wait_for_everyone()
-
-            self._maybe_sync_checkpoint_requests()
 
             # Each process takes its slice based on the total broadcast batch size
             total_sequences = len(broadcast_data["prompt_ids"])
