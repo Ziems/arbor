@@ -6,7 +6,7 @@
 
 [![PyPI Downloads](https://static.pepy.tech/badge/arbor-ai/month)](https://pepy.tech/projects/arbor-ai)
 
-[![DSPy Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/ZAEGgxjPUe) [![Arbor Channel](https://img.shields.io/badge/Arbor%20Channel-Open-5865F2?logo=discord&logoColor=white)](https://discordapp.com/channels/1161519468141355160/1396547082839654430)
+[![ArborRL Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/EuU47wKsBS)
 
 ---
 
