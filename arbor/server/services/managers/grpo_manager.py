@@ -59,7 +59,7 @@ class GRPOManager(BaseManager):
         grpo_job = self.grpo_jobs[request.job_id]
         grpo_job.save_final_checkpoint()
         grpo_job.terminate_training()
-        grpo_job.terminate_process()
+        grpo_job.terminate_process(stop_inference=False, release_gpus=False)
         return grpo_job.get_status()
 
     def cleanup(self) -> None:
