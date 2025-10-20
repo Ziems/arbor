@@ -54,11 +54,7 @@ class GRPOJob(Job):
         )
         self.gpu_manager: GPUManager = gpu_manager
         self.training_process = None
-        self.base_model = None
-        self.train_kwargs = None
         self.event_thread = None
-        self.saving_model = False
-        self.terminating = False
         self.training_terminate_pending = False
         self.inference_job: InferenceJob = None
         self.process_runner: Optional[AccelerateProcessRunner] = None
@@ -474,14 +470,6 @@ class GRPOJob(Job):
             last_checkpoint=self.last_checkpoint,
             pending_batch_ids=self.pending_batch_ids,
         )
-
-    def _handle_error_event(self, event: dict):
-        error_msg = event.get("error", "Unknown error")
-        logger.error(f"Training error: {error_msg}")
-
-    def _handle_terminated_event(self, event: dict):
-        self.terminating = False
-        logger.info("Training process terminated")
 
 
 def build_batch_result(
