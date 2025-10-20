@@ -79,9 +79,11 @@ class InferenceJob(Job):
         launch_config = launch_config or self.launch_config
 
         # If this is a GRPO inference job, inherit the parent job's ID and don't create separate directories
-        if launch_config.is_grpo and launch_config.grpo_job_id:
+        self._is_grpo_sub_job = bool(
+            launch_config.is_grpo and launch_config.grpo_job_id
+        )
+        if self._is_grpo_sub_job:
             self.id = f"{launch_config.grpo_job_id}-inference"
-            self._is_grpo_sub_job = True
             assert trainer_controller is not None, (
                 "Trainer controller is required for GRPO inference jobs"
             )
