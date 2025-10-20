@@ -310,7 +310,8 @@ class ArborGRPOConfig(TrainingArguments):
         },
     )
     epsilon_high: Optional[float] = field(
-        default=None,
+        # default=None,
+        default=0.28,
         metadata={
             "help": "Upper-bound epsilon value for clipping. If not specified, it defaults to the same value as the "
             "lower-bound specified in argument `epsilon`. Paper DAPO recommends `0.28`."
