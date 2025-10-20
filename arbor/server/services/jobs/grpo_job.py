@@ -46,11 +46,7 @@ class GRPOJob(Job):
         super().__init__(
             config,
             id=id,
-            artifacts=[
-                JobArtifact.LOGS,
-                JobArtifact.MODEL,
-                JobArtifact.METRICS,
-            ],
+            artifacts=[JobArtifact.LOGS, JobArtifact.CHECKPOINTS, JobArtifact.METRICS],
         )
         self.gpu_manager: GPUManager = gpu_manager
         self.training_process = None
@@ -88,16 +84,6 @@ class GRPOJob(Job):
         name = request.run_name if request.run_name is not None else slug
         timestamp = datetime.now().strftime("%Y%m%d")
         return f"grpo:{model}:{name}:{timestamp}"
-
-    def find_training_args(self, request: GRPOInitializeRequest) -> dict:
-        """Process the config request and return training arguments."""
-        output_dir = self._make_model_dir()  # Use base class method
-
-        # Here are defaults for training. We can adjust them if we disagree w the huggingface defaults
-        default_train_kwargs = {"output_dir": output_dir, "grpo_flavor": "grpo"}
-
-        train_kwargs = request.model_dump(exclude_unset=True)
-        return {**default_train_kwargs, **(train_kwargs or {})}
 
     def _build_trainer_config(
         self, request: GRPOInitializeRequest, output_dir: str, vllm_port: int
@@ -168,8 +154,9 @@ class GRPOJob(Job):
             request.inference_config, inference_gpus, self.trainer_controller
         )
 
-        # Set up logging paths for both GRPO and inference jobs
+        # Set up storage paths for logs and checkpoints
         log_dir = self._make_log_dir()
+        checkpoint_dir = self._make_checkpoints_dir()
         self.log_file_path = os.path.join(log_dir, "grpo_training.log")
         if self.inference_job:
             self.inference_job.log_file_path = os.path.join(log_dir, "inference.log")
@@ -208,7 +195,7 @@ class GRPOJob(Job):
         self.process_runner = AccelerateProcessRunner(self.id)
 
         self.trainer_config: ArborGRPOConfig = self._build_trainer_config(
-            request, log_dir, self.inference_job.port
+            request, checkpoint_dir, self.inference_job.port
         )
         # Ensure the trainer binds its control client to our generated endpoint
         self.trainer_config.control_endpoint = self.trainer_controller.endpoint
