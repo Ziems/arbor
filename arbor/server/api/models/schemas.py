@@ -205,8 +205,6 @@ class GRPOStatus(StrictBaseModel):
     job_id: str
     status: Optional[str] = None
     current_model: str
-    checkpoints: dict[str, dict[str, Any]]
-    last_checkpoint: Optional[str] = None
     pending_batch_ids: List[int] = []
 
 
@@ -273,10 +271,6 @@ class GRPOStepRequest(GRPOBaseRequest):
     model: str
     batch_id: int
     batch: List[dict] | List[List[dict]]
-
-
-class GRPOCheckpointRequest(GRPOBaseRequest):
-    checkpoint_name: str
 
 
 class GRPOTerminateRequest(GRPOBaseRequest):

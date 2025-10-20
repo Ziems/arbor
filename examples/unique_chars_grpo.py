@@ -82,7 +82,6 @@ compiler = ArborGRPO(
     use_train_as_val=False,
     num_steps_for_val=10,
     train_kwargs=train_kwargs,
-    checkpoint="single-best",
 )
 
 classify_ft = compiler.compile(

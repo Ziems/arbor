@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING, Optional
 
 from arbor.server.api.models.schemas import (
-    GRPOCheckpointRequest,
     GRPOInitializeRequest,
     GRPOStatus,
     GRPOStepRequest,
@@ -38,12 +37,6 @@ class GRPOManager(BaseManager):
     def route_grpo_step(self, request: GRPOStepRequest):
         grpo_job = self.grpo_jobs[request.job_id]
         grpo_job.grpo_step(request)
-
-        return grpo_job.get_status()
-
-    def route_grpo_checkpoint(self, request: GRPOCheckpointRequest):
-        grpo_job = self.grpo_jobs[request.job_id]
-        grpo_job.checkpoint(request)
 
         return grpo_job.get_status()
 

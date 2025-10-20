@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Request
 
 from arbor.server.api.models.schemas import (
-    GRPOCheckpointRequest,
     GRPOInitializeRequest,
     GRPOStatus,
     GRPOStepRequest,
@@ -35,15 +34,6 @@ def get_grpo_status(request: Request, grpo_request: GRPOBaseRequest):
 def run_grpo_step(request: Request, grpo_request: GRPOStepRequest):
     grpo_manager: GRPOManager = request.app.state.grpo_manager
     grpo_status: GRPOStatus = grpo_manager.route_grpo_step(grpo_request)
-    return grpo_status
-
-
-@router.post("/checkpoint", response_model=GRPOStatus)
-def checkpoint(request: Request, grpo_checkpoint_request: GRPOCheckpointRequest):
-    grpo_manager: GRPOManager = request.app.state.grpo_manager
-    grpo_status: GRPOStatus = grpo_manager.route_grpo_checkpoint(
-        grpo_checkpoint_request
-    )
     return grpo_status
 
 

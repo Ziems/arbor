@@ -195,7 +195,7 @@ class ArborGRPOConfig(TrainingArguments):
     control_endpoint: Optional[str] = field(
         default="tcp://127.0.0.1:5555",
         metadata={
-            "help": "ZeroMQ endpoint used to expose trainer control (status, submit, checkpoint). Set to None to disable."
+            "help": "ZeroMQ endpoint used to expose trainer control (status and submit). Set to None to disable."
         },
     )
 

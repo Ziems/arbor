@@ -118,21 +118,3 @@ class WeightUpdateCallback(TrainerCallback):
         if command.get("command") == "weight_update_ready":
             logger.info("Received ready signal from server")
             self._waiting_for_ready = False
-
-    def on_save(
-        self,
-        args,  #: TrainingArguments,
-        state,  #: TrainerState,
-        control,  #: TrainerControl,
-        **kwargs,
-    ):
-        if not self.comms_handler or not self.trainer:
-            return
-
-        record = self.trainer.get_last_checkpoint_record()
-        if record is None:
-            return
-
-        self.comms_handler.send_status(
-            {"status": "checkpoint_saved", "checkpoint": record}
-        )
