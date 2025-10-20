@@ -52,7 +52,8 @@ class InferenceManager(BaseManager):
         launch_config: InferenceLaunchConfig,
         trainer_controller: TrainerControlServer,
     ):
-        inference_job = InferenceJob(self.config)
+        is_grpo_sub_job = bool(launch_config.is_grpo and launch_config.grpo_job_id)
+        inference_job = InferenceJob(self.config, is_grpo_sub_job=is_grpo_sub_job)
 
         # Use provided GPU IDs or allocate through GPU manager
         if launch_config.gpu_ids is None:

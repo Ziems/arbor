@@ -137,6 +137,7 @@ class GRPOJob(Job):
             inference_config: InferenceJobRequest,
             inference_gpus: list[int],
             trainer_controller: TrainerControlServer,
+            log_file_path: str,
         ):
             # TODO: This "InferenceLaunchConfig"needs to be cleaned up to be more inline with the other config and request structures
             inference_launch_config = InferenceLaunchConfig(
@@ -144,22 +145,26 @@ class GRPOJob(Job):
                 gpu_ids=inference_gpus,
                 is_grpo=True,
                 grpo_job_id=self.id,
+                log_file_path=log_file_path,
             )
             logger.info("Launching inference server...")
             return inference_manager.launch_job(
                 request.model, inference_launch_config, self.trainer_controller
             )
 
-        self.inference_job = _launch_inference_job(
-            request.inference_config, inference_gpus, self.trainer_controller
-        )
-
-        # Set up storage paths for logs and checkpoints
         log_dir = self._make_log_dir()
         checkpoint_dir = self._make_checkpoints_dir()
         self.log_file_path = os.path.join(log_dir, "grpo_training.log")
-        if self.inference_job:
-            self.inference_job.log_file_path = os.path.join(log_dir, "inference.log")
+        inference_log_path = os.path.join(log_dir, "inference.log")
+
+        self.inference_job = _launch_inference_job(
+            request.inference_config,
+            inference_gpus,
+            self.trainer_controller,
+            inference_log_path,
+        )
+
+        # inference_job.log_file_path already configured via launch config
 
         script_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"
@@ -415,6 +420,8 @@ class GRPOJob(Job):
                 logger.info(
                     "Leaving inference server running after training termination"
                 )
+                if self.inference_job:
+                    self.inference_job.promote_to_standalone()
 
             if release_gpus:
                 # Release GPUs when we're fully shutting down the job
