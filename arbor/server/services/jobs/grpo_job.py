@@ -403,6 +403,12 @@ class GRPOJob(Job):
         stop_inference: bool = True,
         release_gpus: bool = True,
     ) -> None:
+        training_log_path = self.log_file_path
+        inference_log_path = (
+            getattr(self.inference_job, "log_file_path", None)
+            if self.inference_job is not None
+            else None
+        )
         try:
             # Terminate training process using ProcessRunner
             if self.process_runner:
@@ -447,6 +453,11 @@ class GRPOJob(Job):
             self.server_comms_handler = None
             self.event_thread = None
             self.batch_count = 0
+        finally:
+            if training_log_path:
+                logger.info("Training log saved to %s", training_log_path)
+            if inference_log_path:
+                logger.info("Inference log saved to %s", inference_log_path)
 
     def _ensure_gpu_cleanup(self):
         """Ensure GPUs are released, even if called multiple times."""
