@@ -179,7 +179,7 @@ class ArborGRPOTrainer(Trainer):
                 )
                 args.sync_ref_model = False
 
-                # Enable gradient checkpointing if requested
+        # Enable gradient checkpointing if requested
         if args.gradient_checkpointing:
             model = self._enable_gradient_checkpointing(model, args)  # type: ignore
 
