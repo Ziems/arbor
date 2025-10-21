@@ -47,7 +47,7 @@ class ArborGRPO(FinetuneTeleprompter):
         num_train_steps: int = 100,
         seed: int = 0,
         num_dspy_examples_per_grpo_step: int = 1,
-        num_rollouts_per_grpo_step: int = 1,
+        num_rollouts_per_grpo_step: int = 4,
         use_train_as_val: bool = False,
         num_steps_for_val: int = 5,
         report_train_scores: bool = False,
@@ -75,7 +75,6 @@ class ArborGRPO(FinetuneTeleprompter):
         self.report_train_scores = report_train_scores
         self.failure_score = failure_score
         self.format_failure_score = format_failure_score
-
         assert failure_score > format_failure_score, (
             "failure_score must be greater than format_failure_score since the range [format_failure_score, failure_score] is used to provide dspy formatting rewards"
         )
@@ -88,6 +87,10 @@ class ArborGRPO(FinetuneTeleprompter):
         assert exclude_demos, (
             "exclude_demos==False is not supported yet. Please set it to True."
         )
+
+        assert num_rollouts_per_grpo_step > 1, (
+            "num rollouts per grpo step has to be greater than 1 for GRPO to calculate advantages"
+            )
 
         self.variably_invoked_predictor_grouping_mode = (
             variably_invoked_predictor_grouping_mode
