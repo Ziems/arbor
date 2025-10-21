@@ -28,6 +28,7 @@ from arbor.server.services.jobs.job import Job, JobArtifact
 from arbor.server.services.managers.inference_manager import InferenceManager
 from arbor.server.services.managers.gpu_manager import GPUManager
 from arbor.server.services.scripts.arbor_grpo_config import ArborGRPOConfig
+from arbor.server.utils.error_handling import TrainingError, handle_error, record_error
 from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
 from arbor.server.utils.mock_utils import get_script_path, setup_mock_environment
@@ -282,18 +283,29 @@ class GRPOJob(Job):
                 self._handle_submit_batches(status)
             # Always ensure GPU cleanup happens, even if job crashes
             self._ensure_gpu_cleanup()
-        except Exception as e:
-            logger.error(f"Error handling status updates: {e}")
+        except Exception as exc:
+            handle_error(exc, {"stage": "event_updates", "job_id": self.id})
 
     def validate_batch(self, batch):
         if not isinstance(batch, list):
+            record_error("Batch must be a list", "InvalidBatch", {"job_id": self.id})
             raise ValueError("Batch must be a list")
 
         for item in batch:
             if not isinstance(item, dict):
+                record_error(
+                    "Each item in batch must be a dictionary",
+                    "InvalidBatch",
+                    {"job_id": self.id},
+                )
                 raise ValueError("Each item in batch must be a dictionary")
             required_keys = {"messages", "completion", "reward"}
             if not all(key in item for key in required_keys):
+                record_error(
+                    "Each item must contain keys: {'messages', 'completion', 'reward'}",
+                    "InvalidBatch",
+                    {"job_id": self.id},
+                )
                 raise ValueError(f"Each item must contain keys: {required_keys}")
         return True
 
@@ -324,9 +336,12 @@ class GRPOJob(Job):
                 # Handle List[dict] case
                 _handle_group_data(request.batch)
 
-        except Exception as e:
-            logger.error(f"Failed to send batch to training process: {e}")
-            raise
+        except Exception as exc:
+            context = {"job_id": self.id, "batch_id": request.batch_id}
+            handle_error(exc, {"stage": "step", **context})
+            raise TrainingError(
+                "Failed to send batch to training process", **context
+            ) from exc
 
     def checkpoint(self, request: GRPOCheckpointRequest) -> GRPOStatus:
         if not self.trainer_controller:
@@ -336,6 +351,12 @@ class GRPOJob(Job):
             request.checkpoint_name, request.metadata
         )
         if not response.get("ok", False):
+            context = {
+                "job_id": self.id,
+                "checkpoint": request.checkpoint_name,
+                "error": response.get("error", "Unknown error"),
+            }
+            record_error("Checkpoint request failed", "GRPOCheckpointError", context)
             raise RuntimeError(
                 f"Checkpoint request failed: {response.get('error', 'Unknown error')}"
             )
@@ -362,7 +383,7 @@ class GRPOJob(Job):
             )
             self.checkpoint(request)
         except Exception as exc:  # pragma: no cover - best effort logging
-            logger.error(f"Failed to save final checkpoint: {exc}")
+            handle_error(exc, {"stage": "save_final_checkpoint", "job_id": self.id})
 
     def terminate_training(self, timeout: float = 300.0):
         if not self.trainer_controller:
