@@ -6,6 +6,7 @@ from urllib.parse import urljoin
 
 import openai
 import requests
+import logging
 
 import dspy
 from dspy.clients.provider import Provider, ReinforceJob, TrainingJob
@@ -19,6 +20,8 @@ from dspy.clients.utils_finetune import (
 
 if TYPE_CHECKING:
     from dspy.clients.lm import LM
+
+logger = logging.getLogger(__name__)
 
 
 class ArborTrainingJob(TrainingJob):
@@ -190,6 +193,8 @@ class ArborReinforceJob(ReinforceJob):
         url = urljoin(api_base, "fine_tuning/grpo/initialize")
         headers = {"Content-Type": "application/json"}
         response = requests.post(url=url, headers=headers, json=data)
+        logger.info(f"Response: {response}")
+
         print(json.dumps(response.json(), indent=2))
         response.raise_for_status()
         response = response.json()
