@@ -44,10 +44,10 @@ class ArborGRPO(FinetuneTeleprompter):
         adapter: Adapter | dict[LM, Adapter] | None = None,
         exclude_demos: bool = False,
         num_threads: int = 6,
-        num_train_steps: int = 100,
+        num_train_steps: int = 500,
         seed: int = 0,
         num_dspy_examples_per_grpo_step: int = 1,
-        num_rollouts_per_grpo_step: int = 1,
+        num_rollouts_per_grpo_step: int = 4,
         use_train_as_val: bool = False,
         num_steps_for_val: int = 5,
         report_train_scores: bool = False,
@@ -59,7 +59,7 @@ class ArborGRPO(FinetuneTeleprompter):
         variably_invoked_predictor_fill_strategy: Literal["randint"]
         | Literal["max"]
         | None = None,
-        checkpoint: Literal["single-best", "improvements", "none"] = "improvements",
+        checkpoint: Literal["single-best", "improvements", "none"] = "single-best",
     ):
         super().__init__(train_kwargs=train_kwargs)
         self.metric = metric
@@ -69,6 +69,10 @@ class ArborGRPO(FinetuneTeleprompter):
         self.num_train_steps = num_train_steps
         self.rng = random.Random(seed)
         self.num_dspy_examples_per_grpo_step = num_dspy_examples_per_grpo_step
+        assert num_rollouts_per_grpo_step > 1, (
+            "num_rollouts_per_grpo_step must be greater than 1"
+        )
+
         self.num_rollouts_per_grpo_step = num_rollouts_per_grpo_step
         self.use_train_as_val = use_train_as_val
         self.num_steps_for_val = num_steps_for_val
