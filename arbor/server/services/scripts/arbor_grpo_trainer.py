@@ -165,7 +165,14 @@ class ArborGRPOTrainer(Trainer):
 
         if args.lora_config is not None:
             model = prepare_peft_model(model, args.lora_config, args)
-            # Override sync_ref_model if PEFT is used since ref_model will be None
+            if args.gradient_checkpointing:
+                gc_kwargs = dict(args.gradient_checkpointing_kwargs or {})
+                if gc_kwargs.get("use_reentrant", True):
+                    self.logger.info(
+                        "Setting gradient_checkpointing_kwargs to use_reentrant=False for LoRA training"
+                    )
+                    gc_kwargs["use_reentrant"] = False
+                    args.gradient_checkpointing_kwargs = gc_kwargs
             if args.sync_ref_model:
                 self.logger.warning(
                     "sync_ref_model=True is not compatible with PEFT. Setting sync_ref_model=False."
