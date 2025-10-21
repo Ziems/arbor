@@ -42,7 +42,11 @@ student_classify.set_lm(student_lm)
 # Optimize with Arbor's GRPO trainer (requires 2+ GPUs)
 from arbor import ArborGRPO
 
-compiler = ArborGRPO(metric=lambda x, y: x.label == y.label, exclude_demos=True)
+compiler = ArborGRPO(
+    metric=lambda x, y: x.label == y.label,
+    exclude_demos=True,
+    num_rollouts_per_grpo_step=4,
+)
 
 # Run optimization
 optimized_classify = compiler.compile(
