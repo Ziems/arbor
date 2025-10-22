@@ -35,7 +35,6 @@ from trl.trainer.utils import (
 )
 from trl.models import prepare_peft_model, prepare_deepspeed
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, seed_worker
-import logging
 from trl.trainer.callbacks import SyncRefModelCallback
 from arbor.server.services.comms.async_batch_requester import (
     AsyncBatchRequester,
@@ -47,11 +46,7 @@ from collections import defaultdict, deque
 from arbor.server.services.inference.vllm_client import VLLMClient
 
 from arbor.server.services.scripts.arbor_grpo_config import ArborGRPOConfig
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-logging.getLogger("httpx").setLevel(logging.WARN)
+from arbor.server.utils.logging import setup_logging, get_logger
 
 
 class _ExternalBatchDataset(Dataset):
@@ -134,7 +129,7 @@ class ArborGRPOTrainer(Trainer):
             Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]
         ] = (None, None),
     ):
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger(__name__)
         self.logger.debug("Starting __init__")
         self._checkpoint_condition = threading.Condition()
         self._checkpoint_request_data: Optional[dict[str, Any]] = None
@@ -299,7 +294,7 @@ class ArborGRPOTrainer(Trainer):
             total_items,
         )
 
-        logger.debug("Starting super().__init__")
+        self.logger.debug("Starting super().__init__")
 
         super().__init__(
             model=model,
@@ -317,7 +312,7 @@ class ArborGRPOTrainer(Trainer):
             # that behavior without rewriting `training_step`.
             compute_loss_func="non-None value to disable scaling",
         )
-        logger.debug("Done with super().__init__")
+        self.logger.debug("Done with super().__init__")
 
         # Validate batch sizing to avoid empty per-process slices
         try:
@@ -457,7 +452,7 @@ class ArborGRPOTrainer(Trainer):
         if self.accelerator.is_main_process and args.control_endpoint:
             self._control_client = TrainerControlClient(self, args.control_endpoint)
             self._control_client.start()
-        logger.debug("Done with __init__")
+        self.logger.debug("Done with __init__")
 
     def get_train_dataloader(self):
         if self.train_dataset is None:
@@ -1379,6 +1374,12 @@ def build_trainer_config(args: argparse.Namespace) -> ArborGRPOConfig:
 
 
 def main():
+    setup_logging(
+        log_level="INFO",
+        enable_console_logging=True,
+        enable_file_logging=False,
+        show_colors=False,
+    )
     args = parse_args()
     trainer_config = build_trainer_config(args)
     trainer = ArborGRPOTrainer(

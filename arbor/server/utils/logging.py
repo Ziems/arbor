@@ -11,6 +11,7 @@ import logging.config
 import sys
 import time
 import uuid
+from collections.abc import Mapping
 from contextvars import ContextVar
 from functools import wraps
 from pathlib import Path
@@ -192,15 +193,24 @@ class ArborLogger:
         self,
         level: int,
         message: str,
+        *args,
         context: Optional[Dict[str, Any]] = None,
         exc_info: Optional[bool] = None,
         **kwargs,
     ):
         """Log with context and structured data."""
+        if args:
+            try:
+                message = message % args
+            except TypeError:
+                message = message.format(*args)
         # Merge context and kwargs
-        full_context = {}
-        if context:
-            full_context.update(context)
+        full_context: Dict[str, Any] = {}
+        if context is not None:
+            if isinstance(context, Mapping):
+                full_context.update(context)
+            else:
+                full_context["context"] = context
         if kwargs:
             full_context.update(kwargs)
 
@@ -214,47 +224,90 @@ class ArborLogger:
 
         self._logger.log(level, structured_message, exc_info=exc_info)
 
-    def debug(self, message: str, context: Optional[Dict[str, Any]] = None, **kwargs):
+    def debug(
+        self,
+        message: str,
+        *args,
+        context: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ):
         """Log debug message with context."""
-        self._log_with_context(logging.DEBUG, message, context, **kwargs)
+        self._log_with_context(logging.DEBUG, message, *args, context=context, **kwargs)
 
-    def info(self, message: str, context: Optional[Dict[str, Any]] = None, **kwargs):
+    def info(
+        self,
+        message: str,
+        *args,
+        context: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ):
         """Log info message with context."""
-        self._log_with_context(logging.INFO, message, context, **kwargs)
+        self._log_with_context(logging.INFO, message, *args, context=context, **kwargs)
 
-    def warning(self, message: str, context: Optional[Dict[str, Any]] = None, **kwargs):
+    def warning(
+        self,
+        message: str,
+        *args,
+        context: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ):
         """Log warning message with context."""
-        self._log_with_context(logging.WARNING, message, context, **kwargs)
+        self._log_with_context(
+            logging.WARNING, message, *args, context=context, **kwargs
+        )
 
     def error(
         self,
         message: str,
+        *args,
         context: Optional[Dict[str, Any]] = None,
         exc_info: bool = False,
         **kwargs,
     ):
         """Log error message with context."""
         self._log_with_context(
-            logging.ERROR, message, context, exc_info=exc_info, **kwargs
+            logging.ERROR,
+            message,
+            *args,
+            context=context,
+            exc_info=exc_info,
+            **kwargs,
         )
 
     def critical(
         self,
         message: str,
+        *args,
         context: Optional[Dict[str, Any]] = None,
         exc_info: bool = False,
         **kwargs,
     ):
         """Log critical message with context."""
         self._log_with_context(
-            logging.CRITICAL, message, context, exc_info=exc_info, **kwargs
+            logging.CRITICAL,
+            message,
+            *args,
+            context=context,
+            exc_info=exc_info,
+            **kwargs,
         )
 
     def exception(
-        self, message: str, context: Optional[Dict[str, Any]] = None, **kwargs
+        self,
+        message: str,
+        *args,
+        context: Optional[Dict[str, Any]] = None,
+        **kwargs,
     ):
         """Log exception with context and stack trace."""
-        self._log_with_context(logging.ERROR, message, context, exc_info=True, **kwargs)
+        self._log_with_context(
+            logging.ERROR,
+            message,
+            *args,
+            context=context,
+            exc_info=True,
+            **kwargs,
+        )
 
 
 class RequestContext:
