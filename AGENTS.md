@@ -16,6 +16,11 @@
 - Name modules and directories with lowercase underscores; use PascalCase for classes, snake_case for functions and variables.
 - Register `pre-commit` hooks (`uv run pre-commit install`) so formatting and lightweight linting run automatically.
 
+## Error Handling Guidelines
+- Use the helpers in `arbor/server/utils/error_handling.py` for capturing and reporting failures (`LoggedError`, `ArborError`, `ErrorHandler`).
+- Wrap risky GRPO operations with `with error_handler.context("step name", error_type=TrainingError):` to ensure consistent logging and escalation.
+- Expose new service-level errors by subclassing `ArborError` and wiring them through `ErrorHandler.raise_if_failed` instead of ad-hoc exceptions.
+
 ## Testing Guidelines
 - Testing currently disabled
 

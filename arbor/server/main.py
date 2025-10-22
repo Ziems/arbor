@@ -1,9 +1,11 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
-from arbor.server.api.routes import files, grpo, inference, jobs, monitor
+from arbor.server.api.routes import files, grpo, inference, jobs
 from arbor.server.utils.logging import apply_uvicorn_formatting, get_logger
+from arbor.server.utils.error_handling import ArborError
 
 logger = get_logger(__name__)
 
@@ -59,5 +61,13 @@ app.include_router(files.router, prefix="/v1/files")
 app.include_router(jobs.router, prefix="/v1/fine_tuning/jobs")
 app.include_router(grpo.router, prefix="/v1/fine_tuning/grpo")
 app.include_router(inference.router, prefix="/v1/chat")
-# Monitoring and observability
-app.include_router(monitor.router)
+
+
+@app.exception_handler(ArborError)
+async def handle_arbor_error(request: Request, exc: ArborError):
+    content = {
+        "message": exc.message,
+        "error_type": type(exc).__name__,
+        "context": {"path": request.url.path, **exc.context},
+    }
+    return JSONResponse(status_code=exc.status_code, content=content)
