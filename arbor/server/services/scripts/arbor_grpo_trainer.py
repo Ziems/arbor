@@ -1,4 +1,5 @@
 import os
+import logging
 import shutil
 import torch
 from arbor.server.services.comms.control_client import TrainerControlClient
@@ -612,7 +613,11 @@ class ArborGRPOTrainer(Trainer):
         self.accelerator.wait_for_everyone()
 
     def _wait_with_checkpoint_preempt(
-        self, waiting_fn, log_msg: str, sleep_s: float = 0.5
+        self,
+        waiting_fn,
+        log_msg: str,
+        sleep_s: float = 0.5,
+        preempt_on_checkpoint: bool = True,
     ) -> None:
         """
         Wait while a main-process condition is true, but allow checkpoint requests
@@ -625,7 +630,10 @@ class ArborGRPOTrainer(Trainer):
         while True:
             if self.accelerator.is_main_process:
                 if self._is_checkpoint_pending_main():
-                    waiting = False
+                    if preempt_on_checkpoint:
+                        waiting = False
+                    else:
+                        waiting = True
                 else:
                     try:
                         waiting = bool(waiting_fn())
@@ -845,6 +853,7 @@ class ArborGRPOTrainer(Trainer):
                 waiting_fn=_gen_wait,
                 log_msg="Waiting for background batch generation to complete before weight syncing.",
                 sleep_s=0.5,
+                preempt_on_checkpoint=False,
             )
 
         # Ensure all processes are synchronized before weight update
@@ -892,6 +901,7 @@ class ArborGRPOTrainer(Trainer):
             waiting_fn=_bg_tasks_wait,
             log_msg="Waiting for weight syncing background tasks to complete before submitting new batches.",
             sleep_s=0.5,
+            preempt_on_checkpoint=False,
         )
 
         # Ensure all processes wait for the main process to finish updating weights
@@ -1545,6 +1555,8 @@ def main():
         enable_file_logging=False,
         show_colors=False,
     )
+    # Reduce asyncio log verbosity
+    logging.getLogger("asyncio").setLevel(logging.ERROR)
     args = parse_args()
     trainer_config = build_trainer_config(args)
     trainer = ArborGRPOTrainer(
