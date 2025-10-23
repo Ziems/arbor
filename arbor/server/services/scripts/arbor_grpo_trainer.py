@@ -974,10 +974,6 @@ class ArborGRPOTrainer(Trainer):
                         )
                 self.accelerator.wait_for_everyone()
 
-            # After submissions, tick checkpoint servicing once in lockstep
-            self._service_checkpoint_requests()
-            self.accelerator.wait_for_everyone()
-
             # Update next batch id
             if self.accelerator.is_main_process:
                 self._next_batch_id = self._next_batch_id + batches_requested
@@ -1506,7 +1502,7 @@ def build_trainer_config(args: argparse.Namespace) -> ArborGRPOConfig:
 
 def main():
     setup_logging(
-        log_level="DEBUG",
+        log_level="INFO",
         enable_console_logging=True,
         enable_file_logging=False,
         show_colors=False,
