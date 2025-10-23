@@ -619,15 +619,24 @@ class ArborGRPOTrainer(Trainer):
             context={"checkpoint_name": checkpoint_name},
         )
 
+        # All ranks must participate in checkpoint saving with DeepSpeed ZeRO-3
+        self.logger.debug(
+            "Saving checkpoint state on all ranks",
+            context={"global_step": int(self.state.global_step)},
+        )
+        super()._save_checkpoint(self.model, trial=None)
+        self.accelerator.wait_for_everyone()
+
+        # Finalize (rename/metadata) on main process only
         if self.accelerator.is_main_process:
             self.logger.debug(
-                "Main process saving checkpoint",
+                "Finalizing checkpoint on main process",
                 context={
                     "checkpoint_name": checkpoint_name,
                     "global_step": int(self.state.global_step),
                 },
             )
-            record = self._save_checkpoint_blocking(checkpoint_name, metadata)
+            record = self._finalize_checkpoint_record(checkpoint_name, metadata)
         else:
             record = None
 
@@ -650,6 +659,50 @@ class ArborGRPOTrainer(Trainer):
                 },
             )
 
+        return record
+
+    def _finalize_checkpoint_record(
+        self, checkpoint_name: Optional[str], metadata: Optional[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Finalize a checkpoint after state has been saved by all ranks.
+
+        This performs directory renaming to the requested checkpoint name and writes
+        metadata. Only safe to call on the main process.
+        """
+        default_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
+        run_dir = self._get_output_dir(trial=None)
+        default_dir = os.path.abspath(os.path.join(run_dir, default_folder))
+        requested_name = checkpoint_name or default_folder
+        target_dir = os.path.abspath(os.path.join(run_dir, requested_name))
+
+        if requested_name != default_folder:
+            if os.path.exists(target_dir):
+                shutil.rmtree(target_dir)
+            if os.path.exists(default_dir):
+                shutil.move(default_dir, target_dir)
+            else:
+                target_dir = os.path.abspath(os.path.join(run_dir, requested_name))
+        else:
+            target_dir = default_dir
+
+        if self.state.best_model_checkpoint:
+            best_path = os.path.abspath(self.state.best_model_checkpoint)
+            if best_path == os.path.abspath(default_dir):
+                self.state.best_model_checkpoint = target_dir
+
+        if metadata:
+            metadata_path = os.path.join(target_dir, "metadata.json")
+            with open(metadata_path, "w", encoding="utf-8") as fh:
+                json.dump(metadata, fh, indent=2, sort_keys=True)
+
+        record = {
+            "checkpoint_name": requested_name,
+            "checkpoint_dir": target_dir,
+            "global_step": int(self.state.global_step),
+            "requested": True,
+            "metadata": metadata,
+            "timestamp": time.time(),
+        }
         return record
 
     def _save_checkpoint_blocking(
