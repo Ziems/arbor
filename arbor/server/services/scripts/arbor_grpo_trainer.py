@@ -883,10 +883,11 @@ class ArborGRPOTrainer(Trainer):
                         self.vllm_client.update_named_param(name, param.data)
                 self.model.unmerge_adapter()  # type: ignore
         else:
-            # For non-PEFT models, gather and update each parameter individually
-            for name, param in self.model.named_parameters():  # type: ignore
-                with gather_if_zero3([param]):
-                    if self.accelerator.is_main_process:
+            # For non-PEFT models, gather ALL params once, then update
+            named_params = list(self.model.named_parameters())  # type: ignore
+            with gather_if_zero3([p for _, p in named_params]):
+                if self.accelerator.is_main_process:
+                    for name, param in named_params:
                         self.vllm_client.update_named_param(name, param.data)
 
         # Reset cache on vLLM (main process only)
@@ -1168,6 +1169,21 @@ class ArborGRPOTrainer(Trainer):
             if self.max_seq_len is not None and input_ids.size(1) > self.max_seq_len:
                 input_ids = input_ids[:, -self.max_seq_len :]
                 attention_mask = attention_mask[:, -self.max_seq_len :]
+
+            # If mask_truncated_completions is enabled, zero out truncated completions in completion_mask
+            if self.mask_truncated_completions:
+                eos_and_pad = [self.eos_token_id, self.pad_token_id]
+                is_truncated = [
+                    ids[-1] not in eos_and_pad
+                    for ids in broadcast_data["completion_ids"]
+                ]
+                # completion_mask is a ragged list of lists (not a tensor). Apply per-sample zeroing.
+                broadcast_data["completion_mask"] = [
+                    ([0] * len(cm) if truncated else cm)
+                    for cm, truncated in zip(
+                        broadcast_data["completion_mask"], is_truncated
+                    )
+                ]
 
             # Take this process's slice of advantages
             advantages = all_advantages[process_slice]
