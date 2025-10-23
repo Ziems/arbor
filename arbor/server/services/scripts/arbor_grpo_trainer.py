@@ -597,6 +597,50 @@ class ArborGRPOTrainer(Trainer):
                     context={"checkpoint_name": record.get("checkpoint_name")},
                 )
 
+    # ------------------- Checkpoint helpers (for maintainability) -------------------
+    def _is_checkpoint_pending_main(self) -> bool:
+        pending = False
+        if self.accelerator.is_main_process:
+            with self._checkpoint_condition:
+                pending = self._checkpoint_request_data is not None
+        return pending
+
+    def _tick_checkpoints(self) -> None:
+        """Barrier + service checkpoint requests + barrier, in lockstep across ranks."""
+        self.accelerator.wait_for_everyone()
+        self._service_checkpoint_requests()
+        self.accelerator.wait_for_everyone()
+
+    def _wait_with_checkpoint_preempt(
+        self, waiting_fn, log_msg: str, sleep_s: float = 0.5
+    ) -> None:
+        """
+        Wait while a main-process condition is true, but allow checkpoint requests
+        to preempt the wait. During the wait, service checkpoint requests in sync.
+
+        waiting_fn: callable executed on main process that returns bool
+        log_msg: message to emit while waiting
+        """
+        waiting = True
+        while True:
+            if self.accelerator.is_main_process:
+                if self._is_checkpoint_pending_main():
+                    waiting = False
+                else:
+                    try:
+                        waiting = bool(waiting_fn())
+                    except Exception:
+                        waiting = False
+                if waiting:
+                    self.logger.debug(log_msg)
+            waiting_list = [waiting]
+            broadcast_object_list(waiting_list, from_process=0)
+            waiting = waiting_list[0]
+            if not waiting:
+                break
+            self._tick_checkpoints()
+            time.sleep(sleep_s)
+
     def _execute_checkpoint(
         self, checkpoint_name: Optional[str], metadata: Optional[dict[str, Any]]
     ) -> dict[str, Any]:
@@ -674,47 +718,6 @@ class ArborGRPOTrainer(Trainer):
         default_dir = os.path.abspath(os.path.join(run_dir, default_folder))
         requested_name = checkpoint_name or default_folder
         target_dir = os.path.abspath(os.path.join(run_dir, requested_name))
-
-        if requested_name != default_folder:
-            if os.path.exists(target_dir):
-                shutil.rmtree(target_dir)
-            if os.path.exists(default_dir):
-                shutil.move(default_dir, target_dir)
-            else:
-                target_dir = os.path.abspath(os.path.join(run_dir, requested_name))
-        else:
-            target_dir = default_dir
-
-        if self.state.best_model_checkpoint:
-            best_path = os.path.abspath(self.state.best_model_checkpoint)
-            if best_path == os.path.abspath(default_dir):
-                self.state.best_model_checkpoint = target_dir
-
-        if metadata:
-            metadata_path = os.path.join(target_dir, "metadata.json")
-            with open(metadata_path, "w", encoding="utf-8") as fh:
-                json.dump(metadata, fh, indent=2, sort_keys=True)
-
-        record = {
-            "checkpoint_name": requested_name,
-            "checkpoint_dir": target_dir,
-            "global_step": int(self.state.global_step),
-            "requested": True,
-            "metadata": metadata,
-            "timestamp": time.time(),
-        }
-        return record
-
-    def _save_checkpoint_blocking(
-        self, checkpoint_name: Optional[str], metadata: Optional[dict[str, Any]]
-    ) -> dict[str, Any]:
-        default_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
-        run_dir = self._get_output_dir(trial=None)
-        default_dir = os.path.abspath(os.path.join(run_dir, default_folder))
-        requested_name = checkpoint_name or default_folder
-        target_dir = os.path.abspath(os.path.join(run_dir, requested_name))
-
-        super()._save_checkpoint(self.model, trial=None)
 
         if requested_name != default_folder:
             if os.path.exists(target_dir):
@@ -833,26 +836,16 @@ class ArborGRPOTrainer(Trainer):
         is_generating = is_generating_list[0]
 
         # All processes wait if generation is happening
-        waits = 0
-        while is_generating:
-            time.sleep(0.5)
-            waits += 1
-            if waits % 10 == 0:
-                self.logger.info(
-                    "Waiting for background batch generation to complete before weight syncing."
-                )
-            # Allow checkpoint requests to be handled while waiting.
-            self._service_checkpoint_requests()
+        if is_generating:
 
-            # Check again and broadcast
-            if self.accelerator.is_main_process:
-                # if self._control_client is not None:
-                #     is_generating = self._control_client.has_active_inference()
-                # else:
-                is_generating = self.async_requester.get_pending_count() > 0
-            is_generating_list = [is_generating]
-            broadcast_object_list(is_generating_list, from_process=0)
-            is_generating = is_generating_list[0]
+            def _gen_wait():
+                return self.async_requester.get_pending_count() > 0
+
+            self._wait_with_checkpoint_preempt(
+                waiting_fn=_gen_wait,
+                log_msg="Waiting for background batch generation to complete before weight syncing.",
+                sleep_s=0.5,
+            )
 
         # Ensure all processes are synchronized before weight update
         self.accelerator.wait_for_everyone()
@@ -892,29 +885,19 @@ class ArborGRPOTrainer(Trainer):
             self.vllm_client.reset_prefix_cache()
 
         # Wait for all background tasks to complete (synchronized across ranks)
-        waiting = True
-        while waiting:
-            if self.accelerator.is_main_process:
-                waiting = self.vllm_client.get_num_background_tasks() > 0
-                if waiting:
-                    self.logger.info(
-                        "Waiting for weight syncing background tasks to complete before submitting new batches."
-                    )
-            # Broadcast whether we should continue waiting
-            waiting_list = [waiting]
-            broadcast_object_list(waiting_list, from_process=0)
-            waiting = waiting_list[0]
-            if not waiting:
-                break
-            # Tick checkpoint servicing in lockstep
-            self.accelerator.wait_for_everyone()
-            self._service_checkpoint_requests()
-            self.accelerator.wait_for_everyone()
-            # Gentle backoff
-            time.sleep(0.5)
+        def _bg_tasks_wait():
+            return self.vllm_client.get_num_background_tasks() > 0
+
+        self._wait_with_checkpoint_preempt(
+            waiting_fn=_bg_tasks_wait,
+            log_msg="Waiting for weight syncing background tasks to complete before submitting new batches.",
+            sleep_s=0.5,
+        )
 
         # Ensure all processes wait for the main process to finish updating weights
         self.accelerator.wait_for_everyone()
+        # Service once more at a safe point (handles the case we exited early)
+        self._tick_checkpoints()
 
     def _inner_training_loop(self, *args, **kwargs):
         """Override to ensure async generator is stopped when training ends"""
@@ -946,6 +929,8 @@ class ArborGRPOTrainer(Trainer):
         """
         # Ensure all processes are synchronized at the start
         self.accelerator.wait_for_everyone()
+        # Service any pending checkpoint requests in lockstep at entry
+        self._tick_checkpoints()
         # inputs = list of dicts for all gradient accumulation steps
         generate_every = (
             self.gradient_accumulation_steps
