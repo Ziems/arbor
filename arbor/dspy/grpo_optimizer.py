@@ -325,6 +325,9 @@ class ArborGRPO(FinetuneTeleprompter):
         )
 
         if improved:
+            logger.info(
+                f"Saving checkpoint for step {step_idx + 1}/{self.num_train_steps}..."
+            )
             self.best_validation_score = score
             self.best_validation_step = step_idx
             if (
@@ -474,6 +477,7 @@ class ArborGRPO(FinetuneTeleprompter):
             assert pred.lm is first_lm, (
                 "Multiple LMs detected for student predictors; only one GRPO training job is supported."
             )
+
         train_kwargs = self.train_kwargs[first_lm]
         grpo_training_job = first_lm.reinforce(train_kwargs=train_kwargs)
 
@@ -655,6 +659,11 @@ class ArborGRPO(FinetuneTeleprompter):
                             )
                             assert isinstance(adapter, ChatAdapter), (
                                 f"Adapter {adapter} is not a ChatAdapter. GRPO training is not supported for this adapter."
+                            )
+                            # Force it for now for testing purposes
+                            adapter.disable_adapter_fallback = True
+                            assert adapter.disable_adapter_fallback, (
+                                "Adapter fallback must be disabled for GRPO training."
                             )
 
                             inp_messages = adapter.format(

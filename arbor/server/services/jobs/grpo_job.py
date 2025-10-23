@@ -95,16 +95,11 @@ class GRPOJob(Job):
             exclude_unset=True,
         )
 
-        wandb_kwargs = {}
-        if request.wandb_config is not None:
-            wandb_kwargs = request.wandb_config.model_dump(
-                exclude_unset=True,
-            )
-
-        config = ArborGRPOConfig(**trainer_kwargs, **wandb_kwargs)
+        config = ArborGRPOConfig(**trainer_kwargs)
 
         config.output_dir = output_dir
         config.vllm_server_port = vllm_port
+        config.run_name = self.id
         return config
 
     def initialize(
@@ -178,13 +173,7 @@ class GRPOJob(Job):
 
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
 
-        # Handle WandB configuration
-        if request.wandb_config is not None:
-            # WandB is explicitly requested, just silence login prompts
-            my_env["WANDB_SILENT"] = "true"
-        else:
-            # WandB not requested, disable it completely to avoid login errors
-            my_env["WANDB_SILENT"] = "true"
+        my_env["WANDB_SILENT"] = "true"
 
         # Setup mock environment if needed
         my_env = setup_mock_environment(my_env)

@@ -27,18 +27,6 @@ class FileModel(StrictBaseModel):
     format: str = "unknown"  # Detected format: "sft", "dpo", or "unknown"
 
 
-class WandbConfig(StrictBaseModel):
-    project: str
-    name: Optional[str] = None
-    entity: Optional[str] = None
-    tags: Optional[List[str]] = None
-
-
-class IntegrationModel(StrictBaseModel):
-    type: str
-    wandb: WandbConfig
-
-
 class FineTuneRequest(StrictBaseModel):
     model: str
     training_file: str  # id of uploaded jsonl file
@@ -47,7 +35,6 @@ class FineTuneRequest(StrictBaseModel):
     num_gpus: Optional[int] = 1  # Number of GPUs to request for training
     # UNUSED
     validation_file: Optional[str] = None
-    integrations: Optional[List[IntegrationModel]] = []
     seed: Optional[int] = None
 
 
@@ -217,11 +204,6 @@ class LoRAConfigRequest(StrictBaseModel):
     lora_dropout: float
 
 
-class WandbConfigRequest(StrictBaseModel):
-    project: str
-    name: Optional[str] = None
-
-
 class ArborGRPOConfigRequest(StrictBaseModel):
     """Only the settings we want to feed straight into ArborGRPOConfig."""
 
@@ -258,7 +240,6 @@ class GRPOInitializeRequest(StrictBaseModel):
     model: str
     trainer_config: ArborGRPOConfigRequest
     inference_config: InferenceJobRequest
-    wandb_config: Optional[WandbConfigRequest] = None
     gpu_config: GRPOGPUConfig = GRPOGPUConfig(
         type="multi", multi=MultiGPUConfig(num_inference_gpus=1, num_training_gpus=1)
     )
