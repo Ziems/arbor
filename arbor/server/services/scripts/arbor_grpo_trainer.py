@@ -449,6 +449,13 @@ class ArborGRPOTrainer(Trainer):
             max_queue_size=args.async_max_queue_size,
             generation_timeout=args.async_generation_timeout,
         )
+        self.logger.debug(
+            "Async requester initialized",
+            context={
+                "num_batches_ahead": self.async_requester.num_batches_ahead,
+                "max_queue_size": self.async_requester.max_queue_size,
+            },
+        )
         if self.accelerator.is_main_process and args.control_endpoint:
             self._control_client = TrainerControlClient(self, args.control_endpoint)
             self._control_client.start()
@@ -502,6 +509,14 @@ class ArborGRPOTrainer(Trainer):
         if metadata is not None and not isinstance(metadata, dict):
             raise TypeError("Checkpoint metadata must be a mapping if provided")
         with self._checkpoint_condition:
+            self.logger.debug(
+                "Received checkpoint request",
+                context={
+                    "checkpoint_name": checkpoint_name,
+                    "has_metadata": metadata is not None,
+                    "in_progress": self._checkpoint_request_data is not None,
+                },
+            )
             if self._checkpoint_request_data is not None:
                 raise RuntimeError("A checkpoint request is already in progress")
             self._checkpoint_request_data = {
@@ -510,10 +525,22 @@ class ArborGRPOTrainer(Trainer):
             }
             self._checkpoint_result = None
             self._checkpoint_condition.notify_all()
+            self.logger.debug(
+                "Waiting for checkpoint result",
+                context={"checkpoint_name": checkpoint_name},
+            )
             while self._checkpoint_result is None:
                 self._checkpoint_condition.wait()
             result = dict(self._checkpoint_result)
             self._checkpoint_result = None
+            self.logger.debug(
+                "Checkpoint result ready",
+                context={
+                    "checkpoint_name": result.get("checkpoint_name"),
+                    "checkpoint_dir": result.get("checkpoint_dir"),
+                    "global_step": result.get("global_step"),
+                },
+            )
             return result
 
     def _service_checkpoint_requests(self) -> None:
@@ -522,10 +549,27 @@ class ArborGRPOTrainer(Trainer):
             with self._checkpoint_condition:
                 if self._checkpoint_request_data is not None:
                     payload[0] = dict(self._checkpoint_request_data)
+                    self.logger.debug(
+                        "Main process broadcasting checkpoint request",
+                        context={
+                            "checkpoint_name": payload[0].get("checkpoint_name"),
+                            "has_metadata": payload[0].get("metadata") is not None,
+                        },
+                    )
         broadcast_object_list(payload, from_process=0)
         request = payload[0]
         if request is None:
+            self.logger.debug("No checkpoint request to process")
             return
+
+        self.logger.debug(
+            "Processing checkpoint request",
+            context={
+                "checkpoint_name": request.get("checkpoint_name"),
+                "has_metadata": request.get("metadata") is not None,
+                "is_main_process": self.accelerator.is_main_process,
+            },
+        )
 
         record = self._execute_checkpoint(
             checkpoint_name=request.get("checkpoint_name"),
@@ -536,34 +580,75 @@ class ArborGRPOTrainer(Trainer):
             with self._checkpoint_records_lock:
                 self._checkpoint_records.append(dict(record))
                 self._last_checkpoint_record = dict(record)
+                self.logger.debug(
+                    "Recorded checkpoint result",
+                    context={
+                        "checkpoint_name": record.get("checkpoint_name"),
+                        "checkpoint_dir": record.get("checkpoint_dir"),
+                        "global_step": record.get("global_step"),
+                    },
+                )
             with self._checkpoint_condition:
                 self._checkpoint_result = dict(record)
                 self._checkpoint_request_data = None
                 self._checkpoint_condition.notify_all()
+                self.logger.debug(
+                    "Notified waiting threads about checkpoint completion",
+                    context={"checkpoint_name": record.get("checkpoint_name")},
+                )
 
     def _execute_checkpoint(
         self, checkpoint_name: Optional[str], metadata: Optional[dict[str, Any]]
     ) -> dict[str, Any]:
         if metadata is not None and not isinstance(metadata, dict):
             raise TypeError("Checkpoint metadata must be a mapping if provided")
+        self.logger.debug(
+            "Entering checkpoint execution",
+            context={
+                "checkpoint_name": checkpoint_name,
+                "is_main_process": self.accelerator.is_main_process,
+            },
+        )
         if self.accelerator.is_main_process:
             self.logger.info(
                 "Checkpoint requested; pausing batch generation to save state."
             )
         self.accelerator.wait_for_everyone()
+        self.logger.debug(
+            "All processes synchronized before checkpoint save",
+            context={"checkpoint_name": checkpoint_name},
+        )
 
         if self.accelerator.is_main_process:
+            self.logger.debug(
+                "Main process saving checkpoint",
+                context={
+                    "checkpoint_name": checkpoint_name,
+                    "global_step": int(self.state.global_step),
+                },
+            )
             record = self._save_checkpoint_blocking(checkpoint_name, metadata)
         else:
             record = None
 
         self.accelerator.wait_for_everyone()
+        self.logger.debug(
+            "All processes synchronized after checkpoint save",
+            context={"checkpoint_name": checkpoint_name},
+        )
         record_list = [record]
         broadcast_object_list(record_list, from_process=0)
         record = record_list[0]
 
         if record and record.get("checkpoint_dir"):
             self.state.best_model_checkpoint = record["checkpoint_dir"]
+            self.logger.debug(
+                "Updated best model checkpoint",
+                context={
+                    "checkpoint_name": record.get("checkpoint_name"),
+                    "checkpoint_dir": record.get("checkpoint_dir"),
+                },
+            )
 
         return record
 
@@ -753,15 +838,27 @@ class ArborGRPOTrainer(Trainer):
         if self.accelerator.is_main_process:
             self.vllm_client.reset_prefix_cache()
 
-        # Wait for all background tasks to complete
-        if self.accelerator.is_main_process:
-            while self.vllm_client.get_num_background_tasks() > 0:
-                time.sleep(0.5)
-                self.logger.info(
-                    "Waiting for weight syncing background tasks to complete before submitting new batches."
-                )
-                # Service checkpoint requests while background tasks drain.
-                self._service_checkpoint_requests()
+        # Wait for all background tasks to complete (synchronized across ranks)
+        waiting = True
+        while waiting:
+            if self.accelerator.is_main_process:
+                waiting = self.vllm_client.get_num_background_tasks() > 0
+                if waiting:
+                    self.logger.info(
+                        "Waiting for weight syncing background tasks to complete before submitting new batches."
+                    )
+            # Broadcast whether we should continue waiting
+            waiting_list = [waiting]
+            broadcast_object_list(waiting_list, from_process=0)
+            waiting = waiting_list[0]
+            if not waiting:
+                break
+            # Tick checkpoint servicing in lockstep
+            self.accelerator.wait_for_everyone()
+            self._service_checkpoint_requests()
+            self.accelerator.wait_for_everyone()
+            # Gentle backoff
+            time.sleep(0.5)
 
         # Ensure all processes wait for the main process to finish updating weights
         self.accelerator.wait_for_everyone()
@@ -800,6 +897,17 @@ class ArborGRPOTrainer(Trainer):
         generate_every = (
             self.gradient_accumulation_steps
         )  # * self.num_iterations # num iterations unused
+        self.logger.debug(
+            "prepare_inputs entry",
+            context={
+                "step": self._step,
+                "global_step": int(self.state.global_step),
+                "buffer_empty": self._buffered_inputs is None,
+                "generate_every": generate_every,
+                "step_mod": self._step % generate_every if generate_every else 0,
+                "next_batch_id": self._next_batch_id,
+            },
+        )
 
         # Check if we need to generate new completions
         if self._step % generate_every == 0 or self._buffered_inputs is None:
@@ -811,10 +919,10 @@ class ArborGRPOTrainer(Trainer):
                 self._move_model_to_vllm()
                 self._last_loaded_step = self.state.global_step
 
-            # Start async generator if not started
-            # if not self._async_started and self.accelerator.is_main_process:
-            self.async_requester.start()
-            self._async_started = True
+            # Start async requester on main process only, then sync
+            if self.accelerator.is_main_process and not self._async_started:
+                self.async_requester.start()
+                self._async_started = True
             self.accelerator.wait_for_everyone()
 
             # Calculate which batch we need for this step
@@ -852,17 +960,35 @@ class ArborGRPOTrainer(Trainer):
                         BatchRequest(batch_id=batch_id)
                     ):
                         batches_requested += 1
+                        self.logger.debug(
+                            "Requested async batch",
+                            context={
+                                "batch_id": batch_id,
+                                "next_batch_id": self._next_batch_id,
+                            },
+                        )
                     else:
                         self.logger.debug(
                             "Async requester queue is full; batch %s not requested",
                             batch_id,
                         )
-                self._service_checkpoint_requests()
                 self.accelerator.wait_for_everyone()
+
+            # After submissions, tick checkpoint servicing once in lockstep
+            self._service_checkpoint_requests()
+            self.accelerator.wait_for_everyone()
 
             # Update next batch id
             if self.accelerator.is_main_process:
                 self._next_batch_id = self._next_batch_id + batches_requested
+                self.logger.debug(
+                    "Updated next_batch_id",
+                    context={
+                        "next_batch_id": self._next_batch_id,
+                        "requested": batches_requested,
+                        "step": self._step,
+                    },
+                )
             self.accelerator.wait_for_everyone()
             # Synchronize next_batch_id across all processes
             next_batch_id_list = [
@@ -875,38 +1001,35 @@ class ArborGRPOTrainer(Trainer):
             # Now retrieve the batch we need for this step
             broadcast_data = None
             while broadcast_data is None:
-                if self.accelerator.is_main_process:
-                    while True:
-                        try:
-                            batch_result = self.async_requester.get_batch(
-                                batch_id_to_retrieve, timeout=1.0
-                            )
-                            break
-                        except TimeoutError:
-                            self._service_checkpoint_requests()
-                    if batch_result.batch_id != batch_id_to_retrieve:
-                        raise ValueError(
-                            f"Retrieved batch {batch_result.batch_id} but expected {batch_id_to_retrieve}"
-                        )
-                    processed_results = batch_result.processed_results
-
-                    broadcast_data = {
-                        "prompt_ids": processed_results.prompt_ids,
-                        "prompt_mask": processed_results.prompt_mask,
-                        "completion_ids": processed_results.completion_ids,
-                        "completion_mask": processed_results.completion_mask,
-                        "rewards": processed_results.rewards,
-                        "all_reward_dict": batch_result.all_reward_dict,
-                        "completions": batch_result.completions,
-                        "prompts": batch_result.prompts,
-                    }
-                else:
-                    broadcast_data = None
+                # Synchronize and service checkpoint requests in lockstep across all ranks
                 self.accelerator.wait_for_everyone()
-                if not self.accelerator.is_main_process:
-                    self._service_checkpoint_requests()
+                self._service_checkpoint_requests()
+                self.accelerator.wait_for_everyone()
 
-                # Broadcast processed data
+                if self.accelerator.is_main_process:
+                    try:
+                        batch_result = self.async_requester.get_batch(
+                            batch_id_to_retrieve, timeout=1.0
+                        )
+                        if batch_result.batch_id != batch_id_to_retrieve:
+                            raise ValueError(
+                                f"Retrieved batch {batch_result.batch_id} but expected {batch_id_to_retrieve}"
+                            )
+                        processed_results = batch_result.processed_results
+
+                        broadcast_data = {
+                            "prompt_ids": processed_results.prompt_ids,
+                            "prompt_mask": processed_results.prompt_mask,
+                            "completion_ids": processed_results.completion_ids,
+                            "completion_mask": processed_results.completion_mask,
+                            "rewards": processed_results.rewards,
+                            "all_reward_dict": batch_result.all_reward_dict,
+                            "completions": batch_result.completions,
+                            "prompts": batch_result.prompts,
+                        }
+                    except TimeoutError:
+                        broadcast_data = None
+                # Broadcast processed data (or None) to all ranks
                 broadcast_list = [broadcast_data]
                 broadcast_object_list(broadcast_list, from_process=0)
                 broadcast_data = broadcast_list[0]
@@ -1055,6 +1178,14 @@ class ArborGRPOTrainer(Trainer):
         # Return appropriate slice from buffer
         result = self._buffered_inputs[self._step % self.gradient_accumulation_steps]
         self._step += 1
+        self.logger.debug(
+            "prepare_inputs exit",
+            context={
+                "next_step": self._step,
+                "global_step": int(self.state.global_step),
+                "buffer_remaining": len(self._buffered_inputs),
+            },
+        )
         self.accelerator.wait_for_everyone()
         return result
 
@@ -1375,7 +1506,7 @@ def build_trainer_config(args: argparse.Namespace) -> ArborGRPOConfig:
 
 def main():
     setup_logging(
-        log_level="INFO",
+        log_level="DEBUG",
         enable_console_logging=True,
         enable_file_logging=False,
         show_colors=False,
