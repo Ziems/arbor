@@ -255,6 +255,7 @@ class GRPOStepRequest(GRPOBaseRequest):
     model: str
     batch_id: int
     batch: List[dict] | List[List[dict]]
+    metrics: Optional[dict[str, Any]] = None
 
 
 class GRPOCheckpointRequest(GRPOBaseRequest):

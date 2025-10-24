@@ -515,6 +515,7 @@ class ArborGRPO(FinetuneTeleprompter):
                 time.sleep(1)
 
             logger.info("Bootstrapping data...")
+            format_failure_count = 0
             trace_data = [
                 [[] for _ in range(len(teachers))]
                 for _ in range(len(subsample_training_dataset))
@@ -677,6 +678,7 @@ class ArborGRPO(FinetuneTeleprompter):
                                     trace_instance[2].format_reward
                                     or self.format_failure_score
                                 )
+                                format_failure_count += 1
                                 example_training_data[group_idx].append(
                                     {
                                         "messages": inp_messages,
@@ -775,16 +777,18 @@ class ArborGRPO(FinetuneTeleprompter):
 
             final_train_data: list[GRPOGroup] = []
             for bid in available_batch_ids:
-                if group_queue:
-                    grp = group_queue.popleft()
-                else:
-                    fallback_pool = (
-                        train_data if len(train_data) > 0 else all_train_data
+                grp = group_queue.popleft()
+
+                # Attach simple step metrics for logging on the backend
+                step_metrics = {}
+                if self.validation_scores.get(train_step_idx) is not None:
+                    step_metrics["validation_score"] = float(
+                        self.validation_scores[train_step_idx]
                     )
-                    if len(fallback_pool) == 0:
-                        continue
-                    grp = self.rng.choice(fallback_pool)
-                final_train_data.append({"batch_id": bid, "group": grp})
+                step_metrics["format_failures"] = int(format_failure_count)
+                final_train_data.append(
+                    {"batch_id": bid, "group": grp, "metrics": step_metrics}
+                )
 
             if not final_train_data:
                 continue
