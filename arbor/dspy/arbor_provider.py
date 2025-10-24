@@ -216,6 +216,8 @@ class ArborReinforceJob(ReinforceJob):
             "batch": train_group["group"],
             "batch_id": train_group["batch_id"],
         }
+        if "metrics" in train_group:
+            data["metrics"] = train_group["metrics"] or {}
         url = urljoin(api_base, "fine_tuning/grpo/step")
         headers = {"Content-Type": "application/json"}
         response = requests.post(url, headers=headers, json=data)

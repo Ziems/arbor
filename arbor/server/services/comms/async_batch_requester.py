@@ -42,6 +42,7 @@ class BatchResult(BaseModel):
         default_factory=list
     )  # Store completions for logging
     prompts: list[Any] = Field(default_factory=list)  # Store prompts for logging
+    metrics: dict[str, Any] = Field(default_factory=dict)  # Optional per-step metrics
 
 
 class AsyncBatchRequester:

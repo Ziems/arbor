@@ -1071,6 +1071,7 @@ class ArborGRPOTrainer(Trainer):
                             "all_reward_dict": batch_result.all_reward_dict,
                             "completions": batch_result.completions,
                             "prompts": batch_result.prompts,
+                            "metrics": batch_result.metrics,
                         }
                     except TimeoutError:
                         broadcast_data = None
@@ -1208,6 +1209,11 @@ class ArborGRPOTrainer(Trainer):
                     all_completion_mask=broadcast_data["completion_mask"],
                     all_completion_ids=broadcast_data["completion_ids"],
                     all_prompt_mask=broadcast_data["prompt_mask"],
+                )
+
+                self._log_external_metrics_primary(
+                    mode="train",
+                    external_metrics=broadcast_data["metrics"],
                 )
             with torch.no_grad():
                 completion_mask = attention_mask[:, 1:]
@@ -1414,14 +1420,6 @@ class ArborGRPOTrainer(Trainer):
         self._metrics[mode].clear()
 
         if self.accelerator.is_main_process and self.log_completions:
-            # if len(self._textual_logs["prompt"]) > 0:
-            #     print_prompt_completions_sample(
-            #         self._textual_logs["prompt"],
-            #         self._textual_logs["completion"],
-            #         self._textual_logs["rewards"]["reward"],
-            #         self.state.global_step,
-            #     )
-
             if (
                 self.args.report_to
                 and "wandb" in self.args.report_to
@@ -1433,10 +1431,7 @@ class ArborGRPOTrainer(Trainer):
                     "step": [str(self.state.global_step)]
                     * len(self._textual_logs["prompt"]),
                     "prompt": list(self._textual_logs["prompt"]),
-                    "completion": [
-                        self._sanitize_tool_calls(c)
-                        for c in self._textual_logs["completion"]
-                    ],
+                    "completion": list(self._textual_logs["completion"]),
                     **{k: list(v) for k, v in self._textual_logs["rewards"].items()},
                 }
                 if len(table["prompt"]) > 0:
@@ -1562,6 +1557,18 @@ class ArborGRPOTrainer(Trainer):
         self._metrics[mode]["completions/max_terminated_length"].append(
             float(max(term_lengths))
         )
+
+    def _log_external_metrics_primary(
+        self,
+        mode: str,
+        external_metrics: Dict[str, Any],
+    ) -> None:
+        """
+        Log external metrics (PRIMARY PROCESS ONLY).
+        This handles external metrics using the full batch data.
+        """
+        for key, value in external_metrics.items():
+            self._metrics[mode][key].append(value)
 
 
 def parse_args():

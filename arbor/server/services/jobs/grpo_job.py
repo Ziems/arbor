@@ -298,6 +298,7 @@ class GRPOJob(Job):
                 max_seq_len=self.trainer_config.max_seq_len,
                 num_generations=self.trainer_config.num_generations,
                 trainer_config=self.trainer_config,
+                metrics=request.metrics if hasattr(request, "metrics") else None,
             )
 
             self.trainer_controller.submit_batch(batch_result)
@@ -476,6 +477,7 @@ def build_batch_result(
     max_seq_len: int,
     num_generations: int,
     trainer_config: ArborGRPOConfig,
+    metrics: dict[str, Any] | None = None,
 ):
     if not samples:
         raise ValueError("No samples provided to build batch result")
@@ -573,4 +575,5 @@ def build_batch_result(
         completions=completions_text,
         processed_results=processed_results,
         all_reward_dict={"reward": rewards},
+        metrics=metrics or {},
     )
