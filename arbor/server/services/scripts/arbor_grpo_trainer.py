@@ -1184,7 +1184,6 @@ class ArborGRPOTrainer(Trainer):
                         broadcast_data["completion_mask"], is_truncated
                     )
                 ]
-
             # Take this process's slice of advantages
             advantages = all_advantages[process_slice]
 
@@ -1221,6 +1220,14 @@ class ArborGRPOTrainer(Trainer):
                     batch_size=self.per_device_train_batch_size,
                 )
 
+            # Compute global total completion tokens from broadcasted masks (same on all ranks)
+            total_completion_tokens_global = sum(
+                int(sum(cm)) for cm in broadcast_data["completion_mask"]
+            )
+            total_completion_tokens_tensor = torch.tensor(
+                float(total_completion_tokens_global), device=self.accelerator.device
+            )
+
             # Concatenate all data for shuffling
             full_batch = {
                 "input_ids": input_ids,
@@ -1234,6 +1241,11 @@ class ArborGRPOTrainer(Trainer):
             self._buffered_inputs = split_tensor_dict(
                 full_batch, self.gradient_accumulation_steps
             )
+            # Attach scalar metadata to each split so compute_loss can access it
+            for i in range(len(self._buffered_inputs)):
+                self._buffered_inputs[i]["total_completion_tokens"] = (
+                    total_completion_tokens_tensor
+                )
             self.accelerator.wait_for_everyone()
         # Return appropriate slice from buffer
         result = self._buffered_inputs[self._step % self.gradient_accumulation_steps]
@@ -1344,6 +1356,11 @@ class ArborGRPOTrainer(Trainer):
             loss = (per_token_loss * completion_mask).sum() / (
                 per_token_loss.size(0) * self.max_seq_len
             )  # type: ignore
+        elif self.loss_type == "dapo":
+            normalizer = (
+                inputs["total_completion_tokens"] / self.accelerator.num_processes
+            )
+            loss = (per_token_loss * completion_mask).sum() / normalizer
         else:
             raise ValueError(f"Unknown loss type: {self.loss_type}")
 

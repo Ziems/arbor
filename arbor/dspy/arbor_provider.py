@@ -52,7 +52,7 @@ class ArborTrainingJob(TrainingJob):
 class ArborReinforceJob(ReinforceJob):
     DEFAULT_TRAIN_KWARGS = {
         "temperature": 1.0,
-        "beta": 0.04,
+        "beta": 0.00,
         "num_iterations": 1,
         "per_device_train_batch_size": 8,
         "learning_rate": 1e-6,
@@ -73,6 +73,7 @@ class ArborReinforceJob(ReinforceJob):
         # By default, none is the model's max context length
         "max_context_length": None,
         "lora": False,
+        "loss_type": "dapo",
     }
 
     def __init__(self, lm: "LM", train_kwargs: dict[str, Any]):
@@ -113,6 +114,9 @@ class ArborReinforceJob(ReinforceJob):
         )
         warmup_steps = self.train_kwargs.get(
             "warmup_steps", self.DEFAULT_TRAIN_KWARGS["warmup_steps"]
+        )
+        loss_type = self.train_kwargs.get(
+            "loss_type", self.DEFAULT_TRAIN_KWARGS["loss_type"]
         )
         max_prompt_length = self.train_kwargs.get(
             "max_prompt_length", self.DEFAULT_TRAIN_KWARGS["max_prompt_length"]
@@ -172,6 +176,7 @@ class ArborReinforceJob(ReinforceJob):
                 # "max_context_length": max_context_length,
                 # "max_seq_len": max_context_length,
                 "max_steps": max_steps,
+                "loss_type": loss_type,
                 # "lora": lora,
             },
             "inference_config": {
