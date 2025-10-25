@@ -11,9 +11,12 @@ from arbor.server.core.config import Config
 from arbor.server.services.jobs.grpo_job import GRPOJob
 from arbor.server.services.managers.base_manager import BaseManager
 from arbor.server.services.managers.inference_manager import InferenceManager
+from logging import getLogger  # REMOVEME
 
 if TYPE_CHECKING:
     from arbor.server.services.managers.gpu_manager import GPUManager
+
+logger = getLogger(__name__)  # REMOVEME
 
 
 class GRPOManager(BaseManager):

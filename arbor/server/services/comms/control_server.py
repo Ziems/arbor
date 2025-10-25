@@ -116,7 +116,10 @@ class TrainerControlServer:
         return resp
 
     def request_checkpoint(
-        self, checkpoint_name: str, metadata: Optional[Mapping[str, Any]] = None, push_to_hub: bool = False
+        self,
+        checkpoint_name: str,
+        metadata: Optional[Mapping[str, Any]] = None,
+        push_to_hub: bool = False,
     ) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
             "cmd": "checkpoint",
@@ -126,6 +129,7 @@ class TrainerControlServer:
         if metadata is not None:
             payload["metadata"] = dict(metadata)
         resp = self._request(payload)
+        LOGGER.info(f"Checkpoint request response: {resp}")  # REMOVEME
         if not resp.get("ok", False):
             raise RuntimeError(
                 f"Error requesting checkpoint: {resp.get('error', 'Unknown error')}"

@@ -189,7 +189,11 @@ class ArborReinforceJob(ReinforceJob):
                     "num_training_gpus": 1,
                 },
             },
+            "hf_config": self.train_kwargs.get("hf_config", None),
         }
+        # if the hub token is not provided, use the one set in the LM
+        if data["hf_config"]["hub_token"] is None:
+            data["hf_config"]["hub_token"] = self.lm.kwargs.get("hf_token", None)
         url = urljoin(api_base, "fine_tuning/grpo/initialize")
         headers = {"Content-Type": "application/json"}
         response = requests.post(url=url, headers=headers, json=data)
@@ -293,9 +297,6 @@ class ArborReinforceJob(ReinforceJob):
             checkpoint.setdefault("metadata", metadata)
         self.checkpoints[last_checkpoint] = checkpoint
         self.last_checkpoint = last_checkpoint
-
-    def push_to_hub(self):
-        raise NotImplementedError("Pushing to Hub is not implemented for Arbor")
 
     def terminate(self):
         api_base = self.lm.kwargs["api_base"]

@@ -30,10 +30,34 @@ from dspy.teleprompt.bootstrap_finetune import (
     assert_structural_equivalency,
 )
 from dspy.teleprompt.bootstrap_trace import FailedPrediction, bootstrap_trace_data
+from pydantic import BaseModel
+from .arbor_provider import ArborReinforceJob
 
 logger = logging.getLogger(__name__)
 
 from typing import Optional
+
+
+class ArborHFConfig(BaseModel):
+    """
+    Configures Hugging Face model pushing.
+    Attributes:
+        hub_model_id: The model id to use when pushing to the huggingface hub. The name of the repository to keep in sync with the local *output_dir*. It can be a simple model ID in
+            which case the model will be pushed in your namespace. Otherwise it should be the whole repository name,
+            for instance `"user_name/model"`, which allows you to push to an organization you are a member of with
+            `"organization_name/model"`. Will default to `user_name/output_dir_name` with *output_dir_name* being the
+            name of `output_dir`.
+        hub_token: The token to use to push the model to the huggingface hub. (if not provided will default to the one set in the LM)
+        hub_revision: The revision to use when pushing to the Hub. Can be a branch name, a tag, or a commit hash.
+        hub_private_repo: Whether the huggingface repo should be private.
+        push_frequency: How often to push the model to the huggingface hub.
+    """
+
+    hub_model_id: str
+    hub_token: Optional[str] = None
+    hub_revision: Optional[str] = None
+    hub_private_repo: Optional[bool] = None
+    push_frequency: Optional[Literal["final_checkpoint", "all_checkpoints"]] = None
 
 
 class ArborGRPO(FinetuneTeleprompter):
@@ -62,7 +86,15 @@ class ArborGRPO(FinetuneTeleprompter):
         | Literal["max"]
         | None = None,
         checkpoint: Literal["single-best", "improvements", "none"] = "single-best",
+        hf_config: Optional[ArborHFConfig | dict[str, Any]] = None,
     ):
+        hf_config = (
+            ArborHFConfig(**hf_config) if isinstance(hf_config, dict) else hf_config
+        )
+        # hub pushes will be handled by the optimizer not the server
+        if hf_config:
+            train_kwargs = train_kwargs or {}
+            train_kwargs["hf_config"] = hf_config.model_dump(exclude=["push_frequency"])
         super().__init__(train_kwargs=train_kwargs)
         self.metric = metric
         self.adapter: dict[LM, Adapter] = self.convert_to_lm_dict(adapter)
@@ -81,6 +113,7 @@ class ArborGRPO(FinetuneTeleprompter):
         self.report_train_scores = report_train_scores
         self.failure_score = failure_score
         self.format_failure_score = format_failure_score
+        self.hf_config = hf_config
 
         assert failure_score > format_failure_score, (
             "failure_score must be greater than format_failure_score since the range [format_failure_score, failure_score] is used to provide dspy formatting rewards"
@@ -168,7 +201,7 @@ class ArborGRPO(FinetuneTeleprompter):
         valset,
         logger,
         step_idx: int = -1,
-        grpo_training_job: Any | None = None,
+        grpo_training_job: ArborReinforceJob | None = None,
         lm_for_job: LM | None = None,
         push_to_hub: bool = False,
     ):
@@ -346,8 +379,11 @@ class ArborGRPO(FinetuneTeleprompter):
                     checkpoint_name,
                     score=score,
                     step_idx=step_idx,
-                    push_to_hub=push_to_hub,
+                    push_to_hub=self._should_push_to_hub(step_idx),
                 )
+                logger.info(
+                    f"requested a checkpoint push_to_hub={self._should_push_to_hub(step_idx)}"
+                )  # REMOVEME
 
     def update_shuffled_trainset(self, original_trainset):
         self.shuffled_trainset_ids = list(range(len(original_trainset)))
@@ -397,7 +433,6 @@ class ArborGRPO(FinetuneTeleprompter):
         trainset: list[Example],
         teacher: Module | list[Module] | None = None,
         valset: list[Example] | None = None,
-        push_to_hub: bool = False,
         **kwargs,
     ) -> Module:
         """
@@ -406,7 +441,6 @@ class ArborGRPO(FinetuneTeleprompter):
             trainset: The training set to use.
             teacher: The teacher program(s) to use.
             valset: The validation set to use.
-            push_to_hub: Whether to push the final model to the Hugging Face Hub. (only works if you provide an api key with access to the model repo).
         """
         logger.info(
             "Starting the GRPO compilation process... The LM(s) for the student program will be updated in place at the end of the training."
@@ -814,11 +848,17 @@ class ArborGRPO(FinetuneTeleprompter):
                 step_idx=train_step_idx,
                 grpo_training_job=grpo_training_job,
                 lm_for_job=first_lm,
-                push_to_hub=push_to_hub and train_step_idx == self.num_train_steps - 1,
+                push_to_hub=self._should_push_to_hub(train_step_idx),
             )
 
         logger.info("Done with the iterations! Retrieving the final model...")
         grpo_training_job.terminate()
+        self._save_checkpoint_for_job(  # REMOVEME
+            grpo_training_job,
+            first_lm,
+            "model_checkpoint_test",
+            push_to_hub=True,
+        )
 
         recover_lm_cache(program=student, lm_cache_dict=lm_cache_dict)
         for t in teachers:
@@ -830,7 +870,7 @@ class ArborGRPO(FinetuneTeleprompter):
 
     def _save_checkpoint_for_job(
         self,
-        grpo_training_job: Any,
+        grpo_training_job: ArborReinforceJob,
         lm_for_job: LM,
         checkpoint_name: str,
         *,
@@ -877,6 +917,15 @@ class ArborGRPO(FinetuneTeleprompter):
             )
         else:
             logger.info("Saved checkpoint %s for %s", checkpoint_name, job_label)
+
+    def _should_push_to_hub(self, train_step_idx: int) -> bool:
+        if self.hf_config.push_frequency is None:
+            return False
+        if self.hf_config.push_frequency == "final_checkpoint":
+            return train_step_idx == self.num_train_steps - 1
+        if self.hf_config.push_frequency == "all_checkpoints":
+            return True
+        raise ValueError(f"Invalid push frequency: {self.hf_config.push_frequency}")
 
 
 def disable_lm_cache(program: Module, lm_cache_dict: dict):
