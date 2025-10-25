@@ -557,6 +557,9 @@ class ArborGRPOTrainer(Trainer):
                         context={
                             "checkpoint_name": payload[0].get("checkpoint_name"),
                             "has_metadata": payload[0].get("metadata") is not None,
+                            "push_to_hub": payload[0].get(
+                                "push_to_hub", False
+                            ),  # REMOVEME or dont if this works
                         },
                     )
         broadcast_object_list(payload, from_process=0)

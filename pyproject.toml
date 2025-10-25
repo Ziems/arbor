@@ -59,7 +59,7 @@ dev = [
 ]
 
 [tool.uv.sources]
-dspy = { path = "../dspy", editable = true }
+dspy = { path = "../dspy", editable = true } # REMOVEME
 
 [tool.setuptools.packages.find]
 where = ["."]
