@@ -10,7 +10,9 @@ from arbor.server.api.models.schemas import (
 )
 from arbor.server.services.managers.grpo_manager import GRPOManager
 from arbor.server.services.managers.inference_manager import InferenceManager
+from logging import getLogger
 
+logger = getLogger(__name__)
 router = APIRouter()
 
 
@@ -44,6 +46,7 @@ def checkpoint(request: Request, grpo_checkpoint_request: GRPOCheckpointRequest)
     grpo_status: GRPOStatus = grpo_manager.route_grpo_checkpoint(
         grpo_checkpoint_request
     )
+    logger.info(f"/checkpoint: Request {grpo_checkpoint_request}")  # REMOVEME
     return grpo_status
 
 

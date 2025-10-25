@@ -18,6 +18,8 @@ class InferenceManager(BaseManager):
     async def route_inference(self, request_json: dict):
         model = request_json["model"]
         self.logger.debug(f"Running inference for model {model}")
+        # Remove hf_token so vLLM doesn't raise a warning about an ignored field
+        hf_token = request_json.pop("hf_token", None)
 
         # If model isnt launched, launch it
         # TODO: Check that there are GPUs available. If not, do hot swap or something.
@@ -33,7 +35,7 @@ class InferenceManager(BaseManager):
 
                 inference_launch_config = InferenceLaunchConfig(
                     gpu_ids=allocated_gpus,
-                    hf_token=request_json.get("hf_token", None),
+                    hf_token=hf_token,
                 )
 
                 inference_job.launch(model, inference_launch_config)

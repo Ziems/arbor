@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Generic, List, Literal, Optional, TypeVar
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 # Generic type for list items
 T = TypeVar("T")
@@ -254,6 +254,34 @@ class ArborGRPOConfigRequest(StrictBaseModel):
     # Thanks to extra="allow" you can keep this list short and still pass others.
 
 
+class HFConfigRequest(StrictBaseModel):
+    """
+    Attributes:
+        hub_model_id: The model id to use when pushing to the huggingface hub. The name of the repository to keep in sync with the local *output_dir*. It can be a simple model ID in
+            which case the model will be pushed in your namespace. Otherwise it should be the whole repository name,
+            for instance `"user_name/model"`, which allows you to push to an organization you are a member of with
+            `"organization_name/model"`. Will default to `user_name/output_dir_name` with *output_dir_name* being the
+            name of `output_dir`.
+        hub_token: The token to use to push the model to the huggingface hub.
+        hub_revision: The revision to use when pushing to the Hub. Can be a branch name, a tag, or a commit hash.
+        hub_private_repo: Whether the huggingface repo should be private.
+    """
+
+    hub_model_id: Optional[str] = None
+    hub_token: Optional[str] = None
+    hub_revision: Optional[str] = None
+    hub_private_repo: Optional[bool] = None
+
+    # model validator to allow all fields to be None or hub_model_id and hub_token to be present and the rest to be optional
+    @model_validator(mode="after")
+    def ensure_required_fields(self) -> "HFConfigRequest":
+        dump = self.model_dump()
+        if any(val for val in dump.values()):
+            if any(dump.get(key := k) is None for k in ["hub_model_id", "hub_token"]):
+                raise ValueError(f"{key} is required")
+        return self
+
+
 class GRPOInitializeRequest(StrictBaseModel):
     run_name: Optional[str] = None
     model: str
@@ -263,6 +291,7 @@ class GRPOInitializeRequest(StrictBaseModel):
     gpu_config: GRPOGPUConfig = GRPOGPUConfig(
         type="multi", multi=MultiGPUConfig(num_inference_gpus=1, num_training_gpus=1)
     )
+    hf_config: Optional[HFConfigRequest] = None
 
 
 # Base class for all GRPO requests except initialize

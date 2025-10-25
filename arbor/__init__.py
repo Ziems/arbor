@@ -23,7 +23,7 @@ from arbor.client import (
     stop,
     watch_job,
 )
-from arbor.dspy import ArborGRPO, ArborProvider
+from arbor.dspy import ArborGRPO, ArborProvider, ArborHFConfig
 
 __all__ = [
     "__version__",

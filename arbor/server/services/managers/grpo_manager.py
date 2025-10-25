@@ -11,9 +11,12 @@ from arbor.server.core.config import Config
 from arbor.server.services.jobs.grpo_job import GRPOJob
 from arbor.server.services.managers.base_manager import BaseManager
 from arbor.server.services.managers.inference_manager import InferenceManager
+from logging import getLogger  # REMOVEME
 
 if TYPE_CHECKING:
     from arbor.server.services.managers.gpu_manager import GPUManager
+
+logger = getLogger(__name__)  # REMOVEME
 
 
 class GRPOManager(BaseManager):
@@ -42,6 +45,7 @@ class GRPOManager(BaseManager):
         return grpo_job.get_status()
 
     def route_grpo_checkpoint(self, request: GRPOCheckpointRequest):
+        logger.info(f"route_grpo_checkpoint: Request {request}")  # REMOVEME
         grpo_job = self.grpo_jobs[request.job_id]
         grpo_job.checkpoint(request)
 

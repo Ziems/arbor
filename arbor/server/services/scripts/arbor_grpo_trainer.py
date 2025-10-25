@@ -522,6 +522,9 @@ class ArborGRPOTrainer(Trainer):
             self._pending_checkpoint_requests.append(request)
         if hasattr(self, "control"):
             self.control.should_save = True
+        logger.info(
+            f"checkpoint request queued: checkpoint_name={checkpoint_name}, push_to_hub={push_to_hub}"
+        )  # REMOVEME
 
     def get_checkpoint_records(self) -> list[dict[str, Any]]:
         """Return a copy of recorded checkpoints."""
@@ -558,7 +561,7 @@ class ArborGRPOTrainer(Trainer):
             "requested": bool(request),
             "metadata": metadata,
             "timestamp": time.time(),
-            "hf_hub_path": None,
+            "hf_hub_url": None,
         }
 
         with self._checkpoint_lock:
@@ -572,11 +575,15 @@ class ArborGRPOTrainer(Trainer):
                 json.dump(metadata, fh, indent=2, sort_keys=True)
 
         record["timestamp"] = time.time()
+        logger.info(f"Saving checkpoint {checkpoint_name} to {checkpoint_dir}")
 
         if push_to_hub:
             record["hf_hub_url"] = self.push_to_hub(
                 commit_message=checkpoint_name, blocking=True
             ).commit_url
+            logger.info(
+                f"Pushed checkpoint {checkpoint_name} to Hugging Face Hub at {record['hf_hub_url']}"
+            )
 
         with self._checkpoint_lock:
             self._checkpoint_records.append(dict(record))
@@ -1286,6 +1293,7 @@ def build_trainer_config(args: argparse.Namespace) -> ArborGRPOConfig:
 
 
 def main():
+    logger.info("starting grpo trainer script")  # REMOVEME
     args = parse_args()
     trainer_config = build_trainer_config(args)
     trainer = ArborGRPOTrainer(
