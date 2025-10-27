@@ -394,7 +394,7 @@ class ArborGRPOTrainer(Trainer):
             "completion": deque(maxlen=maxlen),
             "rewards": defaultdict(lambda: deque(maxlen=maxlen)),
         }
-
+        self.vllm_client = None
         self.logger.debug("Configuring vllm client")
         if self.vllm_mode == "server":
             if self.accelerator.is_main_process:
