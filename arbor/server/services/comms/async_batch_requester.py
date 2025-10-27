@@ -26,6 +26,7 @@ class BatchRequest(BaseModel):
     max_seq_len: int = -1
     mask_truncated_completions: bool = False
     zero_truncated_completions: bool = False
+    soft_completion_penalty_length: int | None = None
     max_concurrent: int = 1
 
 
@@ -42,7 +43,9 @@ class BatchResult(BaseModel):
         default_factory=list
     )  # Store completions for logging
     prompts: list[Any] = Field(default_factory=list)  # Store prompts for logging
-    metrics: dict[str, Any] = Field(default_factory=dict)  # Optional per-step metrics
+    metrics: dict[str, Any] = Field(
+        default_factory=dict
+    )  # Optional per-step metrics from the frontend
 
 
 class AsyncBatchRequester:
