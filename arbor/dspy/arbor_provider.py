@@ -74,6 +74,8 @@ class ArborReinforceJob(ReinforceJob):
         "max_context_length": None,
         "lora": False,
         "loss_type": "dapo",
+        "soft_completion_penalty_length": None,
+        "mask_truncated_completions": True,
     }
 
     def __init__(self, lm: "LM", train_kwargs: dict[str, Any]):
@@ -124,6 +126,14 @@ class ArborReinforceJob(ReinforceJob):
         max_completion_length = self.train_kwargs.get(
             "max_completion_length", self.DEFAULT_TRAIN_KWARGS["max_completion_length"]
         )
+        soft_completion_penalty_length = self.train_kwargs.get(
+            "soft_completion_penalty_length",
+            self.DEFAULT_TRAIN_KWARGS["soft_completion_penalty_length"],
+        )
+        mask_truncated_completions = self.train_kwargs.get(
+            "mask_truncated_completions",
+            self.DEFAULT_TRAIN_KWARGS["mask_truncated_completions"],
+        )
         bf16 = self.train_kwargs.get("bf16", self.DEFAULT_TRAIN_KWARGS["bf16"])
         scale_rewards = self.train_kwargs.get(
             "scale_rewards", self.DEFAULT_TRAIN_KWARGS["scale_rewards"]
@@ -166,6 +176,8 @@ class ArborReinforceJob(ReinforceJob):
                 "warmup_steps": warmup_steps,
                 "max_prompt_length": max_prompt_length,
                 "max_completion_length": max_completion_length,
+                "soft_completion_penalty_length": soft_completion_penalty_length,
+                "mask_truncated_completions": mask_truncated_completions,
                 "bf16": bf16,
                 "scale_rewards": scale_rewards,
                 "gradient_checkpointing_kwargs": gradient_checkpointing_kwargs,

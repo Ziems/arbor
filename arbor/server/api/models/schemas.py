@@ -217,6 +217,7 @@ class ArborGRPOConfigRequest(StrictBaseModel):
     lr_scheduler_type: Optional[str] = None
     max_prompt_length: Optional[int] = None
     max_completion_length: Optional[int] = None
+    soft_completion_penalty_length: Optional[int] = None
     gradient_checkpointing_kwargs: Optional[dict[str, Any]] = None
     bf16: Optional[bool] = None
     scale_rewards: Optional[bool] = None

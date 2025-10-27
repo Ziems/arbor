@@ -310,7 +310,6 @@ class ArborGRPOConfig(TrainingArguments):
         },
     )
     epsilon_high: Optional[float] = field(
-        # default=None,
         default=0.28,
         metadata={
             "help": "Upper-bound epsilon value for clipping. If not specified, it defaults to the same value as the "
@@ -432,6 +431,13 @@ class ArborGRPOConfig(TrainingArguments):
         metadata={
             "help": "Whether to log unique prompts in wandb. If `True`, only unique prompts are logged. If `False`, "
             "all prompts are logged."
+        },
+    )
+    soft_completion_penalty_length: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "Length of the completion to apply the soft penalty to. If `None`, no soft penalty is applied."
+            "If set, the soft penalty is applied linearly from this length to the max_completion_length."
         },
     )
 

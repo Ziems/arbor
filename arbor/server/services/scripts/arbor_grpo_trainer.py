@@ -2,6 +2,7 @@ import os
 import logging
 import shutil
 import torch
+import deepspeed
 from arbor.server.services.comms.control_client import TrainerControlClient
 import json
 import argparse
@@ -198,6 +199,7 @@ class ArborGRPOTrainer(Trainer):
         self.max_completion_length = (
             args.max_completion_length
         )  # = |o_i| in the GRPO paper
+        self.soft_completion_penalty_length = args.soft_completion_penalty_length
         if self.max_completion_length is not None:
             self.logger.warning(
                 "max_completion_length is deprecated. Use max_seq_len instead."
@@ -823,92 +825,84 @@ class ArborGRPOTrainer(Trainer):
         return torch.cat(all_logps, dim=0)
 
     def _move_model_to_vllm(self):
-        # For DeepSpeed ZeRO-3 we need to gather all parameters before operations
-        deepspeed_plugin = self.accelerator.state.deepspeed_plugin
-        zero_stage_3 = deepspeed_plugin is not None and deepspeed_plugin.zero_stage == 3
-        if zero_stage_3:
-            import deepspeed  # type: ignore[unresolved-import]
-
-            gather_if_zero3 = deepspeed.zero.GatheredParameters
-        else:
-            gather_if_zero3 = nullcontext
-
-        # Check if any external inference is active (reported via control server)
-        # and broadcast the state to all processes
+        assert self.model is not None
         is_generating = False
         if self.accelerator.is_main_process:
-            is_generating = self.async_requester.get_pending_count() > 0
-
+            pending_count = self.async_requester.get_pending_count()
+            # If a checkpoint is being addressed and the pending queue equals the async pipeline size,
+            # treat as not actively generating so we don't block checkpoint handling.
+            if self._is_checkpoint_pending_main() and (
+                pending_count == self.async_requester.num_batches_ahead
+            ):
+                is_generating = False
+            else:
+                is_generating = pending_count > 0
         is_generating_list = [is_generating]
         broadcast_object_list(is_generating_list, from_process=0)
         is_generating = is_generating_list[0]
 
-        # All processes wait if generation is happening
-        if is_generating:
+        waits = 0
+        while is_generating:
+            time.sleep(0.5)
+            waits += 1
+            if waits % 10 == 0:
+                self.logger.info("Waiting for generation to finish before syncing.")
+            if self.accelerator.is_main_process:
+                pending_count = self.async_requester.get_pending_count()
+                if self._is_checkpoint_pending_main() and (
+                    pending_count == self.async_requester.num_batches_ahead
+                ):
+                    is_generating = False
+                else:
+                    is_generating = pending_count > 0
+            is_generating_list = [is_generating]
+            broadcast_object_list(is_generating_list, from_process=0)
+            is_generating = is_generating_list[0]
 
-            def _gen_wait():
-                return self.async_requester.get_pending_count() > 0
-
-            self._wait_with_checkpoint_preempt(
-                waiting_fn=_gen_wait,
-                log_msg="Waiting for background batch generation to complete before weight syncing.",
-                sleep_s=0.5,
-                preempt_on_checkpoint=False,
+        if self.state.global_step > 0:  # skip first step
+            deepspeed_plugin = self.accelerator.state.deepspeed_plugin
+            zero_stage_3 = (
+                deepspeed_plugin is not None and deepspeed_plugin.zero_stage == 3
             )
+            if zero_stage_3:
+                gather_if_zero3 = deepspeed.zero.GatheredParameters
+            else:
+                gather_if_zero3 = nullcontext
+            self.accelerator.wait_for_everyone()
+            self.logger.info("Starting weight sync to vLLM")
 
-        # Ensure all processes are synchronized before weight update
+            if is_peft_model(self.model):
+                # PEFT: gather + merge, then update each parameter
+                with gather_if_zero3(list(self.model.parameters())):
+                    self.model.merge_adapter()  # type: ignore :(
+                    for name, param in self.model.named_parameters():
+                        # recover original parameter names
+                        name = name.removeprefix("base_model.model.").replace(
+                            ".base_layer", ""
+                        )
+                        if self.model.prefix in name:  # type: ignore :(
+                            continue  # discard some parameters
+                        if "original_module" in name:  # from modules_to_save
+                            continue
+                        name = name.replace("modules_to_save.default.", "")
+                        if self.vllm_client:
+                            self.vllm_client.update_named_param(name, param.data)
+                    self.model.unmerge_adapter()  # type: ignore :(
+            else:
+                # non-PEFT models: gather + update each parameter individually
+                for name, param in self.model.named_parameters():  # type: ignore :(
+                    with gather_if_zero3([param]):
+                        if self.vllm_client:
+                            self.vllm_client.update_named_param(name, param.data)
+
+            # reset cache + wait for background tasks to complete
+            if self.vllm_client:
+                self.vllm_client.reset_prefix_cache()
+                while self.vllm_client.get_num_background_tasks() > 0:
+                    time.sleep(0.5)
+                    self.logger.info("Resetting prefix cache.")
+
         self.accelerator.wait_for_everyone()
-        self.logger.debug(
-            f"Process {self.accelerator.process_index}: Starting weight sync to vLLM"
-        )
-
-        # ALL processes must participate in model operations for DeepSpeed ZeRO-3
-        if is_peft_model(self.model):
-            # With PEFT and DeepSpeed ZeRO Stage 3, we must gather the full model at once before merging
-            with gather_if_zero3(list(self.model.parameters())):  # type: ignore
-                self.model.merge_adapter()  # type: ignore
-
-                # Update vLLM weights while parameters are gathered
-                for name, param in self.model.named_parameters():  # type: ignore
-                    name = name.removeprefix("base_model.model.").replace(
-                        ".base_layer", ""
-                    )
-                    if self.model.prefix in name:  # type: ignore
-                        continue
-                    if "original_module" in name:
-                        continue
-                    name = name.replace("modules_to_save.default.", "")
-
-                    if self.accelerator.is_main_process:
-                        self.vllm_client.update_named_param(name, param.data)
-                self.model.unmerge_adapter()  # type: ignore
-        else:
-            # For non-PEFT models, gather ALL params once, then update
-            named_params = list(self.model.named_parameters())  # type: ignore
-            with gather_if_zero3([p for _, p in named_params]):
-                if self.accelerator.is_main_process:
-                    for name, param in named_params:
-                        self.vllm_client.update_named_param(name, param.data)
-
-        # Reset cache on vLLM (main process only)
-        if self.accelerator.is_main_process:
-            self.vllm_client.reset_prefix_cache()
-
-        # Wait for all background tasks to complete (synchronized across ranks)
-        def _bg_tasks_wait():
-            return self.vllm_client.get_num_background_tasks() > 0
-
-        self._wait_with_checkpoint_preempt(
-            waiting_fn=_bg_tasks_wait,
-            log_msg="Waiting for weight syncing background tasks to complete before submitting new batches.",
-            sleep_s=0.5,
-            preempt_on_checkpoint=False,
-        )
-
-        # Ensure all processes wait for the main process to finish updating weights
-        self.accelerator.wait_for_everyone()
-        # Service once more at a safe point (handles the case we exited early)
-        self._tick_checkpoints()
 
     def _inner_training_loop(self, *args, **kwargs):
         """Override to ensure async generator is stopped when training ends"""
@@ -1006,7 +1000,11 @@ class ArborGRPOTrainer(Trainer):
 
                 if self.accelerator.is_main_process:
                     if self.async_requester.request_batch(
-                        BatchRequest(batch_id=batch_id)
+                        BatchRequest(
+                            batch_id=batch_id,
+                            soft_completion_penalty_length=self.soft_completion_penalty_length,
+                            # TODO: Masking and truncation should be handled here.
+                        )
                     ):
                         batches_requested += 1
                         self.logger.debug(

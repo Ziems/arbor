@@ -538,8 +538,48 @@ def build_batch_result(
         completion_inputs["input_ids"],
         completion_inputs["attention_mask"],
     )
+    # calculate completion lengths
+    completion_lengths = [sum(cm) for cm in completion_mask]
 
     rewards = [float(sample["reward"]) for sample in samples]
+    if trainer_config.soft_completion_penalty_length:
+        processed_rewards = []
+        for (
+            _prompt_id,
+            _prompt_mask,
+            _completion_id,
+            _completion_mask,
+            _reward,
+            _completion_length,
+        ) in zip(
+            prompt_ids,
+            prompt_mask,
+            completion_ids,
+            completion_mask,
+            rewards,
+            completion_lengths,
+        ):
+            if _completion_length > trainer_config.soft_completion_penalty_length:
+                if _reward > 0:
+                    new_reward = _reward * (
+                        1
+                        - (
+                            _completion_length
+                            - trainer_config.soft_completion_penalty_length
+                        )
+                        / (
+                            trainer_config.max_completion_length
+                            - trainer_config.soft_completion_penalty_length
+                        )
+                    )
+                else:
+                    new_reward = _reward
+                logger.info(
+                    f"Applying soft completion penalty to completion {_completion_length} with reward {_reward} -> {new_reward}"
+                )
+                _reward = new_reward
+            processed_rewards.append(_reward)
+        rewards = processed_rewards
 
     for prompt_id, prompt_mask, completion_id, completion_mask, reward in zip(
         prompt_ids, prompt_mask, completion_ids, completion_mask, rewards

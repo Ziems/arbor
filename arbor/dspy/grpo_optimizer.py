@@ -479,6 +479,24 @@ class ArborGRPO(FinetuneTeleprompter):
             )
 
         train_kwargs = self.train_kwargs[first_lm]
+        # ensure the important sampling hyperparameters match between the train config and the DSPy lm sampling config
+        for _hparam in ["temperature", "top_k", "top_p", "repetition_penalty"]:
+            if _hparam not in train_kwargs:
+                raise ValueError(
+                    f"{_hparam} not found in train_kwargs. Please provide it in the train_kwargs."
+                )
+            if _hparam not in first_lm.kwargs:
+                first_lm.kwargs[_hparam] = train_kwargs.get(_hparam)
+                logger.warning(
+                    f"Setting {_hparam} to {train_kwargs.get(_hparam)} for LM as it is not set in the train_kwargs."
+                )
+            elif _hparam in first_lm.kwargs and first_lm.kwargs.get(
+                _hparam
+            ) != train_kwargs.get(_hparam):
+                raise ValueError(
+                    f"{_hparam} mismatch for LM {first_lm}. Expected {train_kwargs.get(_hparam)}, got {first_lm.kwargs.get(_hparam)}"
+                )
+
         grpo_training_job = first_lm.reinforce(train_kwargs=train_kwargs)
 
         self.report_validation_metrics(
@@ -662,8 +680,8 @@ class ArborGRPO(FinetuneTeleprompter):
                                 f"Adapter {adapter} is not a ChatAdapter. GRPO training is not supported for this adapter."
                             )
                             # Force it for now for testing purposes
-                            adapter.disable_adapter_fallback = True
-                            assert adapter.disable_adapter_fallback, (
+                            adapter.use_json_adapter_fallback = False
+                            assert not adapter.use_json_adapter_fallback, (
                                 "Adapter fallback must be disabled for GRPO training."
                             )
 
