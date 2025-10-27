@@ -108,7 +108,7 @@ class TrainerControlClient(threading.Thread):
             metadata = message.get("metadata")
             push_to_hub = message.get("push_to_hub", False)
             logger.info(
-                f"checkpoint request received: checkpoint_name={checkpoint_name}, push_to_hub={push_to_hub}"  # REMOVEME
+                f"checkpoint request received in control client: checkpoint_name={checkpoint_name}, push_to_hub={push_to_hub}"  # REMOVEME
             )
             try:
                 record = self.trainer.handle_checkpoint_request(

@@ -544,6 +544,7 @@ class ArborGRPOTrainer(Trainer):
                     "global_step": result.get("global_step"),
                 },
             )
+            self.logger.info(f"Checkpoint result: {result}")  # REMOVEME
             return result
 
     def _service_checkpoint_requests(self) -> None:
@@ -580,6 +581,7 @@ class ArborGRPOTrainer(Trainer):
         record = self._execute_checkpoint(
             checkpoint_name=request.get("checkpoint_name"),
             metadata=request.get("metadata"),
+            push_to_hub=request.get("push_to_hub", False),
         )
 
         if self.accelerator.is_main_process:
@@ -662,6 +664,9 @@ class ArborGRPOTrainer(Trainer):
     ) -> dict[str, Any]:
         if metadata is not None and not isinstance(metadata, dict):
             raise TypeError("Checkpoint metadata must be a mapping if provided")
+        self.logger.info(
+            f"Executing checkpoint: {checkpoint_name}, push_to_hub={push_to_hub}"
+        )  # REMOVEME
         self.logger.debug(
             "Entering checkpoint execution",
             context={
@@ -739,6 +744,9 @@ class ArborGRPOTrainer(Trainer):
         default_dir = os.path.abspath(os.path.join(run_dir, default_folder))
         requested_name = checkpoint_name or default_folder
         target_dir = os.path.abspath(os.path.join(run_dir, requested_name))
+        self.logger.info(
+            f"Finalizing checkpoint record: {requested_name}, push_to_hub={push_to_hub}, target_dir={target_dir}"
+        )  # REMOVEME
 
         if requested_name != default_folder:
             if os.path.exists(target_dir):
@@ -773,6 +781,7 @@ class ArborGRPOTrainer(Trainer):
             record["hf_hub_url"] = self.push_to_hub(
                 commit_message=checkpoint_name, blocking=True
             ).commit_url
+        self.logger.info(f"Finalized checkpoint record: {record}")  # REMOVEME
         return record
 
     def get_checkpoint_records(self) -> list[dict[str, Any]]:

@@ -50,14 +50,14 @@ class ArborHFConfig(BaseModel):
         hub_token: The token to use to push the model to the huggingface hub. (if not provided will default to the one set in the LM)
         hub_revision: The revision to use when pushing to the Hub. Can be a branch name, a tag, or a commit hash.
         hub_private_repo: Whether the huggingface repo should be private.
-        push_frequency: How often to push the model to the huggingface hub.
+        push_to_hub: Whether to push the model to the huggingface hub every time a checkpoint is saved. Default is True.
     """
 
     hub_model_id: str
     hub_token: Optional[str] = None
     hub_revision: Optional[str] = None
     hub_private_repo: Optional[bool] = None
-    push_frequency: Optional[Literal["final_checkpoint", "all_checkpoints"]] = None
+    push_to_hub: bool = True
 
 
 class ArborGRPO(FinetuneTeleprompter):
@@ -94,7 +94,7 @@ class ArborGRPO(FinetuneTeleprompter):
         # hub pushes will be handled by the optimizer not the server
         if hf_config:
             train_kwargs = train_kwargs or {}
-            train_kwargs["hf_config"] = hf_config.model_dump(exclude=["push_frequency"])
+            train_kwargs["hf_config"] = hf_config.model_dump(exclude=["push_to_hub"])
         super().__init__(train_kwargs=train_kwargs)
         self.metric = metric
         self.adapter: dict[LM, Adapter] = self.convert_to_lm_dict(adapter)
@@ -203,7 +203,6 @@ class ArborGRPO(FinetuneTeleprompter):
         step_idx: int = -1,
         grpo_training_job: ArborReinforceJob | None = None,
         lm_for_job: LM | None = None,
-        push_to_hub: bool = False,
     ):
         if (
             step_idx == -1
@@ -379,10 +378,10 @@ class ArborGRPO(FinetuneTeleprompter):
                     checkpoint_name,
                     score=score,
                     step_idx=step_idx,
-                    push_to_hub=self._should_push_to_hub(step_idx),
+                    push_to_hub=self._should_push_to_hub(),
                 )
                 logger.info(
-                    f"requested a checkpoint push_to_hub={self._should_push_to_hub(step_idx)}"
+                    f"requested a checkpoint push_to_hub={self._should_push_to_hub()}"
                 )  # REMOVEME
 
     def update_shuffled_trainset(self, original_trainset):
@@ -633,16 +632,10 @@ class ArborGRPO(FinetuneTeleprompter):
                         )
 
                     min_len = min(
-                        [
-                            len(predictor_example_invocations[i])
-                            for i in range(len(predictor_example_invocations))
-                        ]
+                        len(invocation) for invocation in predictor_example_invocations
                     )
                     max_len = max(
-                        [
-                            len(predictor_example_invocations[i])
-                            for i in range(len(predictor_example_invocations))
-                        ]
+                        len(invocation) for invocation in predictor_example_invocations
                     )
                     if min_len == 0:
                         logger.warning(
@@ -671,10 +664,7 @@ class ArborGRPO(FinetuneTeleprompter):
                     else:
                         assert self.variably_invoked_predictor_grouping_mode == "ragged"
                     max_len = max(
-                        [
-                            len(predictor_example_invocations[i])
-                            for i in range(len(predictor_example_invocations))
-                        ]
+                        len(invocation) for invocation in predictor_example_invocations
                     )
 
                     example_training_data: list[GRPOGroup] = [
@@ -848,17 +838,16 @@ class ArborGRPO(FinetuneTeleprompter):
                 step_idx=train_step_idx,
                 grpo_training_job=grpo_training_job,
                 lm_for_job=first_lm,
-                push_to_hub=self._should_push_to_hub(train_step_idx),
             )
 
         logger.info("Done with the iterations! Retrieving the final model...")
-        grpo_training_job.terminate()
         self._save_checkpoint_for_job(  # REMOVEME
             grpo_training_job,
             first_lm,
             "model_checkpoint_test",
             push_to_hub=True,
         )
+        grpo_training_job.terminate()
         recover_lm_cache(program=student, lm_cache_dict=lm_cache_dict)
         for t in teachers:
             recover_lm_cache(program=t, lm_cache_dict=lm_cache_dict)
@@ -917,14 +906,10 @@ class ArborGRPO(FinetuneTeleprompter):
         else:
             logger.info("Saved checkpoint %s for %s", checkpoint_name, job_label)
 
-    def _should_push_to_hub(self, train_step_idx: int) -> bool:
-        if self.hf_config.push_frequency is None:
+    def _should_push_to_hub(self) -> bool:
+        if self.hf_config is None:
             return False
-        if self.hf_config.push_frequency == "final_checkpoint":
-            return train_step_idx == self.num_train_steps - 1
-        if self.hf_config.push_frequency == "all_checkpoints":
-            return True
-        raise ValueError(f"Invalid push frequency: {self.hf_config.push_frequency}")
+        return self.hf_config.push_to_hub
 
 
 def disable_lm_cache(program: Module, lm_cache_dict: dict):

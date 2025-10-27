@@ -128,6 +128,7 @@ class TrainerControlServer:
         }
         if metadata is not None:
             payload["metadata"] = dict(metadata)
+        LOGGER.info(f"Requesting checkpoint: {payload}")  # REMOVEME
         resp = self._request(payload)
         LOGGER.info(f"Checkpoint request response: {resp}")  # REMOVEME
         if not resp.get("ok", False):
