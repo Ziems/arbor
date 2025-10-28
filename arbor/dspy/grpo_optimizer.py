@@ -793,6 +793,21 @@ class ArborGRPO(FinetuneTeleprompter):
                     group_queue.extend(shuffled)
                     need -= len(shuffled)
 
+            # Report validation metrics if the step is the last step or a multiple of num_steps_for_val
+            # Do this before submitting the train data to the GRPO training job so it can be attached to the train data
+            if train_step_idx == self.num_train_steps - 1 or (
+                (train_step_idx + 1) % self.num_steps_for_val == 0
+            ):
+                self.report_validation_metrics(
+                    student=student,
+                    trainset=trainset,
+                    valset=valset,
+                    logger=logger,
+                    step_idx=train_step_idx,
+                    grpo_training_job=grpo_training_job,
+                    lm_for_job=first_lm,
+                )
+
             final_train_data: list[GRPOGroup] = []
             for bid in available_batch_ids:
                 grp = group_queue.popleft()
@@ -822,16 +837,6 @@ class ArborGRPO(FinetuneTeleprompter):
 
             logger.info(
                 f"GRPO training step {train_step_idx + 1}/{self.num_train_steps} completed."
-            )
-
-            self.report_validation_metrics(
-                student=student,
-                trainset=trainset,
-                valset=valset,
-                logger=logger,
-                step_idx=train_step_idx,
-                grpo_training_job=grpo_training_job,
-                lm_for_job=first_lm,
             )
 
         logger.info("Done with the iterations! Retrieving the final model...")
