@@ -233,6 +233,7 @@ class ArborGRPOConfigRequest(StrictBaseModel):
     max_steps: Optional[int] = None
     warmup_steps: Optional[int] = None
     loss_type: Optional[str] = None
+    num_training_gpus: Optional[int] = None
     # ...and any other ArborGRPOConfig fields you care about.
     # Thanks to extra="allow" you can keep this list short and still pass others.
 

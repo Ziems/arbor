@@ -440,6 +440,10 @@ class ArborGRPOConfig(TrainingArguments):
             "If set, the soft penalty is applied linearly from this length to the max_completion_length."
         },
     )
+    num_training_gpus: Optional[int] = field(
+        default=1,
+        metadata={"help": "Number of GPUs to use for training."},
+    )
 
     def to_dict(self):  # type: ignore[override]
         data = super().to_dict()
@@ -453,7 +457,7 @@ class ArborGRPOConfig(TrainingArguments):
     def __post_init__(self):
         super().__post_init__()
 
-        num_processes = self.world_size
+        num_processes = self.num_training_gpus  # Use to be self.world_size
         # The current default effective batch size
         if (
             self.generation_batch_size is not None

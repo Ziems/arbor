@@ -75,6 +75,8 @@ train_kwargs = {
     "loss_type": "dapo", #"dr_grpo",
     "mask_truncated_completions": False,
     "scale_rewards": False,
+    "num_training_gpus": 1,
+    "num_inference_gpus": 1,
     # "lora_config": {
     #     "lora_alpha": 16,
     #     "lora_dropout": 0.05,

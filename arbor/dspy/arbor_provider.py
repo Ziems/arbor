@@ -158,6 +158,8 @@ class ArborReinforceJob(ReinforceJob):
             "max_context_length", self.DEFAULT_TRAIN_KWARGS["max_context_length"]
         )
         max_steps = self.train_kwargs.get("max_steps", 500)
+        num_training_gpus = self.train_kwargs.get("num_training_gpus", 1)
+        num_inference_gpus = self.train_kwargs.get("num_inference_gpus", 1)
         # lora = self.train_kwargs.get("lora", self.DEFAULT_TRAIN_KWARGS["lora"])
         api_base = self.lm.kwargs["api_base"]
 
@@ -189,6 +191,7 @@ class ArborReinforceJob(ReinforceJob):
                 # "max_seq_len": max_context_length,
                 "max_steps": max_steps,
                 "loss_type": loss_type,
+                "num_training_gpus": num_training_gpus,
                 # "lora": lora,
             },
             "inference_config": {
@@ -198,8 +201,8 @@ class ArborReinforceJob(ReinforceJob):
             "gpu_config": {
                 "type": "multi",
                 "multi": {
-                    "num_inference_gpus": 1,
-                    "num_training_gpus": 1,
+                    "num_inference_gpus": num_inference_gpus,
+                    "num_training_gpus": num_training_gpus,
                 },
             },
         }
