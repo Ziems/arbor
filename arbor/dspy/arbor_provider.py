@@ -72,7 +72,7 @@ class ArborReinforceJob(ReinforceJob):
         "logging_steps": 10,
         # By default, none is the model's max context length
         "max_context_length": None,
-        "lora": False,
+        "lora_config": None,
         "loss_type": "dapo",
         "soft_completion_penalty_length": None,
         "mask_truncated_completions": True,
@@ -160,7 +160,9 @@ class ArborReinforceJob(ReinforceJob):
         max_steps = self.train_kwargs.get("max_steps", 500)
         num_training_gpus = self.train_kwargs.get("num_training_gpus", 1)
         num_inference_gpus = self.train_kwargs.get("num_inference_gpus", 1)
-        # lora = self.train_kwargs.get("lora", self.DEFAULT_TRAIN_KWARGS["lora"])
+        lora_config = self.train_kwargs.get(
+            "lora_config", self.DEFAULT_TRAIN_KWARGS["lora_config"]
+        )
         api_base = self.lm.kwargs["api_base"]
 
         finetune_model = ArborProvider._remove_provider_prefix(self.lm.model)
@@ -192,7 +194,7 @@ class ArborReinforceJob(ReinforceJob):
                 "max_steps": max_steps,
                 "loss_type": loss_type,
                 "num_training_gpus": num_training_gpus,
-                # "lora": lora,
+                "lora_config": lora_config,
             },
             "inference_config": {
                 "model": finetune_model,

@@ -600,7 +600,7 @@ class ArborGRPOTrainer(Trainer):
                     context={"checkpoint_name": record.get("checkpoint_name")},
                 )
 
-    # ------------------- Checkpoint helpers (for maintainability) -------------------
+    # ------------------- Checkpoint helpers -------------------
     def _is_checkpoint_pending_main(self) -> bool:
         pending = False
         if self.accelerator.is_main_process:

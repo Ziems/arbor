@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 class ArborGRPO(FinetuneTeleprompter):
-    """Local copy of DSPy's GRPO finetuner with Arbor defaults."""
+    """GRPO finetuner for DSPy with Arbor defaults."""
 
     def __init__(
         self,
