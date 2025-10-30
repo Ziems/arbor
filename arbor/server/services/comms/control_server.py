@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Mapping, Optional
 
 import zmq
 
@@ -74,7 +74,7 @@ class TrainerControlServer:
             raise RuntimeError("TrainerControlServer socket is not connected")
         return self._socket
 
-    def _request(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _request(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self._io_lock:
             socket = self._ensure_socket()
             try:
@@ -94,7 +94,7 @@ class TrainerControlServer:
                 )
                 raise RuntimeError("Control request failed") from exc
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Fetch trainer status, including pending batch ids."""
         resp = self._request({"cmd": "status"})
         if not resp.get("ok", False):
@@ -103,7 +103,7 @@ class TrainerControlServer:
             )
         return resp
 
-    def submit_batch(self, batch: BatchResult | Mapping[str, Any]) -> Dict[str, Any]:
+    def submit_batch(self, batch: BatchResult | Mapping[str, Any]) -> dict[str, Any]:
         if isinstance(batch, BatchResult):
             payload = batch.model_dump()
         else:
@@ -117,8 +117,8 @@ class TrainerControlServer:
 
     def request_checkpoint(
         self, checkpoint_name: str, metadata: Optional[Mapping[str, Any]] = None
-    ) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
             "cmd": "checkpoint",
             "checkpoint_name": checkpoint_name,
         }
@@ -131,7 +131,7 @@ class TrainerControlServer:
             )
         return resp
 
-    def request_terminate(self) -> Dict[str, Any]:
+    def request_terminate(self) -> dict[str, Any]:
         resp = self._request({"cmd": "terminate"})
         if not resp.get("ok", False):
             raise RuntimeError(
@@ -139,7 +139,7 @@ class TrainerControlServer:
             )
         return resp
 
-    def ping(self) -> Dict[str, Any]:
+    def ping(self) -> dict[str, Any]:
         resp = self._request({"cmd": "noop"})
         if not resp.get("ok", False):
             raise RuntimeError(f"Error pinging: {resp.get('error', 'Unknown error')}")

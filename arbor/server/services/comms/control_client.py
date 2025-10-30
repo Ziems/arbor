@@ -1,5 +1,5 @@
 import threading
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import wandb
 import zmq
@@ -76,7 +76,7 @@ class TrainerControlClient(threading.Thread):
             except Exception:
                 pass
 
-    def _handle_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    def _handle_message(self, message: dict[str, Any]) -> dict[str, Any]:
         cmd = message.get("cmd")
         requester = self.trainer.async_requester
 

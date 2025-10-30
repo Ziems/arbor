@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any, Generic, List, Literal, Optional, TypeVar
+from typing import Any, Generic, Literal, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,7 +13,7 @@ class StrictBaseModel(BaseModel):
 
 class PaginatedResponse(StrictBaseModel, Generic[T]):
     object: str = "list"
-    data: List[T]
+    data: list[T]
     has_more: bool = False
 
 
@@ -152,7 +152,7 @@ class ChatCompletionMessage(StrictBaseModel):
 
 class ChatCompletionRequest(StrictBaseModel):
     model: str
-    messages: List[ChatCompletionMessage]
+    messages: list[ChatCompletionMessage]
     temperature: float | None = None
     top_p: float | None = None
     max_tokens: int | None = None
@@ -169,7 +169,7 @@ class ChatCompletionModel(StrictBaseModel):
     object: str = "chat.completion"
     created: int
     model: str
-    choices: List[ChatCompletionChoice]
+    choices: list[ChatCompletionChoice]
 
 
 class InferenceLaunchOwner(StrictBaseModel):
@@ -206,13 +206,13 @@ class GRPOStatus(StrictBaseModel):
     current_model: str
     checkpoints: dict[str, dict[str, Any]] = Field(default_factory=dict)
     last_checkpoint: Optional[str] = None
-    pending_batch_ids: List[int] = Field(default_factory=list)
+    pending_batch_ids: list[int] = Field(default_factory=list)
 
 
 class LoRAConfigRequest(StrictBaseModel):
     r: int
     lora_alpha: int
-    target_modules: List[str]
+    target_modules: list[str]
     lora_dropout: float
 
 
@@ -268,7 +268,7 @@ class GRPOBaseRequest(StrictBaseModel):
 class GRPOStepRequest(GRPOBaseRequest):
     model: str
     batch_id: int
-    batch: List[dict] | List[List[dict]]
+    batch: list[dict] | list[list[dict]]
     metrics: Optional[dict[str, Any]] = None
 
 

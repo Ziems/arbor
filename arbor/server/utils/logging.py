@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from contextvars import ContextVar
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Optional
 
 # Context variables for tracking across async operations
 request_id_context: ContextVar[Optional[str]] = ContextVar("request_id", default=None)
@@ -194,7 +194,7 @@ class ArborLogger:
         level: int,
         message: str,
         *args,
-        context: Optional[Dict[str, Any]] = None,
+        context: Optional[dict[str, Any]] = None,
         exc_info: Optional[bool] = None,
         **kwargs,
     ):
@@ -205,7 +205,7 @@ class ArborLogger:
             except TypeError:
                 message = message.format(*args)
         # Merge context and kwargs
-        full_context: Dict[str, Any] = {}
+        full_context: dict[str, Any] = {}
         if context is not None:
             if isinstance(context, Mapping):
                 full_context.update(context)
@@ -228,7 +228,7 @@ class ArborLogger:
         self,
         message: str,
         *args,
-        context: Optional[Dict[str, Any]] = None,
+        context: Optional[dict[str, Any]] = None,
         **kwargs,
     ):
         """Log debug message with context."""
@@ -238,7 +238,7 @@ class ArborLogger:
         self,
         message: str,
         *args,
-        context: Optional[Dict[str, Any]] = None,
+        context: Optional[dict[str, Any]] = None,
         **kwargs,
     ):
         """Log info message with context."""
@@ -248,7 +248,7 @@ class ArborLogger:
         self,
         message: str,
         *args,
-        context: Optional[Dict[str, Any]] = None,
+        context: Optional[dict[str, Any]] = None,
         **kwargs,
     ):
         """Log warning message with context."""
@@ -260,7 +260,7 @@ class ArborLogger:
         self,
         message: str,
         *args,
-        context: Optional[Dict[str, Any]] = None,
+        context: Optional[dict[str, Any]] = None,
         exc_info: bool = False,
         **kwargs,
     ):
@@ -278,7 +278,7 @@ class ArborLogger:
         self,
         message: str,
         *args,
-        context: Optional[Dict[str, Any]] = None,
+        context: Optional[dict[str, Any]] = None,
         exc_info: bool = False,
         **kwargs,
     ):
@@ -296,7 +296,7 @@ class ArborLogger:
         self,
         message: str,
         *args,
-        context: Optional[Dict[str, Any]] = None,
+        context: Optional[dict[str, Any]] = None,
         **kwargs,
     ):
         """Log exception with context and stack trace."""
@@ -519,7 +519,7 @@ def setup_logging(
     show_context: bool = True,
     show_colors: bool = True,
     debug_mode: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Setup enhanced logging for Arbor.
 
@@ -709,7 +709,7 @@ def log_system_info():
     logger.info("=" * 60)
 
 
-def log_configuration(config: Dict[str, Any]):
+def log_configuration(config: dict[str, Any]):
     """Log configuration information."""
     logger = get_logger("arbor.config")
     logger.info("Configuration loaded", config=config)

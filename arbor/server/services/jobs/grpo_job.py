@@ -3,7 +3,7 @@ import os
 import threading
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import coolname
 from transformers import AutoTokenizer
@@ -59,8 +59,8 @@ class GRPOJob(Job):
         self.trainer_config: ArborGRPOConfig = None
         self.tokenizer: AutoTokenizer = None
 
-        self.fulfilled_batches: List[BatchResult] = []
-        self.pending_batch_ids: List[int] = []
+        self.fulfilled_batches: list[BatchResult] = []
+        self.pending_batch_ids: list[int] = []
         self.no_submit_streak = 0
 
         self.batch_count = 0
@@ -475,7 +475,7 @@ class GRPOJob(Job):
 def build_batch_result(
     batch_id: int,
     tokenizer: AutoTokenizer,
-    samples: Sequence[Dict[str, Any]],
+    samples: Sequence[dict[str, Any]],
     max_prompt_length: int | None,
     max_seq_len: int,
     num_generations: int,
@@ -492,11 +492,11 @@ def build_batch_result(
 
     effective_max_prompt = max_prompt_length or max_seq_len
 
-    prompt_ids: List[List[int]] = []
-    prompt_mask: List[List[int]] = []
-    completion_ids: List[List[int]] = []
-    completion_mask: List[List[int]] = []
-    rewards: List[float] = []
+    prompt_ids: list[list[int]] = []
+    prompt_mask: list[list[int]] = []
+    completion_ids: list[list[int]] = []
+    completion_mask: list[list[int]] = []
+    rewards: list[float] = []
 
     prompt_completion_texts = [
         apply_chat_template(

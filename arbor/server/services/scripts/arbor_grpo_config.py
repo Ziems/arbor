@@ -1,7 +1,7 @@
 # adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/grpo_config.py
 
 from dataclasses import dataclass, field
-from typing import Optional, Union
+from typing import Optional
 
 import transformers
 from packaging import version
@@ -34,7 +34,7 @@ class ArborGRPOConfig(TrainingArguments):
         ]
 
     # Parameters that control the model and reference model
-    model_init_kwargs: Optional[Union[dict, str]] = field(
+    model_init_kwargs: Optional[dict | str] = field(
         default=None,
         metadata={
             "help": "Keyword arguments for `transformers.AutoModelForCausalLM.from_pretrained`, used when the `model` "

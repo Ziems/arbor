@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Optional
 
 import yaml
 
@@ -25,7 +25,7 @@ class ConfigManager:
         return str(Path.home() / ".arbor" / "config.yaml")
 
     @staticmethod
-    def get_config_template() -> Dict:
+    def get_config_template() -> dict:
         return {"storage_path": str(Path.home() / ".arbor" / "storage")}
 
     @classmethod
@@ -61,7 +61,7 @@ class ConfigManager:
         return str(config_file)
 
     @classmethod
-    def validate_config_file(cls, config_path: str) -> Tuple[bool, str]:
+    def validate_config_file(cls, config_path: str) -> tuple[bool, str]:
         """Validate a config file"""
         try:
             if not Path(config_path).exists():
@@ -75,7 +75,7 @@ class ConfigManager:
             return False, f"Invalid config: {e}"
 
     @classmethod
-    def get_config_contents(cls, config_path: str) -> Tuple[bool, str]:
+    def get_config_contents(cls, config_path: str) -> tuple[bool, str]:
         try:
             with open(config_path, "r") as f:
                 config_content = f.read()

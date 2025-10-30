@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Callable, List, Literal, Optional
+from typing import Callable, Literal, Optional
 
 import coolname
 
@@ -52,7 +52,7 @@ class JobCheckpoint:
 
 class Job:
     def __init__(
-        self, config, id=None, prefix="ftjob", artifacts: List[JobArtifact] = None
+        self, config, id=None, prefix="ftjob", artifacts: list[JobArtifact] = None
     ):
         self.config = config
 
@@ -247,7 +247,7 @@ class Job:
         metrics_dir.mkdir(parents=True, exist_ok=True)
         return str(metrics_dir)
 
-    def _setup_directories(self, artifacts: List[JobArtifact]):
+    def _setup_directories(self, artifacts: list[JobArtifact]):
         """Set up directories based on requested artifacts."""
         for artifact in artifacts:
             if artifact == JobArtifact.LOGS:

@@ -1,4 +1,4 @@
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 from arbor.server.api.models.schemas import InferenceLaunchRequest
 from arbor.server.core.config import Config
@@ -37,7 +37,7 @@ class InferenceManager(BaseManager):
 
         return await inference_job.run_inference(request_json)
 
-    def _register_job(self, job: InferenceJob, aliases: List[str]) -> None:
+    def _register_job(self, job: InferenceJob, aliases: list[str]) -> None:
         self.inference_jobs[job.id] = job
         for alias in aliases:
             if alias:
@@ -52,7 +52,7 @@ class InferenceManager(BaseManager):
             return None
         return self.inference_jobs.get(job_id)
 
-    def _unregister_job(self, job: InferenceJob) -> List[str]:
+    def _unregister_job(self, job: InferenceJob) -> list[str]:
         aliases = [
             alias
             for alias, job_id in list(self.alias_to_job_id.items())
@@ -182,7 +182,7 @@ class InferenceManager(BaseManager):
         if job is None:
             raise ValueError(f"Inference job '{job_id}' not found")
 
-        aliases: List[str] = []
+        aliases: list[str] = []
         release_exception: Optional[Exception] = None
         try:
             try:
