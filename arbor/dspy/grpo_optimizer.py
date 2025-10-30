@@ -499,6 +499,17 @@ class ArborGRPO(FinetuneTeleprompter):
 
         grpo_training_job = first_lm.reinforce(train_kwargs=train_kwargs)
 
+        # Run initial validation before training starts
+        self.report_validation_metrics(
+            student=student,
+            trainset=trainset,
+            valset=valset,
+            logger=logger,
+            step_idx=-1,
+            grpo_training_job=grpo_training_job,
+            lm_for_job=first_lm,
+        )
+
         group_queue: deque = deque()
         logger.info("Starting the GRPO training loop...")
         for train_step_idx in range(self.num_train_steps):
@@ -806,10 +817,14 @@ class ArborGRPO(FinetuneTeleprompter):
 
                 # Attach simple step metrics for logging on the backend
                 step_metrics = {}
-                if self.validation_scores.get(train_step_idx) is not None:
-                    step_metrics["validation_score"] = float(
-                        self.validation_scores[train_step_idx]
-                    )
+                # For the first training step, prefer initial validation score (step_idx=-1) if it exists
+                # Otherwise use the validation score for the current step
+                if train_step_idx == 0 and -1 in self.validation_scores:
+                    validation_score = self.validation_scores[-1]
+                else:
+                    validation_score = self.validation_scores.get(train_step_idx)
+                if validation_score is not None:
+                    step_metrics["validation_score"] = float(validation_score)
                 step_metrics["format_failures"] = int(format_failure_count)
                 final_train_data.append(
                     {"batch_id": bid, "group": grp, "metrics": step_metrics}
