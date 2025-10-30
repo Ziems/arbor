@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
 
 import yaml
 from pydantic import BaseModel
@@ -58,7 +58,7 @@ class Config(BaseModel):
         storage_dir.mkdir(parents=True, exist_ok=True)
         (storage_dir / "uploads").mkdir(exist_ok=True)
 
-    def get_system_versions(self) -> Dict[str, any]:
+    def get_system_versions(self) -> dict[str, any]:
         """Get system version information."""
         import platform
         import sys

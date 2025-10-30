@@ -4,14 +4,14 @@ Utilities for detecting training data formats (SFT vs DPO) from JSONL files.
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Literal
+from typing import Any, Literal
 
 from arbor.server.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-def detect_record_format(record: Dict[Any, Any]) -> Literal["sft", "dpo", "unknown"]:
+def detect_record_format(record: dict[Any, Any]) -> Literal["sft", "dpo", "unknown"]:
     """
     Detect the format of a single training record.
 

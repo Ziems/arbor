@@ -7,7 +7,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Optional
 
 from arbor.server.utils.logging import get_logger
 
@@ -56,8 +56,8 @@ class ProcessRunner:
 
     def start(
         self,
-        command: List[str],
-        env: Optional[Dict[str, str]] = None,
+        command: list[str],
+        env: Optional[dict[str, str]] = None,
         cwd: Optional[Path] = None,
         log_callback: Optional[Callable[[str], None]] = None,
     ) -> subprocess.Popen:
@@ -203,9 +203,9 @@ class AccelerateProcessRunner(ProcessRunner):
         script_path: str,
         num_processes: int,
         main_process_port: int,
-        script_args: List[str],
+        script_args: list[str],
         accelerate_config: Optional[str] = None,
-        env: Optional[Dict[str, str]] = None,
+        env: Optional[dict[str, str]] = None,
         log_callback: Optional[Callable[[str], None]] = None,
     ) -> subprocess.Popen:
         """
@@ -240,8 +240,8 @@ class AccelerateProcessRunner(ProcessRunner):
 
     def start_training_from_full_command(
         self,
-        full_command: List[str],
-        env: Optional[Dict[str, str]] = None,
+        full_command: list[str],
+        env: Optional[dict[str, str]] = None,
         log_callback: Optional[Callable[[str], None]] = None,
     ) -> subprocess.Popen:
         """
@@ -261,7 +261,7 @@ class InferenceProcessRunner(ProcessRunner):
     def start_inference_server(
         self,
         command_str: str,
-        env: Optional[Dict[str, str]] = None,
+        env: Optional[dict[str, str]] = None,
         log_callback: Optional[Callable[[str], None]] = None,
     ) -> subprocess.Popen:
         """

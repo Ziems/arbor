@@ -8,7 +8,7 @@ import traceback
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from .logging import get_logger, job_id_context, request_id_context, user_context
 
@@ -51,9 +51,9 @@ class ErrorContext:
     model: Optional[str] = None
     file_path: Optional[str] = None
     function_name: Optional[str] = None
-    additional_data: Optional[Dict[str, Any]] = None
+    additional_data: Optional[dict[str, Any]] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values."""
         data = asdict(self)
         return {k: v for k, v in data.items() if v is not None}
@@ -71,9 +71,9 @@ class ArborError:
     context: ErrorContext
     timestamp: datetime
     traceback_str: Optional[str] = None
-    suggestions: Optional[List[str]] = None
+    suggestions: Optional[list[str]] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         data = asdict(self)
         data["category"] = self.category.value
@@ -91,7 +91,7 @@ class ArborError(Exception):
         category: ErrorCategory = ErrorCategory.INTERNAL,
         severity: ErrorSeverity = ErrorSeverity.MEDIUM,
         context: Optional[ErrorContext] = None,
-        suggestions: Optional[List[str]] = None,
+        suggestions: Optional[list[str]] = None,
         cause: Optional[Exception] = None,
     ):
         super().__init__(message)
@@ -290,7 +290,7 @@ class ErrorHandler:
 
     def __init__(self):
         self.logger = get_logger("error_handler")
-        self.error_history: List[ArborError] = []
+        self.error_history: list[ArborError] = []
         self.max_history = 1000
 
     def handle_exception(
@@ -298,7 +298,7 @@ class ErrorHandler:
         exc: Exception,
         context: Optional[ErrorContext] = None,
         operation: Optional[str] = None,
-        suggestions: Optional[List[str]] = None,
+        suggestions: Optional[list[str]] = None,
     ) -> ArborError:
         """Handle any exception and convert to ArborError."""
 
@@ -368,7 +368,7 @@ class ErrorHandler:
         else:
             return ErrorCategory.INTERNAL, ErrorSeverity.MEDIUM
 
-    def _generate_suggestions(self, exc: Exception) -> List[str]:
+    def _generate_suggestions(self, exc: Exception) -> list[str]:
         """Generate helpful suggestions based on exception type."""
         exc_type = type(exc).__name__.lower()
         message = str(exc).lower()
@@ -453,15 +453,15 @@ class ErrorHandler:
         if len(self.error_history) > self.max_history:
             self.error_history = self.error_history[-self.max_history :]
 
-    def get_recent_errors(self, count: int = 10) -> List[ArborError]:
+    def get_recent_errors(self, count: int = 10) -> list[ArborError]:
         """Get recent errors."""
         return self.error_history[-count:]
 
-    def get_errors_by_category(self, category: ErrorCategory) -> List[ArborError]:
+    def get_errors_by_category(self, category: ErrorCategory) -> list[ArborError]:
         """Get errors by category."""
         return [e for e in self.error_history if e.category == category]
 
-    def get_error_summary(self) -> Dict[str, Any]:
+    def get_error_summary(self) -> dict[str, Any]:
         """Get summary of recent errors."""
         if not self.error_history:
             return {"total": 0, "by_category": {}, "by_severity": {}}
@@ -496,7 +496,7 @@ def handle_error(
     exc: Exception,
     context: Optional[ErrorContext] = None,
     operation: Optional[str] = None,
-    suggestions: Optional[List[str]] = None,
+    suggestions: Optional[list[str]] = None,
 ) -> ArborError:
     """Convenience function to handle errors."""
     return error_handler.handle_exception(exc, context, operation, suggestions)
@@ -525,7 +525,7 @@ def safe_execute(
 
 
 def error_recovery_decorator(
-    operation: Optional[str] = None, suggestions: Optional[List[str]] = None
+    operation: Optional[str] = None, suggestions: Optional[list[str]] = None
 ):
     """Decorator for automatic error handling and recovery."""
 

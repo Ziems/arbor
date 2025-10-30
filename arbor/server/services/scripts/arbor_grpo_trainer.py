@@ -8,7 +8,7 @@ import threading
 import time
 from collections import defaultdict, deque
 from contextlib import nullcontext
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional
 
 import datasets
 import deepspeed
@@ -922,7 +922,7 @@ class ArborGRPOTrainer(Trainer):
 
     def _prepare_inputs(  # type: ignore
         self, inputs: list[dict[str, Any]]
-    ) -> dict[str, Union[torch.Tensor, Any]]:
+    ) -> dict[str, torch.Tensor | Any]:
         """
         inputs: raw inputs from the dataloader (per process)
 
@@ -1286,7 +1286,7 @@ class ArborGRPOTrainer(Trainer):
     def compute_loss(  # type: ignore
         self,  # type: ignore
         model: PreTrainedModel,
-        inputs: Dict[str, torch.Tensor],
+        inputs: dict[str, torch.Tensor],
         return_outputs: bool = False,
         num_items_in_batch: int | None = None,
     ) -> torch.Tensor:  # type: ignore
@@ -1446,7 +1446,7 @@ class ArborGRPOTrainer(Trainer):
     def _log_reward_metrics_primary(
         self,
         mode: str,
-        all_reward_dict: Dict[str, Any],
+        all_reward_dict: dict[str, Any],
         all_rewards: torch.Tensor,
         generation_batch_size: int,
     ) -> None:
@@ -1475,9 +1475,9 @@ class ArborGRPOTrainer(Trainer):
 
     def _log_textual_data_primary(
         self,
-        all_prompts: List[Union[str, List[Dict[str, Any]]]],
-        all_completions: List[Union[str, List[Dict[str, Any]]]],
-        all_reward_dict: Dict[str, Any],
+        all_prompts: list[str | list[dict[str, Any]]],
+        all_completions: list[str | list[dict[str, Any]]],
+        all_reward_dict: dict[str, Any],
     ) -> None:
         """
         Log textual data for wandb (PRIMARY PROCESS ONLY).
@@ -1498,9 +1498,9 @@ class ArborGRPOTrainer(Trainer):
     def _log_completion_metrics_primary(
         self,
         mode: str,
-        all_completion_mask: List[List[int]],
-        all_completion_ids: List[List[int]],
-        all_prompt_mask: List[List[int]],
+        all_completion_mask: list[list[int]],
+        all_completion_ids: list[list[int]],
+        all_prompt_mask: list[list[int]],
     ) -> None:
         """
         Log completion-related metrics (PRIMARY PROCESS ONLY).
@@ -1558,7 +1558,7 @@ class ArborGRPOTrainer(Trainer):
     def _log_external_metrics_primary(
         self,
         mode: str,
-        external_metrics: Dict[str, Any],
+        external_metrics: dict[str, Any],
     ) -> None:
         """
         Log external metrics (PRIMARY PROCESS ONLY).
