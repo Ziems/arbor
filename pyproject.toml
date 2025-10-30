@@ -130,10 +130,7 @@ ignore = [
     "C901",  # Ignore complexity checking for now
     "E501",  # Ignore line length errors (handled by formatter)
     "E721",  # Allow using == to compare with type
-    "F403",  # Allow wildcard imports
     "FBT003", # Allow boolean positional values in function calls
-    "N806",  # Allow uppercase local variables for clarity
-    "N818",  # Allow non-Error exception suffix for compatibility
     "RUF005", # Allow using + operator to concatenate collections
     "RUF001", # Allow non-ASCII characters in strings when meaningful
     "RUF003", # Allow typographic punctuation in comments

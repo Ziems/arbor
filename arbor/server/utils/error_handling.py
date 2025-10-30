@@ -82,7 +82,7 @@ class ArborError:
         return data
 
 
-class ArborException(Exception):
+class ArborError(Exception):
     """Base exception class with enhanced error handling."""
 
     def __init__(
@@ -177,7 +177,7 @@ class ArborException(Exception):
 
 
 # Specific exception types for different error categories
-class ValidationError(ArborException):
+class ValidationError(ArborError):
     """Validation errors with helpful suggestions."""
 
     def __init__(
@@ -202,7 +202,7 @@ class ValidationError(ArborException):
         )
 
 
-class ResourceError(ArborException):
+class ResourceError(ArborError):
     """Resource-related errors (GPU, memory, disk, etc.)."""
 
     def __init__(self, message: str, resource_type: Optional[str] = None, **kwargs):
@@ -220,7 +220,7 @@ class ResourceError(ArborException):
         )
 
 
-class ModelError(ArborException):
+class ModelError(ArborError):
     """Model-related errors."""
 
     def __init__(self, message: str, model_name: Optional[str] = None, **kwargs):
@@ -237,7 +237,7 @@ class ModelError(ArborException):
         )
 
 
-class TrainingError(ArborException):
+class TrainingError(ArborError):
     """Training-related errors."""
 
     def __init__(self, message: str, step: Optional[int] = None, **kwargs):
@@ -255,7 +255,7 @@ class TrainingError(ArborException):
         )
 
 
-class InferenceError(ArborException):
+class InferenceError(ArborError):
     """Inference-related errors."""
 
     def __init__(self, message: str, **kwargs):
@@ -267,7 +267,7 @@ class InferenceError(ArborException):
         )
 
 
-class ConfigError(ArborException):
+class ConfigError(ArborError):
     """Configuration-related errors."""
 
     def __init__(self, message: str, config_key: Optional[str] = None, **kwargs):
@@ -302,8 +302,8 @@ class ErrorHandler:
     ) -> ArborError:
         """Handle any exception and convert to ArborError."""
 
-        # If it's already an ArborException, just get the ArborError
-        if isinstance(exc, ArborException):
+        # If it's already an ArborError, just get the ArborError
+        if isinstance(exc, ArborError):
             arbor_error = exc.to_arbor_error()
         else:
             # Convert generic exception to ArborError
@@ -514,7 +514,7 @@ def safe_execute(
         return func(*args, **kwargs)
     except Exception as e:
         arbor_error = handle_error(e, context, operation or func.__name__)
-        raise ArborException(
+        raise ArborError(
             arbor_error.message,
             category=arbor_error.category,
             severity=arbor_error.severity,
@@ -533,8 +533,8 @@ def error_recovery_decorator(
         def wrapper(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
-            except ArborException:
-                # Re-raise ArborExceptions as-is
+            except ArborError:
+                # Re-raise ArborErrors as-is
                 raise
             except Exception as e:
                 # Handle other exceptions
@@ -545,8 +545,8 @@ def error_recovery_decorator(
 
                 arbor_error = handle_error(e, context, operation, suggestions)
 
-                # Raise as ArborException for consistent handling
-                raise ArborException(
+                # Raise as ArborError for consistent handling
+                raise ArborError(
                     arbor_error.message,
                     category=arbor_error.category,
                     severity=arbor_error.severity,
