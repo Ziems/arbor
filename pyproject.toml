@@ -56,7 +56,15 @@ dev = [
     "pytest-cov",
     "pre-commit",
     "ruff==0.14.0",
+    "ty==0.0.1-alpha.25"
 ]
+
+[tool.ty.rules]
+unresolved-import = "warn"
+unknown-argument = "warn"
+
+[tool.ty.src]
+exclude = ["examples"]
 
 [tool.setuptools.packages.find]
 where = ["."]

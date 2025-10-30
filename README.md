@@ -88,42 +88,6 @@ optimized_classify = compiler.compile(
 ```
 
 
-<!-- ### Traditional Fine-tuning (SFT & DPO)
-
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Ziems/arbor/blob/main/examples/colab_quickstart.ipynb)
-
-Arbor also supports standard fine-tuning with OpenAI-compatible API:
-
-```python
-import arbor
-from openai import OpenAI
-
-# Start Arbor
-arbor.init()
-client = arbor.get_client()
-
-# Upload training data
-with open("sft_data.jsonl", "rb") as f:
-    file = client.files.create(file=f, purpose="fine-tune")
-
-# SFT (Supervised Fine-Tuning)
-job = client.fine_tuning.jobs.create(
-    model="Qwen/Qwen2-0.5B-Instruct",
-    training_file=file.id,
-    method={"type": "sft"}
-)
-
-# DPO (Direct Preference Optimization)
-job = client.fine_tuning.jobs.create(
-    model="Qwen/Qwen2-0.5B-Instruct",
-    training_file=file.id,
-    method={"type": "dpo"}
-)
-
-# Monitor training
-arbor.watch_job(job.id)
-``` -->
-
 ### Remote GPU Setup (Alternative)
 
 For remote servers or custom configurations, use the CLI approach:

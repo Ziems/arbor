@@ -157,7 +157,7 @@ class ArborGRPOTrainer(Trainer):
         # Disable caching if gradient checkpointing is enabled (not supported)
         config = AutoConfig.from_pretrained(model_id)
         architecture = getattr(transformers, config.architectures[0])
-        model = architecture.from_pretrained(model_id, **model_init_kwargs)
+        model: PreTrainedModel = architecture.from_pretrained(model_id, **model_init_kwargs)
 
         if args.lora_config is not None:
             model = prepare_peft_model(model, args.lora_config, args)
@@ -336,7 +336,7 @@ class ArborGRPOTrainer(Trainer):
         if self.beta == 0.0:
             # If beta is 0.0, the reference model is not needed
             self.ref_model = None
-        elif is_peft_model(model):
+        elif is_peft_model(self.model):
             # If PEFT is used, the reference model is not needed since the adapter can be disabled
             # to revert to the initial model.
             self.ref_model = None
@@ -350,7 +350,7 @@ class ArborGRPOTrainer(Trainer):
 
         # Disable dropout in the models
         if args.disable_dropout:
-            disable_dropout_in_model(model)
+            disable_dropout_in_model(self.model)
             if self.ref_model is not None:
                 disable_dropout_in_model(self.ref_model)
 
@@ -599,7 +599,6 @@ class ArborGRPOTrainer(Trainer):
                     context={"checkpoint_name": record.get("checkpoint_name")},
                 )
 
-    # ------------------- Checkpoint helpers -------------------
     def _is_checkpoint_pending_main(self) -> bool:
         pending = False
         if self.accelerator.is_main_process:
@@ -612,43 +611,6 @@ class ArborGRPOTrainer(Trainer):
         self.accelerator.wait_for_everyone()
         self._service_checkpoint_requests()
         self.accelerator.wait_for_everyone()
-
-    def _wait_with_checkpoint_preempt(
-        self,
-        waiting_fn,
-        log_msg: str,
-        sleep_s: float = 0.5,
-        preempt_on_checkpoint: bool = True,
-    ) -> None:
-        """
-        Wait while a main-process condition is true, but allow checkpoint requests
-        to preempt the wait. During the wait, service checkpoint requests in sync.
-
-        waiting_fn: callable executed on main process that returns bool
-        log_msg: message to emit while waiting
-        """
-        waiting = True
-        while True:
-            if self.accelerator.is_main_process:
-                if self._is_checkpoint_pending_main():
-                    if preempt_on_checkpoint:
-                        waiting = False
-                    else:
-                        waiting = True
-                else:
-                    try:
-                        waiting = bool(waiting_fn())
-                    except Exception:
-                        waiting = False
-                if waiting:
-                    self.logger.debug(log_msg)
-            waiting_list = [waiting]
-            broadcast_object_list(waiting_list, from_process=0)
-            waiting = waiting_list[0]
-            if not waiting:
-                break
-            self._tick_checkpoints()
-            time.sleep(sleep_s)
 
     def _execute_checkpoint(
         self, checkpoint_name: Optional[str], metadata: Optional[dict[str, Any]]

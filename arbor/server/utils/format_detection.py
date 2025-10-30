@@ -39,7 +39,7 @@ def detect_record_format(record: dict[Any, Any]) -> Literal["sft", "dpo", "unkno
     return "unknown"
 
 
-def detect_file_format(file_path: str) -> Literal["sft", "dpo", "unknown"]:
+def detect_file_format(path_str: str) -> Literal["sft", "dpo", "unknown"]:
     """
     Detect the format of a JSONL training file by examining its structure.
 
@@ -52,9 +52,9 @@ def detect_file_format(file_path: str) -> Literal["sft", "dpo", "unknown"]:
         "unknown" if the format cannot be determined
     """
     try:
-        file_path = Path(file_path)
+        file_path = Path(path_str)
         if not file_path.exists():
-            logger.warning(f"File does not exist: {file_path}")
+            logger.warning(f"File does not exist: {path_str}")
             return "unknown"
 
         with open(file_path, "r", encoding="utf-8") as f:
@@ -77,12 +77,12 @@ def detect_file_format(file_path: str) -> Literal["sft", "dpo", "unknown"]:
             return "unknown"
 
     except Exception as e:
-        logger.warning(f"Error detecting file format for {file_path}: {e}")
+        logger.warning(f"Error detecting file format for {path_str}: {e}")
         return "unknown"
 
 
 def validate_format_consistency(
-    file_path: str, expected_format: Literal["sft", "dpo"]
+    path_str: str, expected_format: Literal["sft", "dpo"]
 ) -> bool:
     """
     Validate that all records in a file match the expected format.
@@ -95,7 +95,7 @@ def validate_format_consistency(
         True if all records match the expected format, False otherwise
     """
     try:
-        file_path = Path(file_path)
+        file_path = Path(path_str)
         if not file_path.exists():
             return False
 

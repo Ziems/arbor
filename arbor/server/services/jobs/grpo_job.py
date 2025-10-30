@@ -52,7 +52,7 @@ class GRPOJob(Job):
         self.training_process = None
         self.event_thread = None
         self.training_terminate_pending = False
-        self.inference_job: InferenceJob = None
+        self.inference_job: Optional[InferenceJob] = None
         self.process_runner: Optional[AccelerateProcessRunner] = None
         self.trainer_controller: TrainerControlServer = None
         self.trainer_config: ArborGRPOConfig = None

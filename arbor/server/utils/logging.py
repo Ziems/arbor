@@ -7,21 +7,12 @@ designed to make development and troubleshooting as easy as possible.
 
 import json
 import logging
-import logging.config
 import sys
-import time
-import uuid
 from collections.abc import Mapping
-from contextvars import ContextVar
-from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
-# Context variables for tracking across async operations
-request_id_context: ContextVar[Optional[str]] = ContextVar("request_id", default=None)
-job_id_context: ContextVar[Optional[str]] = ContextVar("job_id", default=None)
-user_context: ContextVar[Optional[str]] = ContextVar("user", default=None)
-operation_context: ContextVar[Optional[str]] = ContextVar("operation", default=None)
+ 
 
 
 class ArborFormatter(logging.Formatter):
@@ -47,7 +38,6 @@ class ArborFormatter(logging.Formatter):
         "arbor.server.services.managers.health_manager": "health",
         "arbor.server.services.managers.job_manager": "jobs",
         "arbor.server.services.managers.file_train_manager": "train",
-        "arbor.server.services.comms.comms": "comms",
         "arbor.server.services.scripts.sft_training": "sft",
         "arbor.server.services.scripts.grpo_training": "grpo",
         "arbor.server.services.scripts.mmgrpo_training": "mmgrpo",
@@ -74,13 +64,7 @@ class ArborFormatter(logging.Formatter):
         self.show_context = show_context
         self.show_colors = show_colors and sys.stderr.isatty()
 
-    def format(self, record):
-        # Get context information
-        request_id = request_id_context.get()
-        job_id = job_id_context.get()
-        user = user_context.get()
-        operation = operation_context.get()
-
+    def format(self, record: logging.LogRecord) -> str:
         # Parse structured message if present
         message = record.getMessage()
         context_data = {}
@@ -101,52 +85,6 @@ class ArborFormatter(logging.Formatter):
         # Format timestamp
         timestamp = self.formatTime(record, "%H:%M:%S")
 
-        # Build context string
-        context_parts = []
-        if request_id:
-            context_parts.append(f"req:{request_id}")
-        if job_id:
-            context_parts.append(f"job:{job_id}")
-        if user:
-            context_parts.append(f"user:{user}")
-        if operation:
-            context_parts.append(f"op:{operation}")
-
-        context_str = f"[{','.join(context_parts)}]" if context_parts else ""
-
-        # Add important context data to context string
-        if context_data:
-            important_keys = [
-                "step",
-                "progress_pct",
-                "duration_ms",
-                "error_type",
-                "function",
-            ]
-            for key in important_keys:
-                if key in context_data:
-                    value = context_data[key]
-                    if key == "duration_ms" and isinstance(value, (int, float)):
-                        context_parts.append(f"{value}ms")
-                    elif key == "step":
-                        context_parts.append(f"step:{value}")
-                    elif key == "progress_pct":
-                        context_parts.append(f"{value}%")
-                    elif key == "error_type":
-                        context_parts.append(f"err:{value}")
-                    elif key == "function":
-                        func_name = value.split(".")[-1] if "." in value else value
-                        context_parts.append(f"fn:{func_name}")
-
-        if context_parts and not context_str:
-            context_str = f"[{','.join(context_parts)}]"
-        elif context_parts:
-            additional = ",".join(
-                context_parts[len([p for p in context_str[1:-1].split(",") if p]) :]
-            )
-            if additional:
-                context_str = context_str[:-1] + f",{additional}]"
-
         # Apply colors if enabled
         if self.show_colors:
             level_color = self.COLORS.get(record.levelname, "")
@@ -160,16 +98,11 @@ class ArborFormatter(logging.Formatter):
             # Color the component
             component = f"{bold}{component}{reset}"
 
-            # Dim the context
-            if context_str:
-                context_str = f"{dim}{context_str}{reset}"
         else:
             level = record.levelname[:4]
 
         # Build final message
         parts = [timestamp, f"[{level}]", f"[{component}]"]
-        if context_str and self.show_context:
-            parts.append(context_str)
         parts.append(message)
 
         # Add structured data as separate lines in debug mode
@@ -308,207 +241,6 @@ class ArborLogger:
             exc_info=True,
             **kwargs,
         )
-
-
-class RequestContext:
-    """Context manager for request-level debugging."""
-
-    def __init__(
-        self,
-        request_id: Optional[str] = None,
-        user: Optional[str] = None,
-        operation: Optional[str] = None,
-    ):
-        self.request_id = request_id or f"req-{str(uuid.uuid4())[:8]}"
-        self.user = user
-        self.operation = operation
-        self.start_time = time.time()
-
-        # Store previous values
-        self._prev_request_id = None
-        self._prev_user = None
-        self._prev_operation = None
-
-    def __enter__(self):
-        # Store previous context
-        self._prev_request_id = request_id_context.get()
-        self._prev_user = user_context.get()
-        self._prev_operation = operation_context.get()
-
-        # Set new context
-        request_id_context.set(self.request_id)
-        if self.user:
-            user_context.set(self.user)
-        if self.operation:
-            operation_context.set(self.operation)
-
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        # Calculate duration
-        duration = time.time() - self.start_time
-
-        # Log request completion
-        logger = get_logger("request")
-        success = exc_type is None
-
-        if success:
-            logger.info(
-                f"Request completed: {self.operation or 'unknown'}",
-                duration_ms=round(duration * 1000, 2),
-                success=True,
-            )
-        else:
-            logger.error(
-                f"Request failed: {self.operation or 'unknown'}",
-                duration_ms=round(duration * 1000, 2),
-                success=False,
-                error_type=type(exc_val).__name__ if exc_val else None,
-                error_message=str(exc_val) if exc_val else None,
-            )
-
-        # Restore previous context
-        request_id_context.set(self._prev_request_id)
-        user_context.set(self._prev_user)
-        operation_context.set(self._prev_operation)
-
-
-class JobContext:
-    """Context manager for job-level debugging."""
-
-    def __init__(
-        self, job_id: str, job_type: Optional[str] = None, model: Optional[str] = None
-    ):
-        self.job_id = job_id
-        self.job_type = job_type
-        self.model = model
-        self.start_time = time.time()
-
-        # Store previous value
-        self._prev_job_id = None
-
-    def __enter__(self):
-        # Store previous context
-        self._prev_job_id = job_id_context.get()
-
-        # Set new context
-        job_id_context.set(self.job_id)
-
-        # Log job start
-        logger = get_logger("job")
-        logger.info(
-            f"Job started: {self.job_type or 'unknown'}",
-            job_type=self.job_type,
-            model=self.model,
-        )
-
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        # Calculate duration
-        duration = time.time() - self.start_time
-
-        # Log job completion
-        logger = get_logger("job")
-        success = exc_type is None
-
-        if success:
-            logger.info(
-                f"Job completed: {self.job_type or 'unknown'}",
-                duration_ms=round(duration * 1000, 2),
-                success=True,
-            )
-        else:
-            logger.error(
-                f"Job failed: {self.job_type or 'unknown'}",
-                duration_ms=round(duration * 1000, 2),
-                success=False,
-                error_type=type(exc_val).__name__ if exc_val else None,
-                error_message=str(exc_val) if exc_val else None,
-            )
-
-        # Restore previous context
-        job_id_context.set(self._prev_job_id)
-
-
-def log_function_call(include_args: bool = False, include_result: bool = False):
-    """Decorator to log function calls with timing."""
-
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            logger = get_logger(func.__module__)
-            func_name = func.__name__
-            start_time = time.time()
-
-            # Build context
-            context = {"function": f"{func.__module__}.{func_name}"}
-            if include_args:
-                context["args_count"] = len(args)
-                context["kwargs_keys"] = list(kwargs.keys())
-
-            logger.debug(f"Calling {func_name}", context)
-
-            try:
-                result = func(*args, **kwargs)
-                duration = time.time() - start_time
-
-                result_context = {
-                    "function": f"{func.__module__}.{func_name}",
-                    "duration_ms": round(duration * 1000, 2),
-                    "success": True,
-                }
-
-                if include_result and result is not None:
-                    result_context["result_type"] = type(result).__name__
-
-                logger.debug(f"Completed {func_name}", result_context)
-                return result
-
-            except Exception as e:
-                duration = time.time() - start_time
-
-                logger.error(
-                    f"Failed {func_name}: {str(e)}",
-                    function=f"{func.__module__}.{func_name}",
-                    duration_ms=round(duration * 1000, 2),
-                    error_type=type(e).__name__,
-                    success=False,
-                    exc_info=True,
-                )
-                raise
-
-        return wrapper
-
-    return decorator
-
-
-def log_slow_operations(threshold_ms: float = 1000.0):
-    """Decorator to log operations that exceed a time threshold."""
-
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            start_time = time.time()
-            result = func(*args, **kwargs)
-            duration = time.time() - start_time
-            duration_ms = duration * 1000
-
-            if duration_ms > threshold_ms:
-                logger = get_logger(func.__module__)
-                logger.warning(
-                    f"Slow operation: {func.__name__}",
-                    function=f"{func.__module__}.{func.__name__}",
-                    duration_ms=round(duration_ms, 2),
-                    threshold_ms=threshold_ms,
-                    performance_warning=True,
-                )
-
-            return result
-
-        return wrapper
-
-    return decorator
 
 
 def setup_logging(
@@ -651,62 +383,6 @@ def get_logger(name: str) -> ArborLogger:
         Enhanced ArborLogger instance
     """
     return ArborLogger(name)
-
-
-# Convenience functions for common debugging patterns
-def debug_checkpoint(message: str, **context):
-    """Log a debug checkpoint with context."""
-    logger = get_logger("debug.checkpoint")
-    logger.debug(f"Checkpoint: {message}", context)
-
-
-def debug_timing(operation: str):
-    """Context manager to time operations and log results."""
-
-    class TimingContext:
-        def __init__(self, operation: str):
-            self.operation = operation
-            self.start_time = None
-            self.logger = get_logger("debug.timing")
-
-        def __enter__(self):
-            self.start_time = time.time()
-            self.logger.debug(f"Started: {self.operation}")
-            return self
-
-        def __exit__(self, exc_type, exc_val, exc_tb):
-            duration = time.time() - self.start_time
-            success = exc_type is None
-
-            context = {
-                "operation": self.operation,
-                "duration_ms": round(duration * 1000, 2),
-                "success": success,
-            }
-
-            if not success:
-                context["error_type"] = type(exc_val).__name__ if exc_val else None
-
-            if success:
-                self.logger.debug(f"Completed: {self.operation}", context)
-            else:
-                self.logger.error(f"Failed: {self.operation}", context)
-
-    return TimingContext(operation)
-
-
-# Legacy compatibility
-def apply_uvicorn_formatting():
-    """Compatibility function - no longer needed with new formatter."""
-    pass
-
-
-def log_system_info():
-    """Log system startup information."""
-    logger = get_logger("arbor.startup")
-    logger.info("=" * 60)
-    logger.info("ARBOR SYSTEM STARTUP")
-    logger.info("=" * 60)
 
 
 def log_configuration(config: dict[str, Any]):
