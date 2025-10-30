@@ -1,5 +1,10 @@
 from fastapi import APIRouter, Request
 
+from arbor.server.api.models.schemas import (
+    InferenceLaunchRequest,
+    InferenceTerminateRequest,
+)
+
 from arbor.server.services.managers.inference_manager import InferenceManager
 from arbor.server.utils.helpers import strip_prefix
 from arbor.server.utils.logging import get_logger
@@ -35,15 +40,35 @@ async def run_inference(
 
 
 @router.post("/launch")
-async def launch_inference(request: Request):
+async def launch_inference(request: Request, launch_request: InferenceLaunchRequest):
     inference_manager: InferenceManager = request.app.state.inference_manager
-    raw_json = await request.json()
-    inference_manager.launch(raw_json["model"], raw_json["launch_kwargs"])
-    return {"message": "Inference server launched"}
+    normalized_request = launch_request.model_copy(
+        # stripe the prefix (such as "openai/arbor:")
+        update={"model": strip_prefix(launch_request.model)}
+    )
+
+    inference_job = inference_manager.launch_from_request(normalized_request)
+
+    return {
+        "message": "Inference server launched",
+        "job_id": inference_job.id,
+        "model": inference_job.launched_model_name,
+    }
 
 
 @router.post("/kill")
-async def kill_inference(request: Request):
+async def kill_inference(
+    request: Request, terminate_request: InferenceTerminateRequest
+):
     inference_manager: InferenceManager = request.app.state.inference_manager
-    inference_manager.cleanup()
-    return {"message": "Inference server terminated"}
+
+    job_id = terminate_request.job_id
+
+    if job_id == "*":
+        inference_manager.cleanup()
+        return {"message": "All inference servers terminated"}
+    else:
+        summary = inference_manager.terminate_job(
+            job_id,
+        )
+        return {"message": "Inference server terminated", **summary}

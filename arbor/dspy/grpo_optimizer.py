@@ -499,16 +499,6 @@ class ArborGRPO(FinetuneTeleprompter):
 
         grpo_training_job = first_lm.reinforce(train_kwargs=train_kwargs)
 
-        self.report_validation_metrics(
-            student=student,
-            trainset=trainset,
-            valset=valset,
-            logger=logger,
-            step_idx=-1,
-            grpo_training_job=grpo_training_job,
-            lm_for_job=first_lm,
-        )
-
         group_queue: deque = deque()
         logger.info("Starting the GRPO training loop...")
         for train_step_idx in range(self.num_train_steps):
@@ -795,8 +785,10 @@ class ArborGRPO(FinetuneTeleprompter):
 
             # Report validation metrics if the step is the last step or a multiple of num_steps_for_val
             # Do this before submitting the train data to the GRPO training job so it can be attached to the train data
-            if train_step_idx == self.num_train_steps - 1 or (
-                (train_step_idx + 1) % self.num_steps_for_val == 0
+            if (
+                train_step_idx == 0
+                or train_step_idx == self.num_train_steps - 1
+                or (train_step_idx + 1) % self.num_steps_for_val == 0
             ):
                 self.report_validation_metrics(
                     student=student,

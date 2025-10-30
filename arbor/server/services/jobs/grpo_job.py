@@ -18,12 +18,12 @@ from arbor.server.api.models.schemas import (
     GRPOStatus,
     GRPOStepRequest,
     GRPOCheckpointRequest,
-    InferenceJobRequest,
+    InferenceLaunchOwner,
+    InferenceLaunchRequest,
     JobStatus,
 )
 from arbor.server.core.config import Config
 from arbor.server.services.jobs.inference_job import InferenceJob
-from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
 from arbor.server.services.jobs.job import Job, JobArtifact
 from arbor.server.services.managers.inference_manager import InferenceManager
 from arbor.server.services.managers.gpu_manager import GPUManager
@@ -129,22 +129,24 @@ class GRPOJob(Job):
         inference_gpus, training_gpus = _allocate_gpus(request.gpu_config)
 
         def _launch_inference_job(
-            inference_config: InferenceJobRequest,
+            inference_config: InferenceLaunchRequest,
             inference_gpus: list[int],
             trainer_controller: TrainerControlServer,
             log_file_path: str,
         ):
-            # TODO: This "InferenceLaunchConfig"needs to be cleaned up to be more inline with the other config and request structures
-            inference_launch_config = InferenceLaunchConfig(
-                max_context_length=inference_config.max_context_length,
-                gpu_ids=inference_gpus,
-                is_grpo=True,
-                grpo_job_id=self.id,
-                log_file_path=log_file_path,
+            launch_request = inference_config.model_copy(
+                update={
+                    "gpu_ids": inference_gpus,
+                    "owner": InferenceLaunchOwner(type="grpo", job_id=self.id),
+                    "log_file_path": log_file_path,
+                }
             )
             logger.info("Launching inference server...")
-            return inference_manager.launch_job(
-                request.model, inference_launch_config, self.trainer_controller
+            return inference_manager.launch_from_request(
+                launch_request,
+                trainer_controller=trainer_controller,
+                reuse_existing=False,
+                preallocated_gpu_ids=inference_gpus,
             )
 
         log_dir = self._make_log_dir()

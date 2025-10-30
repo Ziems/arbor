@@ -172,9 +172,21 @@ class ChatCompletionModel(StrictBaseModel):
     choices: List[ChatCompletionChoice]
 
 
-class InferenceJobRequest(StrictBaseModel):
+class InferenceLaunchOwner(StrictBaseModel):
+    type: Literal["grpo"]
+    job_id: str
+
+
+class InferenceLaunchRequest(StrictBaseModel):
     model: str
     max_context_length: Optional[int] = None
+    num_gpus: Optional[int] = 1
+    owner: Optional[InferenceLaunchOwner] = None
+    log_file_path: Optional[str] = None
+
+
+class InferenceTerminateRequest(StrictBaseModel):
+    job_id: str
 
 
 ### GRPO
@@ -242,7 +254,7 @@ class GRPOInitializeRequest(StrictBaseModel):
     run_name: Optional[str] = None
     model: str
     trainer_config: ArborGRPOConfigRequest
-    inference_config: InferenceJobRequest
+    inference_config: InferenceLaunchRequest
     gpu_config: GRPOGPUConfig = GRPOGPUConfig(
         type="multi", multi=MultiGPUConfig(num_inference_gpus=1, num_training_gpus=1)
     )

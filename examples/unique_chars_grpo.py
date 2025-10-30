@@ -26,7 +26,7 @@ unique_chars = dspy.Predict(f"english -> french")
 # Get Arbor server info from init()
 provider = ArborProvider()
 
-student_lm_name = "Qwen/Qwen2.5-0.5B-Instruct"
+student_lm_name = "Qwen/Qwen2.5-1.5B-Instruct"
 # student_lm_name = "Qwen/Qwen2.5-7B-Instruct"
 # student_lm_name = "Qwen/Qwen2.5-14B-Instruct"
 # student_lm_name = "Qwen/Qwen2.5-32B-Instruct"
@@ -59,7 +59,7 @@ train_kwargs = {
     "beta": 0.00,
     "learning_rate": 1e-6,
     "gradient_checkpointing": True,
-    "gradient_accumulation_steps": 1,
+    "gradient_accumulation_steps": 2,
     "bf16": True,
     "lr_scheduler_type": "constant_with_warmup",
     # "warmup_steps": 50,
@@ -80,7 +80,7 @@ train_kwargs = {
     # "lora_config": {
     #     "lora_alpha": 16,
     #     "lora_dropout": 0.05,
-    #     "lora_r": 8,
+    #     "r": 8,
     #     "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "up_proj", "down_proj", "gate_proj"],
     # },
 }
@@ -88,12 +88,12 @@ train_kwargs = {
 compiler = ArborGRPO(
     metric=_unique_letter_reward,
     num_dspy_examples_per_grpo_step=1,
-    num_rollouts_per_grpo_step=8,
+    num_rollouts_per_grpo_step=16,
     exclude_demos=True,
-    num_train_steps=10,
+    num_train_steps=1000,
     num_threads=1,
     use_train_as_val=False,
-    num_steps_for_val=5,
+    num_steps_for_val=500,
     train_kwargs=train_kwargs,
     checkpoint="single-best",
 )

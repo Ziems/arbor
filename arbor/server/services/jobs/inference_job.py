@@ -83,21 +83,25 @@ class InferenceJob(Job):
         launch_config = launch_config or self.launch_config
 
         # If this is a GRPO inference job, inherit the parent job's ID and don't create separate directories
-        is_grpo_sub_job = bool(launch_config.is_grpo and launch_config.grpo_job_id)
+        is_grpo_sub_job = bool(launch_config.grpo_job_id)
         if is_grpo_sub_job:
             self.id = f"{launch_config.grpo_job_id}-inference"
             self._is_grpo_sub_job = True
-        else:
-            self._is_grpo_sub_job = False
             assert trainer_controller is not None, (
                 "Trainer controller is required for GRPO inference jobs"
             )
             self.trainer_controller = trainer_controller
+        else:
+            self._is_grpo_sub_job = False
+            if trainer_controller is not None:
+                self.trainer_controller = trainer_controller
             # Don't create separate directories for GRPO inference jobs
             # The log file path will be set by the parent GRPO job
 
         if launch_config.log_file_path:
             self.log_file_path = launch_config.log_file_path
+
+        self.launch_config = launch_config
 
         logger.info(f"Grabbing a free port to launch a vLLM server for model {model}")
         self.port = get_free_port()
