@@ -2,11 +2,11 @@ from typing import Any, List, Optional
 
 from arbor.server.api.models.schemas import InferenceLaunchRequest
 from arbor.server.core.config import Config
-from arbor.server.services.managers.gpu_manager import GPUManager
+from arbor.server.services.comms.control_server import TrainerControlServer
 from arbor.server.services.jobs.inference_job import InferenceJob
 from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
-from arbor.server.services.comms.control_server import TrainerControlServer
 from arbor.server.services.managers.base_manager import BaseManager
+from arbor.server.services.managers.gpu_manager import GPUManager
 
 
 class InferenceManager(BaseManager):

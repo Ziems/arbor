@@ -3,8 +3,8 @@ Clean abstraction for running long-running processes without the Popen ugliness.
 """
 
 import signal
-import sys
 import subprocess
+import sys
 import threading
 from pathlib import Path
 from typing import Callable, Dict, List, Optional

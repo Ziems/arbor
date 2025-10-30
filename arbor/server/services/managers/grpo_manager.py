@@ -1,10 +1,10 @@
 from typing import TYPE_CHECKING, Optional
 
 from arbor.server.api.models.schemas import (
+    GRPOCheckpointRequest,
     GRPOInitializeRequest,
     GRPOStatus,
     GRPOStepRequest,
-    GRPOCheckpointRequest,
     GRPOTerminateRequest,
 )
 from arbor.server.core.config import Config

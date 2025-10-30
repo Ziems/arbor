@@ -26,15 +26,15 @@ from arbor.client import (
 from arbor.dspy import ArborGRPO, ArborProvider
 
 __all__ = [
+    "ArborGRPO",
+    "ArborProvider",
     "__version__",
+    "get_client",
     "init",
     "shutdown",
     "shutdown_job",
-    "status",
-    "get_client",
     "start",
+    "status",
     "stop",
     "watch_job",
-    "ArborGRPO",
-    "ArborProvider",
 ]

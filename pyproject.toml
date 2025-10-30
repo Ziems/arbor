@@ -132,10 +132,8 @@ ignore = [
     "E721",  # Allow using == to compare with type
     "F403",  # Allow wildcard imports
     "FBT003", # Allow boolean positional values in function calls
-    "I001",  # Allow existing import ordering until cleaned up
     "N806",  # Allow uppercase local variables for clarity
     "N818",  # Allow non-Error exception suffix for compatibility
-    "Q000",  # Allow existing quote style in a few places
     "RUF005", # Allow using + operator to concatenate collections
     "RUF001", # Allow non-ASCII characters in strings when meaningful
     "RUF003", # Allow typographic punctuation in comments
@@ -143,7 +141,6 @@ ignore = [
     "RUF010", # Allow implicit str conversion when logging exceptions
     "RUF012", # Allow mutable class attributes without ClassVar for now
     "RUF019", # Allow key checks before dict access in legacy code
-    "RUF022", # Allow unsorted __all__ value
     "UP006",  # Allow typing.List style annotations
     "UP007",  # Allow Optional[T] syntax
     "UP015",  # Allow explicit read mode
