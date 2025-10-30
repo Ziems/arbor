@@ -130,8 +130,8 @@ def main():
         trainer.save_model()
         logger.info("Model saved")
 
-        MERGE = True
-        if arbor_train_args.get("lora", False) and MERGE:
+        merge = True
+        if arbor_train_args.get("lora", False) and merge:
             from peft import AutoPeftModelForCausalLM
 
             # Load PEFT model on CPU
