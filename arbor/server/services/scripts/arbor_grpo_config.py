@@ -5,9 +5,8 @@ from typing import Optional, Union
 
 import transformers
 from packaging import version
-from transformers import TrainingArguments  # type: ignore
-
 from peft import LoraConfig
+from transformers import TrainingArguments  # type: ignore
 
 
 @dataclass

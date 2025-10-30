@@ -4,7 +4,6 @@ from arbor.server.api.models.schemas import (
     InferenceLaunchRequest,
     InferenceTerminateRequest,
 )
-
 from arbor.server.services.managers.inference_manager import InferenceManager
 from arbor.server.utils.helpers import strip_prefix
 from arbor.server.utils.logging import get_logger

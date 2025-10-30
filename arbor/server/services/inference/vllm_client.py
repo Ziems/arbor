@@ -1,8 +1,8 @@
 import atexit
-import httpx
 import logging
 import time
 
+import httpx
 import requests
 import torch  # type: ignore
 from requests import ConnectionError

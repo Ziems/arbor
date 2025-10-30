@@ -1,8 +1,9 @@
 import threading
-import zmq
-import wandb
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from typing import Any, Dict, Optional, TYPE_CHECKING
+import wandb
+import zmq
+
 from arbor.server.services.comms.async_batch_requester import BatchResult
 
 if TYPE_CHECKING:

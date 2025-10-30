@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Mapping, Optional
 import threading
 import time
+from typing import Any, Dict, Mapping, Optional
 
 import zmq
 

@@ -8,9 +8,9 @@ from arbor.server.api.models.schemas import (
     JobStatusModel,
 )
 from arbor.server.core.config import Config
-from arbor.server.services.managers.gpu_manager import GPUManager
 from arbor.server.services.jobs.job import Job, JobArtifact
 from arbor.server.services.managers.file_manager import FileManager
+from arbor.server.services.managers.gpu_manager import GPUManager
 from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
 from arbor.server.utils.mock_utils import get_script_path, setup_mock_environment
