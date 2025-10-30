@@ -124,9 +124,7 @@ ignore = [
     "B006",  # Allow mutable defaults in existing constructors
     "B905",  # Allow zip without strict flag in legacy loops
     "B904",  # Allow raise custom exceptions in except blocks
-    "B007",  # Allow unused loop variables for tuple unpacking
     "B020",  # Allow loop variables shadowing iterables when intentional
-    "C414",  # Allow redundant list() usage inside sorted for clarity
     "C901",  # Ignore complexity checking for now
     "E501",  # Ignore line length errors (handled by formatter)
     "E721",  # Allow using == to compare with type

@@ -584,7 +584,7 @@ def build_batch_result(
             processed_rewards.append(_reward)
         rewards = processed_rewards
 
-    for prompt_id, prompt_mask, completion_id, completion_mask, reward in zip(
+    for prompt_id, _prompt_mask, completion_id, _completion_mask, _reward in zip(
         prompt_ids, prompt_mask, completion_ids, completion_mask, rewards
     ):
         if len(prompt_id) > effective_max_prompt:
