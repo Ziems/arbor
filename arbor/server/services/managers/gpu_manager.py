@@ -229,13 +229,13 @@ class GPUManager(BaseManager):
                 raise GPUAllocationError(
                     "Not enough free GPUs. "
                     f"Requested: {num_gpus}, "
-                    f"Free: {sorted(list(available_pool))}, "
+                    f"Free: {sorted(available_pool)}, "
                     f"Busy: {busy_gpus}, "
                     f"Allocated: {sorted(allocated_gpus)}"
                 )
 
             # Allocate the first N available GPUs
-            allocated = sorted(list(available_pool))[:num_gpus]
+            allocated = sorted(available_pool)[:num_gpus]
             self.gpu_allocations[job_id] = allocated
 
             self.logger.info(f"Allocated GPUs {allocated} to job {job_id}")
@@ -276,9 +276,9 @@ class GPUManager(BaseManager):
             free_gpus = (self.all_gpus & system_free_gpus) - allocated_gpus
 
             return {
-                "total_gpus": sorted(list(self.all_gpus)),
-                "free_gpus": sorted(list(free_gpus)),
-                "allocated_gpus": sorted(list(allocated_gpus)),
+                "total_gpus": sorted(self.all_gpus),
+                "free_gpus": sorted(free_gpus),
+                "allocated_gpus": sorted(allocated_gpus),
                 "allocations": dict(self.gpu_allocations),
             }
 
