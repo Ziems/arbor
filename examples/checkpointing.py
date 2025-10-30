@@ -157,7 +157,7 @@ def main():
 
 
             response = client.chat.completions.create(
-                model=current_model, messages=input_messages, temperature=1.0, n=8, top_p=1.0
+                model=current_model, messages=input_messages, temperature=1.0, n=8, top_p=1.0, top_k=-1
             )
             completions = []
             for choice in response.choices:
