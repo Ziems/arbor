@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from arbor.server.api.routes import files, grpo, inference, jobs
-from arbor.server.utils.logging import apply_uvicorn_formatting, get_logger
+from arbor.server.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -53,7 +53,6 @@ def cleanup_managers(app: FastAPI):
 async def lifespan(app: FastAPI):
     """Lifespan event handler for FastAPI app."""
     # Startup
-    apply_uvicorn_formatting()
     logger.info("Application startup completed")
 
     yield

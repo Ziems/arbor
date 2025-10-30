@@ -3,7 +3,6 @@ import time
 
 from transformers import TrainerCallback
 
-from arbor.server.services.comms.comms import ArborScriptCommsHandler
 from arbor.server.services.scripts.utils.ingestion_monitor import IngestionMonitor
 
 logger = logging.getLogger(__name__)
@@ -17,9 +16,6 @@ class WeightUpdateCallback(TrainerCallback):
         self.trainer = None
         self.ingestion_monitor = ingestion_monitor
         self._waiting_for_ready = False
-
-    def set_comms_handler(self, comms_handler: ArborScriptCommsHandler):
-        self.comms_handler = comms_handler
 
     def set_trainer(self, trainer):
         self.trainer = trainer

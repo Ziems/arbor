@@ -1,4 +1,5 @@
 from arbor.server.api.models.schemas import JobStatus
+from typing import Optional
 from arbor.server.core.config import Config
 from arbor.server.services.jobs.file_train_job import FileTrainJob
 from arbor.server.services.jobs.job import Job
@@ -55,7 +56,7 @@ class JobManager(BaseManager):
     def get_jobs(self) -> list[Job]:
         return list(self.jobs.values())
 
-    def get_active_job(self) -> Job:
+    def get_active_job(self) -> Optional[Job]:
         for job in self.jobs.values():
             if job.status == JobStatus.RUNNING:
                 return job
