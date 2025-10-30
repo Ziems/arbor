@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import yaml
 
@@ -21,11 +21,11 @@ class ConfigManager:
         (storage_dir / "uploads").mkdir(exist_ok=True)
 
     @staticmethod
-    def get_default_config_path() -> Path:
+    def get_default_config_path() -> str:
         return str(Path.home() / ".arbor" / "config.yaml")
 
     @staticmethod
-    def get_config_template() -> dict:
+    def get_config_template() -> dict[str, Any]:
         return {"storage_path": str(Path.home() / ".arbor" / "storage")}
 
     @classmethod

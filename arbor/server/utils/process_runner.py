@@ -112,7 +112,12 @@ class ProcessRunner:
             if not self.process:
                 return
 
-            for line in iter(self.process.stdout.readline, ""):
+            stdout = self.process.stdout
+            if stdout is None:
+                logger.debug(f"No stdout for process {self.job_id}")
+                return
+
+            for line in iter(stdout.readline, ""):
                 if self.stop_logging.is_set():
                     break
 

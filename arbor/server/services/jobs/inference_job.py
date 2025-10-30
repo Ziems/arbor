@@ -62,7 +62,7 @@ class InferenceJob(Job):
         self,
         model: str,
         launch_config: InferenceLaunchConfig,
-        trainer_controller: TrainerControlServer = None,
+        trainer_controller: TrainerControlServer | None = None,
     ):
         self.launched_model_name = model
         self.trainer_controller = trainer_controller
@@ -98,6 +98,7 @@ class InferenceJob(Job):
         my_env = os.environ.copy()
 
         # Convert gpu_ids list to comma-separated string for environment variable
+        assert launch_config.gpu_ids is not None, "GPU IDs must be set before launching"
         gpu_ids_str = ",".join(map(str, launch_config.gpu_ids))
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
 
@@ -166,10 +167,7 @@ class InferenceJob(Job):
 
         # Ensure vLLM worker subtree is terminated as well
         try:
-            if (
-                getattr(self, "process", None) is not None
-                and self.process.poll() is None
-            ):
+            if self.process is not None and self.process.poll() is not None:
                 kill_vllm_server(self.process.pid)
         except Exception as e:
             logger.warning(f"Force-kill fallback for vLLM processes failed: {e}")
@@ -180,6 +178,10 @@ class InferenceJob(Job):
         logger.info("Server terminated.")
 
     async def run_inference(self, request_json: dict):
+        if self.vllm_client is None:
+            raise RuntimeError(
+                "vLLM client is not initialized. Please launch the server first."
+            )
         requested_model = request_json["model"]
         request_json["model"] = self.launched_model_name
 
@@ -257,7 +259,7 @@ class InferenceJob(Job):
         self._setup_directories([JobArtifact.LOGS])
 
 
-def wait_for_server(base_url: str, timeout: int = None) -> None:
+def wait_for_server(base_url: str, timeout: int = 5 * 60) -> None:
     """
     Wait for the server to be ready by polling the /v1/models endpoint.
 
