@@ -272,7 +272,9 @@ class Job:
     def cancel(self):
         """Cancel the job. Override in subclasses for specific cancellation logic."""
         if self.status in [JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED]:
-            raise ValueError(f"Cannot cancel job with status {self.status.value}")
+            raise ValueError(
+                f"Cannot cancel job with status {self.status.value} (job_id={self.id})"
+            )
 
         self.status = JobStatus.CANCELLED
 
