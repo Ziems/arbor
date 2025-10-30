@@ -32,7 +32,6 @@ from arbor.server.services.managers.inference_manager import InferenceManager
 from arbor.server.services.scripts.arbor_grpo_config import ArborGRPOConfig
 from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
-from arbor.server.utils.mock_utils import get_script_path, setup_mock_environment
 from arbor.server.utils.process_runner import AccelerateProcessRunner
 
 logger = get_logger(__name__)
@@ -168,7 +167,7 @@ class GRPOJob(Job):
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"
         )
         script_name = "arbor_grpo_trainer.py"
-        script_path = get_script_path(script_name, script_dir)
+        script_path = os.path.join(script_dir, script_name)
 
         my_env = os.environ.copy()
         # Use the training GPUs that were allocated earlier
@@ -177,9 +176,6 @@ class GRPOJob(Job):
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
 
         my_env["WANDB_SILENT"] = "true"
-
-        # Setup mock environment if needed
-        my_env = setup_mock_environment(my_env)
 
         num_processes = len(training_gpus)
 

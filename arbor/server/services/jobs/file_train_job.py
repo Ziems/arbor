@@ -13,7 +13,6 @@ from arbor.server.services.managers.file_manager import FileManager
 from arbor.server.services.managers.gpu_manager import GPUManager
 from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
-from arbor.server.utils.mock_utils import get_script_path, setup_mock_environment
 from arbor.server.utils.process_runner import AccelerateProcessRunner
 
 logger = get_logger(__name__)
@@ -133,32 +132,15 @@ class FileTrainJob(Job):
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"
         )
         script_name = {"dpo": "dpo_training.py", "sft": "sft_training.py"}[train_type]
-        script_path = get_script_path(script_name, script_dir)
+        script_path = os.path.join(script_dir, script_name)
 
         my_env = os.environ.copy()
         # Use allocated GPUs instead of all config GPUs
         gpu_ids_str = ",".join(map(str, self.allocated_gpus))
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
 
-        # Handle WandB configuration
-        if trl_train_kwargs.get("report_to") == "wandb":
-            # WandB is explicitly requested, just silence login prompts
-            my_env["WANDB_SILENT"] = "true"
-        else:
-            # WandB not requested, disable it completely to avoid login errors
-            my_env["WANDB_SILENT"] = "true"
-            trl_train_kwargs["report_to"] = "none"
-
-        # Configure ZMQ for better stability and error handling
-        my_env["ZMQ_MAX_SOCKETS"] = "1024"
-        my_env["ZMQ_IO_THREADS"] = "1"
-        # Increase file descriptor limits to prevent resource exhaustion
-        my_env["RLIMIT_NOFILE"] = "4096"
-        # Set ZMQ socket options for better error handling
-        my_env["ZMQ_LINGER"] = "0"
-
-        # Setup mock environment if needed
-        my_env = setup_mock_environment(my_env)
+        # Silence WandB login prompts
+        my_env["WANDB_SILENT"] = "true"
 
         num_processes = len(self.allocated_gpus)
         main_process_port = get_free_port()
