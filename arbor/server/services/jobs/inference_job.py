@@ -14,18 +14,9 @@ from arbor.server.services.comms.control_server import TrainerControlServer
 from arbor.server.services.jobs.job import Job, JobArtifact
 from arbor.server.utils.helpers import get_free_port
 from arbor.server.utils.logging import get_logger
-from arbor.server.utils.mock_utils import (
-    get_vllm_serve_module,
-    setup_mock_environment,
-    should_use_mock_gpu,
-)
-from arbor.server.utils.process_runner import InferenceProcessRunner
 
-# Conditionally import the appropriate vLLM client
-if should_use_mock_gpu():
-    from arbor.server.services.inference.vllm_client_mock import VLLMClient
-else:
-    from arbor.server.services.inference.vllm_client import VLLMClient
+from arbor.server.utils.process_runner import InferenceProcessRunner
+from arbor.server.services.inference.vllm_client import VLLMClient
 
 logger = get_logger(__name__)
 
@@ -111,11 +102,8 @@ class InferenceJob(Job):
         gpu_ids_str = ",".join(map(str, launch_config.gpu_ids))
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
 
-        # Setup mock environment if needed
-        my_env = setup_mock_environment(my_env)
-
         n_gpus = len(launch_config.gpu_ids)
-        vllm_module = get_vllm_serve_module()
+        vllm_module = "arbor.server.services.inference.vllm_serve"
         command = f"{sys.executable} -m {vllm_module} --model {self.launched_model_name} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching --disable-log-stats"
 
         if launch_config.max_context_length:
