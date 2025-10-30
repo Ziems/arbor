@@ -75,6 +75,7 @@ class ArborReinforceJob(ReinforceJob):
         "loss_type": "dapo",
         "soft_completion_penalty_length": None,
         "mask_truncated_completions": True,
+        "weight_decay": 0.0,
     }
 
     def __init__(self, lm: "LM", train_kwargs: dict[str, Any]):
@@ -162,6 +163,9 @@ class ArborReinforceJob(ReinforceJob):
         lora_config = self.train_kwargs.get(
             "lora_config", self.DEFAULT_TRAIN_KWARGS["lora_config"]
         )
+        weight_decay = self.train_kwargs.get(
+            "weight_decay", self.DEFAULT_TRAIN_KWARGS["weight_decay"]
+        )
         api_base = self.lm.kwargs["api_base"]
 
         finetune_model = ArborProvider._remove_provider_prefix(self.lm.model)
@@ -194,6 +198,7 @@ class ArborReinforceJob(ReinforceJob):
                 "loss_type": loss_type,
                 "num_training_gpus": num_training_gpus,
                 "lora_config": lora_config,
+                "weight_decay": weight_decay,
             },
             "inference_config": {
                 "model": finetune_model,
