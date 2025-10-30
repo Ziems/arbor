@@ -12,8 +12,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Optional
 
- 
-
 
 class ArborFormatter(logging.Formatter):
     """Enhanced formatter with colors, context, and structured data."""
@@ -90,20 +88,12 @@ class ArborFormatter(logging.Formatter):
             level_color = self.COLORS.get(record.levelname, "")
             reset = self.COLORS["RESET"]
             bold = self.COLORS["BOLD"]
-            dim = self.COLORS["DIM"]
-
-            # Color the level
+            dim = self.COLORS["DIM"]  # noqa: F841
             level = f"{level_color}{record.levelname[:4]}{reset}"
-
-            # Color the component
             component = f"{bold}{component}{reset}"
-
         else:
             level = record.levelname[:4]
-
-        # Build final message
-        parts = [timestamp, f"[{level}]", f"[{component}]"]
-        parts.append(message)
+        parts = [timestamp, f"[{level}]", f"[{component}]", message]
 
         # Add structured data as separate lines in debug mode
         if record.levelno == logging.DEBUG and context_data:

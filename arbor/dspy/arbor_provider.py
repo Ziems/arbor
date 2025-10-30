@@ -409,8 +409,8 @@ class ArborProvider(Provider):
         job: ArborTrainingJob,
         model: str,
         train_data: list[dict[str, Any]],
-        train_data_format: TrainDataFormat | None,
-        train_kwargs: dict[str, Any] | None = None,
+        train_data_format: TrainDataFormat | None = TrainDataFormat.CHAT,
+        train_kwargs: dict[str, Any] | None = {},
     ) -> str:
         # TODO: We want to re-factor finetune so that it takes in an LM.
         # Until then, we use the following to get the api information. The
@@ -435,13 +435,13 @@ class ArborProvider(Provider):
         provider_job_id = ArborProvider._start_remote_training(
             train_file_id=job.provider_file_id,
             model=model,
-            train_kwargs=train_kwargs,
+            train_kwargs=train_kwargs or {},
         )
         job.provider_job_id = provider_job_id
         print(f"[Arbor Provider] Job started with the Arbor Job ID {provider_job_id}")
 
         print("[Arbor Provider] Waiting for training to complete")
-        ArborProvider.wait_for_job(job, train_kwargs)
+        ArborProvider.wait_for_job(job)
 
         print("[Arbor Provider] Attempting to retrieve the trained model")
         model = ArborProvider.get_trained_model(job)
@@ -450,7 +450,7 @@ class ArborProvider(Provider):
         return ArborProvider._add_provider_prefix(model)
 
     @staticmethod
-    def does_job_exist(job_id: str, training_kwargs: dict[str, Any]) -> bool:
+    def does_job_exist(job_id: str) -> bool:
         try:
             original_base_url = openai.base_url
             openai.base_url = ArborProvider._get_arbor_base_api()
@@ -461,7 +461,7 @@ class ArborProvider(Provider):
             return False
 
     @staticmethod
-    def does_file_exist(file_id: str, training_kwargs: dict[str, Any]) -> bool:
+    def does_file_exist(file_id: str) -> bool:
         try:
             original_base_url = openai.base_url
             openai.base_url = ArborProvider._get_arbor_base_api()
@@ -480,9 +480,7 @@ class ArborProvider(Provider):
         ]
 
     @staticmethod
-    def get_training_status(
-        job_id: str, training_kwargs: dict[str, Any]
-    ) -> TrainingStatus:
+    def get_training_status(job_id: str) -> TrainingStatus:
         provider_status_to_training_status = {
             "validating_files": TrainingStatus.pending,
             "queued": TrainingStatus.pending,
@@ -502,7 +500,7 @@ class ArborProvider(Provider):
             return TrainingStatus.not_started
 
         err_msg = f"Job with ID {job_id} does not exist."
-        assert ArborProvider.does_job_exist(job_id, training_kwargs), err_msg
+        assert ArborProvider.does_job_exist(job_id), err_msg
 
         original_base_url = openai.base_url
         openai.base_url = ArborProvider._get_arbor_base_api()
@@ -527,7 +525,7 @@ class ArborProvider(Provider):
             raise ValueError(err_msg)
 
     @staticmethod
-    def upload_data(data_path: str, training_kwargs: dict[str, Any]) -> str:
+    def upload_data(data_path: str) -> str:
         original_base_url = openai.base_url
         openai.base_url = ArborProvider._get_arbor_base_api()
         provider_file = openai.files.create(
@@ -542,7 +540,6 @@ class ArborProvider(Provider):
     def _start_remote_training(
         train_file_id: str, model: str, train_kwargs: dict[str, Any]
     ) -> str:
-        train_kwargs = train_kwargs or {}
         original_base_url = openai.base_url
         openai.base_url = ArborProvider._get_arbor_base_api()
         provider_job = openai.fine_tuning.jobs.create(
@@ -556,7 +553,6 @@ class ArborProvider(Provider):
     @staticmethod
     def wait_for_job(
         job: TrainingJob,
-        training_kwargs: dict[str, Any],
         poll_frequency: int = 20,
     ):
         done = False
@@ -598,7 +594,7 @@ class ArborProvider(Provider):
             done = ArborProvider.is_terminal_training_status(job.status())
 
     @staticmethod
-    def get_trained_model(job, training_kwargs: dict[str, Any]):
+    def get_trained_model(job):
         status = job.status()
         if status != TrainingStatus.succeeded:
             err_msg = f"Job status is {status}."

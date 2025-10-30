@@ -141,7 +141,7 @@ class ArborGRPOTrainer(Trainer):
         self._control_client: Optional[TrainerControlClient] = None
 
         # Trained model
-        model_init_kwargs = args.model_init_kwargs or {}
+        model_init_kwargs: dict[str, Any] = args.model_init_kwargs or {}  # type: ignore
         model_id = model
         dtype = model_init_kwargs.get("dtype")
         if isinstance(dtype, torch.dtype) or dtype == "auto" or dtype is None:
@@ -157,7 +157,9 @@ class ArborGRPOTrainer(Trainer):
         # Disable caching if gradient checkpointing is enabled (not supported)
         config = AutoConfig.from_pretrained(model_id)
         architecture = getattr(transformers, config.architectures[0])
-        model: PreTrainedModel = architecture.from_pretrained(model_id, **model_init_kwargs)
+        model: PreTrainedModel = architecture.from_pretrained(
+            model_id, **model_init_kwargs
+        )
 
         if args.lora_config is not None:
             model = prepare_peft_model(model, args.lora_config, args)
@@ -344,7 +346,7 @@ class ArborGRPOTrainer(Trainer):
             # For deepspeed, fsdp or non-distributed models, create a reference model from scratch
             config = AutoConfig.from_pretrained(model_id)
             architecture = getattr(transformers, config.architectures[0])
-            self.ref_model = architecture.from_pretrained(model_id, **model_init_kwargs)
+            self.ref_model = architecture.from_pretrained(model_id, **model_init_kwargs)  # type: ignore
 
         self.logger.debug("Done with reference model")
 
@@ -459,8 +461,9 @@ class ArborGRPOTrainer(Trainer):
             },
         )
         if self.accelerator.is_main_process and args.control_endpoint:
-            self._control_client = TrainerControlClient(self, args.control_endpoint)
-            self._control_client.start()
+            _control_client = TrainerControlClient(self, args.control_endpoint)
+            _control_client.start()
+            self._control_client = _control_client
         self.logger.debug("Done with __init__")
 
     def get_train_dataloader(self):
@@ -578,6 +581,10 @@ class ArborGRPOTrainer(Trainer):
             metadata=request.get("metadata"),
         )
 
+        if record is None:
+            self.logger.debug("No checkpoint record to process")
+            return
+
         if self.accelerator.is_main_process:
             with self._checkpoint_records_lock:
                 self._checkpoint_records.append(dict(record))
@@ -614,7 +621,7 @@ class ArborGRPOTrainer(Trainer):
 
     def _execute_checkpoint(
         self, checkpoint_name: Optional[str], metadata: Optional[dict[str, Any]]
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
         if metadata is not None and not isinstance(metadata, dict):
             raise TypeError("Checkpoint metadata must be a mapping if provided")
         self.logger.debug(

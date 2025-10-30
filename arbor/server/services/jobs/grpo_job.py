@@ -3,7 +3,7 @@ import os
 import threading
 import time
 from datetime import datetime
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Sequence, cast
 
 import coolname
 from transformers import AutoTokenizer
@@ -285,10 +285,10 @@ class GRPOJob(Job):
                 raise ValueError(f"Each item must contain keys: {required_keys}")
         return True
 
-    def grpo_step(self, request: GRPOStepRequest) -> str:
+    def grpo_step(self, request: GRPOStepRequest):
         self.validate_batch(request.batch)
 
-        def _handle_group_data(group: list[dict]):
+        def _handle_group_data(group: list[dict[str, Any]]):
             batch_result = build_batch_result(
                 batch_id=self.batch_count,
                 tokenizer=self.tokenizer,
@@ -307,11 +307,13 @@ class GRPOJob(Job):
         try:
             if isinstance(request.batch[0], list):
                 # Handle List[List[dict]] case
-                for group in request.batch:
+                groups = cast(list[list[dict[str, Any]]], request.batch)
+                for group in groups:
                     _handle_group_data(group)
             else:
                 # Handle List[dict] case
-                _handle_group_data(request.batch)
+                group = cast(list[dict[str, Any]], request.batch)
+                _handle_group_data(group)
 
         except Exception as e:
             logger.error(f"Failed to send batch to training process: {e}")
@@ -473,7 +475,7 @@ def build_batch_result(
     tokenizer: AutoTokenizer,
     samples: Sequence[dict[str, Any]],
     max_prompt_length: int | None,
-    max_seq_len: int,
+    max_seq_len: int | None,
     num_generations: int,
     trainer_config: ArborGRPOConfig,
     metrics: dict[str, Any] | None = None,
@@ -541,7 +543,7 @@ def build_batch_result(
     completion_lengths = [sum(cm) for cm in completion_mask]
 
     rewards = [float(sample["reward"]) for sample in samples]
-    if trainer_config.soft_completion_penalty_length:
+    if trainer_config.soft_completion_penalty_length is not None:
         processed_rewards = []
         for (
             _prompt_id,
@@ -567,7 +569,7 @@ def build_batch_result(
                             - trainer_config.soft_completion_penalty_length
                         )
                         / (
-                            trainer_config.max_completion_length
+                            trainer_config.max_completion_length  # type: ignore
                             - trainer_config.soft_completion_penalty_length
                         )
                     )
@@ -583,7 +585,7 @@ def build_batch_result(
     for prompt_id, _prompt_mask, completion_id, _completion_mask, _reward in zip(
         prompt_ids, prompt_mask, completion_ids, completion_mask, rewards
     ):
-        if len(prompt_id) > effective_max_prompt:
+        if effective_max_prompt is not None and len(prompt_id) > effective_max_prompt:
             logger.warning(
                 f"Prompt length {len(prompt_id)} is greater than effective max prompt length {effective_max_prompt}"
             )

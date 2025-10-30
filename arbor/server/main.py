@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from arbor.server.api.routes import files, grpo, inference, jobs
+from arbor.server.api.routes import grpo, inference
 from arbor.server.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -66,8 +66,6 @@ app = FastAPI(title="Arbor API", lifespan=lifespan)
 
 
 # Include routers
-app.include_router(files.router, prefix="/v1/files")
-app.include_router(jobs.router, prefix="/v1/fine_tuning/jobs")
 app.include_router(grpo.router, prefix="/v1/fine_tuning/grpo")
 app.include_router(inference.router, prefix="/v1/chat")
 

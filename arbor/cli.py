@@ -6,8 +6,6 @@ import uvicorn
 
 from arbor.server.core.config import Config
 from arbor.server.main import app
-from arbor.server.services.managers.file_manager import FileManager
-from arbor.server.services.managers.file_train_manager import FileTrainManager
 from arbor.server.services.managers.gpu_manager import GPUManager
 from arbor.server.services.managers.grpo_manager import GRPOManager
 from arbor.server.services.managers.inference_manager import InferenceManager
@@ -78,18 +76,14 @@ def create_app(arbor_config_path: str):
     # Initialize services with config
     logger.info("Initializing services...")
     gpu_manager = GPUManager(config=config)
-    file_manager = FileManager(config=config, gpu_manager=gpu_manager)
     job_manager = JobManager(config=config, gpu_manager=gpu_manager)
-    file_train_manager = FileTrainManager(config=config, gpu_manager=gpu_manager)
     inference_manager = InferenceManager(config=config, gpu_manager=gpu_manager)
     grpo_manager = GRPOManager(config=config, gpu_manager=gpu_manager)
 
     # Inject config into app state
     app.state.config = config
     app.state.gpu_manager = gpu_manager
-    app.state.file_manager = file_manager
     app.state.job_manager = job_manager
-    app.state.file_train_manager = file_train_manager
     app.state.inference_manager = inference_manager
     app.state.grpo_manager = grpo_manager
 

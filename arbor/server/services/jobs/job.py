@@ -8,6 +8,7 @@ from typing import Callable, Literal, Optional
 import coolname
 
 from arbor.server.api.models.schemas import JobStatus, JobStatusModel
+from arbor.server.core.config import Config
 from arbor.server.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -52,7 +53,11 @@ class JobCheckpoint:
 
 class Job:
     def __init__(
-        self, config, id=None, prefix="ftjob", artifacts: list[JobArtifact] = None
+        self,
+        config: Config,
+        id: Optional[str] = None,
+        prefix: str = "ftjob",
+        artifacts: list[JobArtifact] = [],
     ):
         self.config = config
 
@@ -105,7 +110,7 @@ class Job:
         import json
 
         def enhanced_log_callback(
-            line: str, extra_data: dict = None, create_event: bool = False
+            line: str, extra_data: Optional[dict] = None, create_event: bool = False
         ):
             timestamp = datetime.now()
             timestamp_iso = timestamp.isoformat()
@@ -154,7 +159,7 @@ class Job:
         self,
         message: str,
         level: str = "info",
-        extra_data: dict = None,
+        extra_data: Optional[dict] = None,
         job_type: str = "JOB",
         create_event: bool = False,
     ):
@@ -207,30 +212,19 @@ class Job:
             event_data = {"source": "direct_log"}
             if extra_data:
                 event_data.update(extra_data)
-            event = JobEvent(level=level, message=message, data=event_data)
+            event = JobEvent(level=level, message=message, data=event_data)  # type: ignore
             self.add_event(event)
-
-    # Keep log_structured as an alias for backward compatibility
-    def log_structured(
-        self,
-        message: str,
-        level: str = "info",
-        extra_data: dict = None,
-        job_type: str = "JOB",
-    ):
-        """Alias for log() method. Use log() instead."""
-        self.log(message, level, extra_data, job_type, create_event=True)
 
     def _make_log_dir(self) -> str:
         """Create log directory for this job. Can be overridden by subclasses."""
         log_dir = Path(self.config.storage_path).resolve() / self.id / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True)  # type: ignore
         return str(log_dir)
 
     def _make_model_dir(self) -> str:
         """Create model output directory for this job. Can be overridden by subclasses."""
         model_dir = Path(self.config.storage_path).resolve() / self.id / "models"
-        model_dir.mkdir(parents=True, exist_ok=True)
+        model_dir.mkdir(parents=True, exist_ok=True)  # type: ignore
         return str(model_dir)
 
     def _make_checkpoints_dir(self) -> str:
@@ -238,13 +232,13 @@ class Job:
         checkpoints_dir = (
             Path(self.config.storage_path).resolve() / self.id / "checkpoints"
         )
-        checkpoints_dir.mkdir(parents=True, exist_ok=True)
+        checkpoints_dir.mkdir(parents=True, exist_ok=True)  # type: ignore
         return str(checkpoints_dir)
 
     def _make_metrics_dir(self) -> str:
         """Create metrics directory for this job. Can be overridden by subclasses."""
         metrics_dir = Path(self.config.storage_path).resolve() / self.id / "metrics"
-        metrics_dir.mkdir(parents=True, exist_ok=True)
+        metrics_dir.mkdir(parents=True, exist_ok=True)  # type: ignore
         return str(metrics_dir)
 
     def _setup_directories(self, artifacts: list[JobArtifact]):
