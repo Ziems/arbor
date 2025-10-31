@@ -8,7 +8,7 @@ from typing import Any, Mapping, Optional
 import zmq
 
 from arbor.server.services.comms.async_batch_requester import BatchResult
-from arbor.server.utils.helpers import get_free_port
+from arbor.utils.helpers import get_free_port
 
 LOGGER = logging.getLogger(__name__)
 

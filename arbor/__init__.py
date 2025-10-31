@@ -23,7 +23,7 @@ from arbor.client import (
     stop,
     watch_job,
 )
-from arbor.dspy import ArborGRPO, ArborProvider
+from arbor.integrations.dspy import ArborGRPO, ArborProvider
 
 __all__ = [
     "ArborGRPO",

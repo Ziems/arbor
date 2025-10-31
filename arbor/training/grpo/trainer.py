@@ -39,6 +39,7 @@ from trl.trainer.utils import (
     selective_log_softmax,
 )
 
+from arbor.core.logging import get_logger, setup_logging
 from arbor.server.services.comms.async_batch_requester import (
     AsyncBatchRequester,
     BatchRequest,
@@ -46,8 +47,7 @@ from arbor.server.services.comms.async_batch_requester import (
 from arbor.server.services.comms.async_dataloader_wrapper import AsyncDataLoaderWrapper
 from arbor.server.services.comms.control_client import TrainerControlClient
 from arbor.server.services.inference.vllm_client import VLLMClient
-from arbor.server.services.scripts.arbor_grpo_config import ArborGRPOConfig
-from arbor.server.utils.logging import get_logger, setup_logging
+from arbor.training.grpo.config import ArborGRPOConfig
 
 
 class _ExternalBatchDataset(Dataset):
@@ -68,18 +68,6 @@ def shuffle_tensor_dict(
 ) -> dict[str, Optional[torch.Tensor]]:
     """
     Shuffles a dictionary of tensors along the first dimension in unison.
-
-    Example:
-        >>> x = torch.arange(6).reshape(3, 2)
-        >>> y = torch.arange(3).reshape(3, 1)
-        >>> tensor_dict = {"x": x, "y": y}
-        >>> shuffle_tensor_dict(tensor_dict)
-        {'x': tensor([[2, 3],
-                      [0, 1],
-                      [4, 5]]),
-         'y': tensor([[1],
-                      [0],
-                      [2]])}
     """
     first_tensor = next(tensor for tensor in tensor_dict.values() if tensor is not None)
     batch_size = first_tensor.shape[0]
@@ -95,17 +83,6 @@ def split_tensor_dict(
 ) -> list[dict[str, Optional[torch.Tensor]]]:
     """
     Splits a dictionary of tensors along the first dimension into `num_chunks` equal parts.
-
-    Example:
-        >>> x = torch.arange(12).reshape(6, 2)
-        >>> y = torch.arange(6).reshape(6, 1)
-        >>> tensor_dict = {"x": x, "y": y}
-        >>> split_tensor_dict(tensor_dict, 3)
-        [
-            {"x": tensor([[0, 1], [2, 3]]), "y": tensor([[0], [1]])},
-            {"x": tensor([[4, 5], [6, 7]]), "y": tensor([[2], [3]])},
-            {"x": tensor([[ 8,  9], [10, 11]]), "y": tensor([[4], [5]])}
-        ]
     """
     first_tensor = next(tensor for tensor in tensor_dict.values() if tensor is not None)
     chunk_size = first_tensor.shape[0] // num_chunks
@@ -365,7 +342,7 @@ class ArborGRPOTrainer(Trainer):
         #         )
         #     # redirect the model.module forward to the model forward to ensure pre-forward hooks are called
         #     self._forward_redirection = _ForwardRedirection()
-
+        #
         #     self.liger_grpo_loss = LigerFusedLinearGRPOLoss(
         #         beta=self.beta,
         #         epsilon_low=self.epsilon_low,

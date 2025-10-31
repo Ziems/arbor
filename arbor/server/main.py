@@ -5,8 +5,8 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from arbor.core.logging import get_logger
 from arbor.server.api.routes import grpo, inference
-from arbor.server.utils.logging import get_logger
 
 logger = get_logger(__name__)
 

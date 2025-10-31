@@ -4,8 +4,8 @@ Base manager class that enforces cleanup methods for all managers.
 
 import abc
 
-from arbor.server.core.config import Config
-from arbor.server.utils.logging import get_logger
+from arbor.core.config import Config
+from arbor.core.logging import get_logger
 
 
 class BaseManager(abc.ABC):

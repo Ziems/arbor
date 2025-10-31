@@ -7,7 +7,7 @@ import zmq
 from arbor.server.services.comms.async_batch_requester import BatchResult
 
 if TYPE_CHECKING:
-    from arbor.server.services.scripts.arbor_grpo_trainer import ArborGRPOTrainer
+    from arbor.training.grpo.trainer import ArborGRPOTrainer
 
 
 class TrainerControlClient(threading.Thread):

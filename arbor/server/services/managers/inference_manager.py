@@ -1,7 +1,7 @@
 from typing import Any, Optional
 
-from arbor.server.api.models.schemas import InferenceLaunchRequest
-from arbor.server.core.config import Config
+from arbor.core.config import Config
+from arbor.server.api.schemas import InferenceLaunchRequest
 from arbor.server.services.comms.control_server import TrainerControlServer
 from arbor.server.services.jobs.inference_job import InferenceJob
 from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
