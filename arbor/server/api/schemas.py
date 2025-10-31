@@ -232,6 +232,7 @@ class ArborGRPOConfigRequest(StrictBaseModel):
     soft_completion_penalty_length: Optional[int] = None
     gradient_checkpointing_kwargs: Optional[dict[str, Any]] = None
     bf16: Optional[bool] = None
+    fp16: Optional[bool] = None
     scale_rewards: Optional[bool] = None
     max_grad_norm: Optional[float] = None
     report_to: Optional[str] = None

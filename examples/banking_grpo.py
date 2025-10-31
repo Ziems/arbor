@@ -72,8 +72,8 @@ train_kwargs = {
     "learning_rate": 5e-6,
     "gradient_checkpointing": True,
     "gradient_accumulation_steps": 8,
-    "bf16": True,
     "lr_scheduler_type": "constant_with_warmup",
+    "fp16": True,
     "lora": True,
     "report_to": "none",  # 'wandb'
     "log_completions": False,

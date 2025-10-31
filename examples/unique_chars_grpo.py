@@ -60,7 +60,7 @@ train_kwargs = {
     "learning_rate": 1e-6,
     "gradient_checkpointing": True,
     "gradient_accumulation_steps": 2,
-    "bf16": True,
+    "fp16": True,
     "lr_scheduler_type": "constant_with_warmup",
     # "warmup_steps": 50,
     # "max_prompt_length": None,

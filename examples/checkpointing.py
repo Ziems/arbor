@@ -53,7 +53,7 @@ def initialize_grpo(
         #     "lora_dropout": 0.05,
         # },
         "max_steps": 1000,
-        "bf16": True,
+        "fp16": True,
         "report_to": "wandb",
         "logging_steps": 10,
         # "scale_rewards": False,

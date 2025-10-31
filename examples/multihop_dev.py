@@ -115,7 +115,7 @@ train_kwargs = {
     "beta": 0.00,
     "learning_rate": 1e-6,
     "gradient_checkpointing": True,
-    "bf16": True,
+    "fp16": True,
     "lr_scheduler_type": "constant_with_warmup",
     "loss_type": "dapo",
     "max_steps": 1000,
