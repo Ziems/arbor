@@ -3,7 +3,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
-from arbor.server.api.models.schemas import GRPOStatus
+from arbor.server.api.schemas import GRPOStatus
 from datasets import load_dataset
 from openai import OpenAI
 

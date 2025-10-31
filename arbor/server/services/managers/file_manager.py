@@ -7,9 +7,9 @@ from typing import Literal
 
 from fastapi import UploadFile
 
-from arbor.server.core.config import Config
+from arbor.core.config import Config
 from arbor.server.services.managers.base_manager import BaseManager
-from arbor.server.utils.format_detection import detect_file_format
+from arbor.utils.format_detection import detect_file_format
 
 
 class FileValidationError(Exception):

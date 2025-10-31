@@ -4,17 +4,17 @@ from datetime import datetime
 import click
 import uvicorn
 
-from arbor.server.core.config import Config
+from arbor.core.config import Config
+from arbor.core.logging import (
+    get_logger,
+    log_configuration,
+    setup_logging,
+)
 from arbor.server.main import app
 from arbor.server.services.managers.gpu_manager import GPUManager
 from arbor.server.services.managers.grpo_manager import GRPOManager
 from arbor.server.services.managers.inference_manager import InferenceManager
 from arbor.server.services.managers.job_manager import JobManager
-from arbor.server.utils.logging import (
-    get_logger,
-    log_configuration,
-    setup_logging,
-)
 
 
 def make_log_dir(storage_path: str):

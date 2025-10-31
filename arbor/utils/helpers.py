@@ -1,4 +1,4 @@
-from arbor.server.utils.logging import get_logger
+from arbor.core.logging import get_logger
 
 logger = get_logger(__name__)
 

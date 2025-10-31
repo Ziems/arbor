@@ -3,9 +3,9 @@
 import threading
 from typing import Optional
 
-from arbor.server.core.config import Config
+from arbor.core.config import Config
+from arbor.core.logging import get_logger
 from arbor.server.services.managers.base_manager import BaseManager
-from arbor.server.utils.logging import get_logger
 
 
 class NoGPUsDetectedError(RuntimeError):

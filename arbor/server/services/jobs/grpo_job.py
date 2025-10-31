@@ -9,7 +9,9 @@ import coolname
 from transformers import AutoTokenizer
 from trl.data_utils import apply_chat_template
 
-from arbor.server.api.models.schemas import (
+from arbor.core.config import Config
+from arbor.core.logging import get_logger
+from arbor.server.api.schemas import (
     GRPOCheckpointRequest,
     GRPOGPUConfig,
     GRPOInitializeRequest,
@@ -19,7 +21,6 @@ from arbor.server.api.models.schemas import (
     InferenceLaunchRequest,
     JobStatus,
 )
-from arbor.server.core.config import Config
 from arbor.server.services.comms.async_batch_requester import (
     BatchResult,
     ProcessedOutputs,
@@ -29,10 +30,9 @@ from arbor.server.services.jobs.inference_job import InferenceJob
 from arbor.server.services.jobs.job import Job, JobArtifact
 from arbor.server.services.managers.gpu_manager import GPUManager
 from arbor.server.services.managers.inference_manager import InferenceManager
-from arbor.server.services.scripts.arbor_grpo_config import ArborGRPOConfig
-from arbor.server.utils.helpers import get_free_port
-from arbor.server.utils.logging import get_logger
-from arbor.server.utils.process_runner import AccelerateProcessRunner
+from arbor.training.grpo.config import ArborGRPOConfig
+from arbor.utils.helpers import get_free_port
+from arbor.utils.process_runner import AccelerateProcessRunner
 
 logger = get_logger(__name__)
 
@@ -161,13 +161,7 @@ class GRPOJob(Job):
             inference_log_path,
         )
 
-        # inference_job.log_file_path already configured via launch config
-
-        script_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"
-        )
-        script_name = "arbor_grpo_trainer.py"
-        script_path = os.path.join(script_dir, script_name)
+        trainer_module = "arbor.training.grpo.trainer"
 
         my_env = os.environ.copy()
         # Use the training GPUs that were allocated earlier
@@ -212,7 +206,7 @@ class GRPOJob(Job):
         ]
 
         self.training_process = self.process_runner.start_training(
-            script_path=script_path,
+            module=trainer_module,
             num_processes=num_processes,
             main_process_port=main_process_port,
             script_args=script_args,

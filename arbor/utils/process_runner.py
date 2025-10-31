@@ -9,7 +9,7 @@ import threading
 from pathlib import Path
 from typing import Callable, Optional
 
-from arbor.server.utils.logging import get_logger
+from arbor.core.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -205,7 +205,8 @@ class AccelerateProcessRunner(ProcessRunner):
 
     def start_training(
         self,
-        script_path: str,
+        *,
+        module: str,
         num_processes: int,
         main_process_port: int,
         script_args: list[str],
@@ -238,7 +239,7 @@ class AccelerateProcessRunner(ProcessRunner):
         if accelerate_config:
             command.extend(["--config_file", accelerate_config])
 
-        command.append(script_path)
+        command.extend(["--module", module])
         command.extend(script_args)
 
         return self.start(command, env=env, log_callback=log_callback)

@@ -1,7 +1,7 @@
 from typing import Optional
 
-from arbor.server.api.models.schemas import JobStatus
-from arbor.server.core.config import Config
+from arbor.core.config import Config
+from arbor.server.api.schemas import JobStatus
 from arbor.server.services.jobs.job import Job
 from arbor.server.services.managers.base_manager import BaseManager
 

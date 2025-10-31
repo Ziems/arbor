@@ -121,7 +121,7 @@ train_kwargs = {
     "max_steps": 1000,
     "report_to": "wandb",
     "log_completions": True,
-    "logging_steps": 10,
+    "logging_steps": 1,
     "max_prompt_length": None,
     "max_completion_length": None,
     "scale_rewards": False,
