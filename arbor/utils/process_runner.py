@@ -240,7 +240,11 @@ class AccelerateProcessRunner(ProcessRunner):
             command.extend(["--config_file", accelerate_config])
 
         command.extend(["--module", module])
-        command.extend(script_args)
+
+        if script_args:
+            # Separator required so accelerate forwards these to the module
+            command.append("--")
+            command.extend(script_args)
 
         return self.start(command, env=env, log_callback=log_callback)
 
