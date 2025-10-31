@@ -109,6 +109,10 @@ class InferenceJob(Job):
         if launch_config.max_context_length:
             command += f" --max_model_len {launch_config.max_context_length}"
 
+        # Quick patch for testing
+        if launch_config.fp16:
+            command += " --dtype fp16"
+
         logger.info(f"Running command: {command}")
 
         # Start the inference server using our clean process runner
