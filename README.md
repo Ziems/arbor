@@ -23,7 +23,6 @@ If you need the latest DSPy features that haven't landed on PyPI yet, install di
 
 ```bash
 uv pip install -U git+https://github.com/stanfordnlp/dspy.git@main
-# or: pip install -U git+https://github.com/stanfordnlp/dspy.git@main
 ```
 
 Optionally, you can also install flash attention to speed up inference. <br/>
@@ -31,7 +30,6 @@ This can take 15+ minutes to install on some setups:
 
 ```bash
 uv pip install flash-attn --no-build-isolation
-# or: pip install flash-attn --no-build-isolation
 ```
 
 ---
@@ -144,35 +142,6 @@ optimized_translate = compiler.compile(
 
 print(optimized_translate(english="hello"))
 ```
-
-
-### Remote GPU Setup (Alternative)
-
-For remote servers or custom configurations, use the CLI approach:
-
-**1. Create config at `~/.arbor/config.yaml`:**
-```yaml
-storage_path: ~/.arbor/storage
-```
-
-The server will automatically detect available GPUs at startup.
-
-**2. Start server:**
-```bash
-uv run arbor serve
-```
-
-**3. Connect from remote:**
-```python
-from openai import OpenAI
-client = OpenAI(base_url="http://your-server:7453/v1", api_key="not-needed")
-```
-
-**Docker deployment:**
-```bash
-docker run --gpus all -p 7453:7453 -v ~/.arbor:/root/.arbor arbor-ai
-```
-
 ---
 
 ### Accelerate Configuration
@@ -202,14 +171,12 @@ If you run into issues, double check that you have [nvcc](https://docs.nvidia.co
 nvcc --version
 ```
 
-If you don't have admin permissions, you can often install nvcc using conda.
-
 ---
 
 ## Community
 
-- Join our Discord for help, updates, and discussion: [DSPy Discord](https://discord.gg/ZAEGgxjPUe)
-- Arbor-specific channel in the DSPy Discord: [Arbor Channel](https://discordapp.com/channels/1161519468141355160/1396547082839654430)
+- Join our Discord for help, updates, and discussions: [Arbor Discord](https://discord.gg/EuU47wKsBS)
+- Join the DSPy Discord for help, updates, and discussion on DSPy: [DSPy Discord](https://discord.gg/ZAEGgxjPUe)
 
 ---
 
