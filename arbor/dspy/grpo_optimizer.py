@@ -380,9 +380,6 @@ class ArborGRPO(FinetuneTeleprompter):
                     step_idx=step_idx,
                     push_to_hub=self._should_push_to_hub(),
                 )
-                logger.info(
-                    f"requested a checkpoint push_to_hub={self._should_push_to_hub()}"
-                )  # REMOVEME
 
     def update_shuffled_trainset(self, original_trainset):
         self.shuffled_trainset_ids = list(range(len(original_trainset)))
@@ -841,12 +838,6 @@ class ArborGRPO(FinetuneTeleprompter):
             )
 
         logger.info("Done with the iterations! Retrieving the final model...")
-        self._save_checkpoint_for_job(  # REMOVEME
-            grpo_training_job,
-            first_lm,
-            "model_checkpoint_test",
-            push_to_hub=True,
-        )
         grpo_training_job.terminate()
         recover_lm_cache(program=student, lm_cache_dict=lm_cache_dict)
         for t in teachers:

@@ -159,9 +159,6 @@ class GRPOJob(Job):
                 hf_token=inference_config.hf_token,
             )
             logger.info("Launching inference server...")
-            logger.info(
-                f"Inference launch config: {inference_launch_config}"  # REMOVEME
-            )  # REMOVEME
             return inference_manager.launch_job(
                 request.model, inference_launch_config, self.trainer_controller
             )

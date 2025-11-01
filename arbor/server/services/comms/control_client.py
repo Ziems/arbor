@@ -4,9 +4,7 @@ import wandb
 
 from typing import Any, Dict, Optional, TYPE_CHECKING
 from arbor.server.services.comms.async_batch_requester import BatchResult
-from logging import getLogger  # REMOVEME
 
-logger = getLogger(__name__)  # REMOVEME
 if TYPE_CHECKING:
     from arbor.server.services.scripts.arbor_grpo_trainer import ArborGRPOTrainer
 
@@ -107,9 +105,6 @@ class TrainerControlClient(threading.Thread):
             checkpoint_name = message.get("checkpoint_name")
             metadata = message.get("metadata")
             push_to_hub = message.get("push_to_hub", False)
-            logger.info(
-                f"checkpoint request received in control client: checkpoint_name={checkpoint_name}, push_to_hub={push_to_hub}"  # REMOVEME
-            )
             try:
                 record = self.trainer.handle_checkpoint_request(
                     checkpoint_name, metadata, push_to_hub

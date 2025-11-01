@@ -69,7 +69,7 @@ compiler = ArborGRPO(
     hf_config=ArborHFConfig(
         hub_model_id="tytodd/arbor-test-2",
         hub_token=os.getenv("HF_TOKEN"),
-        push_frequency="final_checkpoint",
+        push_to_hub=True,
     ),
 )
 

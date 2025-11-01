@@ -544,7 +544,6 @@ class ArborGRPOTrainer(Trainer):
                     "global_step": result.get("global_step"),
                 },
             )
-            self.logger.info(f"Checkpoint result: {result}")  # REMOVEME
             return result
 
     def _service_checkpoint_requests(self) -> None:
@@ -558,9 +557,7 @@ class ArborGRPOTrainer(Trainer):
                         context={
                             "checkpoint_name": payload[0].get("checkpoint_name"),
                             "has_metadata": payload[0].get("metadata") is not None,
-                            "push_to_hub": payload[0].get(
-                                "push_to_hub", False
-                            ),  # REMOVEME or dont if this works
+                            "push_to_hub": payload[0].get("push_to_hub", False),
                         },
                     )
         broadcast_object_list(payload, from_process=0)
@@ -744,9 +741,6 @@ class ArborGRPOTrainer(Trainer):
         default_dir = os.path.abspath(os.path.join(run_dir, default_folder))
         requested_name = checkpoint_name or default_folder
         target_dir = os.path.abspath(os.path.join(run_dir, requested_name))
-        self.logger.info(
-            f"Finalizing checkpoint record: {requested_name}, push_to_hub={push_to_hub}, target_dir={target_dir}"
-        )  # REMOVEME
 
         if requested_name != default_folder:
             if os.path.exists(target_dir):
@@ -781,7 +775,6 @@ class ArborGRPOTrainer(Trainer):
             record["hf_hub_url"] = self.push_to_hub(
                 commit_message=checkpoint_name, blocking=True
             ).commit_url
-        self.logger.info(f"Finalized checkpoint record: {record}")  # REMOVEME
         return record
 
     def get_checkpoint_records(self) -> list[dict[str, Any]]:
