@@ -19,6 +19,13 @@ uv pip install -U arbor-ai
 # or: pip install -U arbor-ai
 ```
 
+If you need the latest DSPy features that haven't landed on PyPI yet, install directly from the main branch:
+
+```bash
+uv pip install -U git+https://github.com/stanfordnlp/dspy.git@main
+# or: pip install -U git+https://github.com/stanfordnlp/dspy.git@main
+```
+
 Optionally, you can also install flash attention to speed up inference. <br/>
 This can take 15+ minutes to install on some setups:
 
@@ -67,8 +74,12 @@ lm = dspy.LM(
     provider=provider,
     api_base=arbor_server_info["base_url"],
     api_key="arbor",
-    max_tokens=512,
+    # Arbor checks to make sure these match the training config
     temperature=1.0,
+    top_p=1.0,
+    top_k=-1,
+    repetition_penalty=1.0,
+    max_tokens=2048,
 )
 translate_program.set_lm(lm)
 
@@ -77,11 +88,51 @@ def unique_letter_reward(example, pred, trace=None) -> float:
     letters = [ch.lower() for ch in pred.french if ch.isalpha()]
     return float(len(set(letters)))
 
+# NOTE: Training on 4 GPUs.
+train_kwargs = {
+    "per_device_train_batch_size": 2,
+    "gradient_accumulation_steps": 24/6, # 21 (rollouts per example) * 6 (num dspy examples per grpo step) / 6 (gpus * per device batch size)
+    "temperature": 1.0,
+    "top_k": -1,
+    "top_p": 1.0,
+    "repetition_penalty": 1.0,
+    "beta": 0.00,
+    "learning_rate": 1e-6,
+    "gradient_checkpointing": True,
+    "fp16": True,
+    "lr_scheduler_type": "constant_with_warmup",
+    "loss_type": "dapo",
+    "max_steps": 1000,
+    "report_to": "wandb",
+    "log_completions": True,
+    "logging_steps": 1,
+    "max_prompt_length": None,
+    "max_completion_length": None,
+    "scale_rewards": False,
+    "max_grad_norm": 1.0,
+    "lora_config": {
+        "lora_alpha": 16,
+        "lora_dropout": 0.05,
+        "r": 8,
+        "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "up_proj", "down_proj", "gate_proj"],
+    },
+    "num_training_gpus": 3,
+    "num_inference_gpus": 1,
+    "weight_decay": 0.001,
+}
+
 # Optimize with Arbor's GRPO trainer
 compiler = ArborGRPO(
     metric=unique_letter_reward,
-    num_dspy_examples_per_grpo_step=1,
-    num_rollouts_per_grpo_step=8,
+    num_dspy_examples_per_grpo_step=6,
+    num_rollouts_per_grpo_step=24,
+    exclude_demos=True,
+    num_train_steps=1000,
+    num_threads=16,
+    use_train_as_val=False,
+    num_steps_for_val=50,
+    train_kwargs=train_kwargs,
+    checkpoint="single-best",
 )
 
 # Run optimization
