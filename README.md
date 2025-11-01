@@ -180,20 +180,6 @@ nvcc --version
 
 ---
 
-## 🛠️ Development workflow
-
-To avoid merge surprises, make sure the `dev` branch is rebased on the
-latest `main` history before integrating feature work. A quick sanity
-check is to fetch the remote `main` ref and merge it locally:
-
-```bash
-git fetch origin main
-git checkout dev
-git merge origin/main
-```
-
-Only proceed with your feature merges once the commands above succeed.
-
 ## 🙏 Acknowledgements
 
 Arbor builds on the shoulders of great work. We extend our thanks to:
