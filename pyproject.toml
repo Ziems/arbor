@@ -32,6 +32,9 @@ dependencies = [
     "deepspeed>=0.17.6",
 ]
 
+[project.optional-dependencies]
+server = ["pynvml>=13.0.1"]
+
 [project.scripts]
 arbor = "arbor.cli:cli"
 
@@ -58,6 +61,10 @@ dev = [
     "ruff==0.14.0",
     "ty==0.0.1-alpha.25"
 ]
+
+[tool.uv.sources]
+dspy = { git = "https://github.com/stanfordnlp/dspy", rev = "1df5984007b7fd9bb56f3a8fba7a68b5517efb69"}
+
 
 [tool.ty.rules]
 unresolved-import = "warn"
