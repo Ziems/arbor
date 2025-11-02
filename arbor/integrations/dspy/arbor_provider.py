@@ -215,8 +215,8 @@ class ArborReinforceJob(ReinforceJob):
             "hf_config": self.train_kwargs.get("hf_config", None),
         }
         # if the hub token is not provided, use the one set in the LM
-        if data["hf_config"]["hub_token"] is None:
-            data["hf_config"]["hub_token"] = self.lm.kwargs.get("hf_token", None)
+        if (hf_config := data.get("hf_config")) and hf_config["hub_token"] is None:
+            hf_config["hub_token"] = self.lm.kwargs.get("hf_token", None)
         url = urljoin(api_base, "fine_tuning/grpo/initialize")
         headers = {"Content-Type": "application/json"}
         response = requests.post(url=url, headers=headers, json=data)
