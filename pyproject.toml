@@ -59,6 +59,9 @@ dev = [
     "ty==0.0.1-alpha.25"
 ]
 
+[tool.uv.sources]
+dspy = { git = "https://github.com/stanfordnlp/dspy", rev = "1df5984007b7fd9bb56f3a8fba7a68b5517efb69"}
+
 [tool.ty.rules]
 unresolved-import = "warn"
 unknown-argument = "warn"

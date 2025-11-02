@@ -544,6 +544,14 @@ class ArborGRPO(FinetuneTeleprompter):
 
         group_queue: deque = deque()
         logger.info("Starting the GRPO training loop...")
+        self._save_checkpoint_for_job(  # REMOVEME
+            grpo_training_job,
+            first_lm,
+            "model_checkpoint_test",
+            score=0,
+            step_idx=0,
+            push_to_hub=True,
+        )
         for train_step_idx in range(self.num_train_steps):
             logger.info(
                 f"GRPO training step {train_step_idx + 1}/{self.num_train_steps}..."
@@ -642,10 +650,16 @@ class ArborGRPO(FinetuneTeleprompter):
                         )
 
                     min_len = min(
-                        len(invocation) for invocation in predictor_example_invocations
+                        [
+                            len(predictor_example_invocations[i])
+                            for i in range(len(predictor_example_invocations))
+                        ]
                     )
                     max_len = max(
-                        len(invocation) for invocation in predictor_example_invocations
+                        [
+                            len(predictor_example_invocations[i])
+                            for i in range(len(predictor_example_invocations))
+                        ]
                     )
                     if min_len == 0:
                         logger.warning(
@@ -674,7 +688,10 @@ class ArborGRPO(FinetuneTeleprompter):
                     else:
                         assert self.variably_invoked_predictor_grouping_mode == "ragged"
                     max_len = max(
-                        len(invocation) for invocation in predictor_example_invocations
+                        [
+                            len(predictor_example_invocations[i])
+                            for i in range(len(predictor_example_invocations))
+                        ]
                     )
 
                     example_training_data: list[GRPOGroup] = [
