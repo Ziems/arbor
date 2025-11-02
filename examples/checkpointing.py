@@ -3,7 +3,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
-from arbor.server.api.models.schemas import GRPOStatus
+from arbor.server.api.schemas import GRPOStatus
 from datasets import load_dataset
 from openai import OpenAI
 
@@ -157,7 +157,7 @@ def main():
 
 
             response = client.chat.completions.create(
-                model=current_model, messages=input_messages, temperature=1.0, n=8, top_p=1.0
+                model=current_model, messages=input_messages, temperature=1.0, n=8, top_p=1.0, top_k=-1
             )
             completions = []
             for choice in response.choices:

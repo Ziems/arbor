@@ -34,95 +34,66 @@ uv pip install flash-attn --no-build-isolation
 ### Optimize a DSPy Program with RL
 
 ```python
-import arbor
-import dspy
 import random
+import dspy
+from datasets import load_dataset
 
-# Start Arbor server (auto-detects GPUs, starts in background)
-arbor.init()
+import arbor
+from arbor import ArborGRPO, ArborProvider
 
-# Sample classification data
-data = [
-    dspy.Example(text="I want to transfer money", label="transfer").with_inputs("text"),
-    dspy.Example(text="What is my balance?", label="balance").with_inputs("text"),
-    dspy.Example(text="I lost my credit card", label="card_issues").with_inputs("text"),
-    # ... more examples
-]
+# Start Arbor server (starts in background)
+arbor_server_info = arbor.init()
 
-# Split into train/validation
-random.Random(42).shuffle(data)
-trainset, valset = data[:6], data[6:]
+# Load a small English→French dataset
+raw_dataset = load_dataset("Helsinki-NLP/opus_books", "en-fr")
+raw_data = [
+    dspy.Example(english=ex["translation"]["en"], french=ex["translation"]["fr"]).with_inputs("english")
+    for ex in raw_dataset["train"]
+][:2000]
 
-# Define classification task
-CLASSES = ["transfer", "balance", "card_issues", "pin_change"]
-classify = dspy.ChainOfThought(f"text -> label: Literal{CLASSES}")
+# Train / validation split
+random.Random(43).shuffle(raw_data)
+trainset = raw_data[:1000]
+valset = raw_data[1000:1100]
 
-# Set up DSPy with Arbor backend
-from arbor import ArborProvider
+# Define the task
+translate_program = dspy.Predict("english -> french")
+
+# Connect DSPy to Arbor
 provider = ArborProvider()
-student_lm = dspy.LM(
-    model="openai/arbor:Qwen/Qwen2-0.5B-Instruct",
+lm_name = "Qwen/Qwen2.5-1.5B-Instruct"
+lm = dspy.LM(
+    model=f"openai/arbor:{student_lm_name}",
     provider=provider,
-    api_base="http://127.0.0.1:7453/v1/",
-    api_key="arbor"
+    api_base=arbor_server_info["base_url"],
+    api_key="arbor",
+    max_tokens=512,
+    temperature=1.0,
 )
+translate_program.set_lm(lm)
 
-student_classify = classify.deepcopy()
-student_classify.set_lm(student_lm)
+# Simple reward: number of unique letters in the French output
+def unique_letter_reward(example, pred, trace=None) -> float:
+    letters = [ch.lower() for ch in pred.french if ch.isalpha()]
+    return float(len(set(letters)))
 
-# Optimize with Arbor's GRPO trainer (requires 2+ GPUs)
-from arbor import ArborGRPO
-
+# Optimize with Arbor's GRPO trainer
 compiler = ArborGRPO(
-    metric=lambda x, y: x.label == y.label,
+    metric=unique_letter_reward,
+    num_dspy_examples_per_grpo_step=1,
+    num_rollouts_per_grpo_step=8,
 )
 
 # Run optimization
-optimized_classify = compiler.compile(
-    student=student_classify,
+optimized_translate = compiler.compile(
+    student=student_translate,
     trainset=trainset,
-    valset=valset
+    valset=valset,
 )
 
-# Your classifier is now optimized with RL! 🎉
+print(optimized_translate(english="hello"))
 ```
 
-
-<!-- ### Traditional Fine-tuning (SFT & DPO)
-
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Ziems/arbor/blob/main/examples/colab_quickstart.ipynb)
-
-Arbor also supports standard fine-tuning with OpenAI-compatible API:
-
-```python
-import arbor
-from openai import OpenAI
-
-# Start Arbor
-arbor.init()
-client = arbor.get_client()
-
-# Upload training data
-with open("sft_data.jsonl", "rb") as f:
-    file = client.files.create(file=f, purpose="fine-tune")
-
-# SFT (Supervised Fine-Tuning)
-job = client.fine_tuning.jobs.create(
-    model="Qwen/Qwen2-0.5B-Instruct",
-    training_file=file.id,
-    method={"type": "sft"}
-)
-
-# DPO (Direct Preference Optimization)
-job = client.fine_tuning.jobs.create(
-    model="Qwen/Qwen2-0.5B-Instruct",
-    training_file=file.id,
-    method={"type": "dpo"}
-)
-
-# Monitor training
-arbor.watch_job(job.id)
-``` -->
 
 ### Remote GPU Setup (Alternative)
 

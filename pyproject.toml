@@ -1,6 +1,6 @@
 [project]
 name = "arbor-ai"
-version = "0.2.13"
+version = "0.2.15"
 description = "A framework for optimizing DSPy programs"
 authors = [
     {name = "Noah Ziems", email = "nziems2@nd.edu"}
@@ -56,10 +56,15 @@ dev = [
     "pytest-cov",
     "pre-commit",
     "ruff==0.14.0",
+    "ty==0.0.1-alpha.25"
 ]
 
-[tool.uv.sources]
-dspy = { path = "../dspy", editable = true } # REMOVEME
+[tool.ty.rules]
+unresolved-import = "warn"
+unknown-argument = "warn"
+
+[tool.ty.src]
+exclude = ["examples"]
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -127,18 +132,11 @@ ignore = [
     "B006",  # Allow mutable defaults in existing constructors
     "B905",  # Allow zip without strict flag in legacy loops
     "B904",  # Allow raise custom exceptions in except blocks
-    "B007",  # Allow unused loop variables for tuple unpacking
     "B020",  # Allow loop variables shadowing iterables when intentional
-    "C414",  # Allow redundant list() usage inside sorted for clarity
     "C901",  # Ignore complexity checking for now
     "E501",  # Ignore line length errors (handled by formatter)
     "E721",  # Allow using == to compare with type
-    "F403",  # Allow wildcard imports
     "FBT003", # Allow boolean positional values in function calls
-    "I001",  # Allow existing import ordering until cleaned up
-    "N806",  # Allow uppercase local variables for clarity
-    "N818",  # Allow non-Error exception suffix for compatibility
-    "Q000",  # Allow existing quote style in a few places
     "RUF005", # Allow using + operator to concatenate collections
     "RUF001", # Allow non-ASCII characters in strings when meaningful
     "RUF003", # Allow typographic punctuation in comments
@@ -146,12 +144,8 @@ ignore = [
     "RUF010", # Allow implicit str conversion when logging exceptions
     "RUF012", # Allow mutable class attributes without ClassVar for now
     "RUF019", # Allow key checks before dict access in legacy code
-    "RUF022", # Allow unsorted __all__ value
-    "UP006",  # Allow typing.List style annotations
-    "UP007",  # Allow Optional[T] syntax
     "UP015",  # Allow explicit read mode
     "UP024",  # Allow socket.error alias
-    "UP031",  # Allow percent format
     "UP035",  # Allow python typing modules
     "UP037",  # Allow quoted annotations until upgrade
     "UP039",  # Allow explicit base class parentheses

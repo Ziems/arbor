@@ -1,38 +1,38 @@
 import json
-from trl.data_utils import apply_chat_template
-
-from transformers import AutoTokenizer
-from typing import Any, Dict, Sequence
-from arbor.server.services.comms.async_batch_requester import ProcessedOutputs
 import os
 import threading
 import time
 from datetime import datetime
-from typing import Optional, List
-from arbor.server.services.comms.async_batch_requester import BatchResult
-import coolname
+from typing import Any, Optional, Sequence, cast
 
-from arbor.server.api.models.schemas import (
+import coolname
+from transformers import AutoTokenizer
+from trl.data_utils import apply_chat_template
+
+from arbor.core.config import Config
+from arbor.core.logging import get_logger
+from arbor.server.api.schemas import (
+    GRPOCheckpointRequest,
     GRPOGPUConfig,
     GRPOInitializeRequest,
     GRPOStatus,
     GRPOStepRequest,
-    GRPOCheckpointRequest,
-    InferenceJobRequest,
+    InferenceLaunchOwner,
+    InferenceLaunchRequest,
     JobStatus,
 )
-from arbor.server.core.config import Config
-from arbor.server.services.jobs.inference_job import InferenceJob
-from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
-from arbor.server.services.jobs.job import Job, JobArtifact
-from arbor.server.services.managers.inference_manager import InferenceManager
-from arbor.server.services.managers.gpu_manager import GPUManager
-from arbor.server.services.scripts.arbor_grpo_config import ArborGRPOConfig
-from arbor.server.utils.helpers import get_free_port
-from arbor.server.utils.logging import get_logger
-from arbor.server.utils.mock_utils import get_script_path, setup_mock_environment
-from arbor.server.utils.process_runner import AccelerateProcessRunner
+from arbor.server.services.comms.async_batch_requester import (
+    BatchResult,
+    ProcessedOutputs,
+)
 from arbor.server.services.comms.control_server import TrainerControlServer
+from arbor.server.services.jobs.inference_job import InferenceJob
+from arbor.server.services.jobs.job import Job, JobArtifact
+from arbor.server.services.managers.gpu_manager import GPUManager
+from arbor.server.services.managers.inference_manager import InferenceManager
+from arbor.training.grpo.config import ArborGRPOConfig
+from arbor.utils.helpers import get_free_port
+from arbor.utils.process_runner import AccelerateProcessRunner
 
 logger = get_logger(__name__)
 
@@ -52,14 +52,14 @@ class GRPOJob(Job):
         self.training_process = None
         self.event_thread = None
         self.training_terminate_pending = False
-        self.inference_job: InferenceJob = None
+        self.inference_job: Optional[InferenceJob] = None
         self.process_runner: Optional[AccelerateProcessRunner] = None
         self.trainer_controller: TrainerControlServer = None
         self.trainer_config: ArborGRPOConfig = None
         self.tokenizer: AutoTokenizer = None
 
-        self.fulfilled_batches: List[BatchResult] = []
-        self.pending_batch_ids: List[int] = []
+        self.fulfilled_batches: list[BatchResult] = []
+        self.pending_batch_ids: list[int] = []
         self.no_submit_streak = 0
 
         self.batch_count = 0
@@ -98,13 +98,7 @@ class GRPOJob(Job):
             exclude_unset=True,
         )
 
-        wandb_kwargs = {}
-        if request.wandb_config is not None:
-            wandb_kwargs = request.wandb_config.model_dump(
-                exclude_unset=True,
-            )
-
-        config = ArborGRPOConfig(**trainer_kwargs, **wandb_kwargs)
+        config = ArborGRPOConfig(**trainer_kwargs)
         if (hf_config := request.hf_config) is not None:
             config.hub_model_id = hf_config.hub_model_id
             config.hub_private_repo = hf_config.hub_private_repo
@@ -114,7 +108,7 @@ class GRPOJob(Job):
 
         config.output_dir = output_dir
         config.vllm_server_port = vllm_port
-
+        config.run_name = self.id
         return config
 
     def initialize(
@@ -144,23 +138,24 @@ class GRPOJob(Job):
         inference_gpus, training_gpus = _allocate_gpus(request.gpu_config)
 
         def _launch_inference_job(
-            inference_config: InferenceJobRequest,
+            inference_config: InferenceLaunchRequest,
             inference_gpus: list[int],
             trainer_controller: TrainerControlServer,
             log_file_path: str,
         ):
-            # TODO: This "InferenceLaunchConfig"needs to be cleaned up to be more inline with the other config and request structures
-            inference_launch_config = InferenceLaunchConfig(
-                max_context_length=inference_config.max_context_length,
-                gpu_ids=inference_gpus,
-                is_grpo=True,
-                grpo_job_id=self.id,
-                log_file_path=log_file_path,
-                hf_token=inference_config.hf_token,
+            launch_request = inference_config.model_copy(
+                update={
+                    "gpu_ids": inference_gpus,
+                    "owner": InferenceLaunchOwner(type="grpo", job_id=self.id),
+                    "log_file_path": log_file_path,
+                }
             )
             logger.info("Launching inference server...")
-            return inference_manager.launch_job(
-                request.model, inference_launch_config, self.trainer_controller
+            return inference_manager.launch_from_request(
+                launch_request,
+                trainer_controller=trainer_controller,
+                reuse_existing=False,
+                preallocated_gpu_ids=inference_gpus,
             )
 
         log_dir = self._make_log_dir()
@@ -175,13 +170,7 @@ class GRPOJob(Job):
             inference_log_path,
         )
 
-        # inference_job.log_file_path already configured via launch config
-
-        script_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"
-        )
-        script_name = "arbor_grpo_trainer.py"
-        script_path = get_script_path(script_name, script_dir)
+        trainer_module = "arbor.training.grpo.trainer"
 
         my_env = os.environ.copy()
         # Use the training GPUs that were allocated earlier
@@ -189,16 +178,7 @@ class GRPOJob(Job):
 
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
 
-        # Handle WandB configuration
-        if request.wandb_config is not None:
-            # WandB is explicitly requested, just silence login prompts
-            my_env["WANDB_SILENT"] = "true"
-        else:
-            # WandB not requested, disable it completely to avoid login errors
-            my_env["WANDB_SILENT"] = "true"
-
-        # Setup mock environment if needed
-        my_env = setup_mock_environment(my_env)
+        my_env["WANDB_SILENT"] = "true"
 
         num_processes = len(training_gpus)
 
@@ -238,7 +218,7 @@ class GRPOJob(Job):
         ]
 
         self.training_process = self.process_runner.start_training(
-            script_path=script_path,
+            module=trainer_module,
             num_processes=num_processes,
             main_process_port=main_process_port,
             script_args=script_args,
@@ -311,10 +291,10 @@ class GRPOJob(Job):
                 raise ValueError(f"Each item must contain keys: {required_keys}")
         return True
 
-    def grpo_step(self, request: GRPOStepRequest) -> str:
+    def grpo_step(self, request: GRPOStepRequest):
         self.validate_batch(request.batch)
 
-        def _handle_group_data(group: list[dict]):
+        def _handle_group_data(group: list[dict[str, Any]]):
             batch_result = build_batch_result(
                 batch_id=self.batch_count,
                 tokenizer=self.tokenizer,
@@ -323,6 +303,7 @@ class GRPOJob(Job):
                 max_seq_len=self.trainer_config.max_seq_len,
                 num_generations=self.trainer_config.num_generations,
                 trainer_config=self.trainer_config,
+                metrics=request.metrics if hasattr(request, "metrics") else None,
             )
 
             self.trainer_controller.submit_batch(batch_result)
@@ -332,11 +313,13 @@ class GRPOJob(Job):
         try:
             if isinstance(request.batch[0], list):
                 # Handle List[List[dict]] case
-                for group in request.batch:
+                groups = cast(list[list[dict[str, Any]]], request.batch)
+                for group in groups:
                     _handle_group_data(group)
             else:
                 # Handle List[dict] case
-                _handle_group_data(request.batch)
+                group = cast(list[dict[str, Any]], request.batch)
+                _handle_group_data(group)
 
         except Exception as e:
             logger.error(f"Failed to send batch to training process: {e}")
@@ -498,11 +481,12 @@ class GRPOJob(Job):
 def build_batch_result(
     batch_id: int,
     tokenizer: AutoTokenizer,
-    samples: Sequence[Dict[str, Any]],
+    samples: Sequence[dict[str, Any]],
     max_prompt_length: int | None,
-    max_seq_len: int,
+    max_seq_len: int | None,
     num_generations: int,
     trainer_config: ArborGRPOConfig,
+    metrics: dict[str, Any] | None = None,
 ):
     if not samples:
         raise ValueError("No samples provided to build batch result")
@@ -514,11 +498,11 @@ def build_batch_result(
 
     effective_max_prompt = max_prompt_length or max_seq_len
 
-    prompt_ids: List[List[int]] = []
-    prompt_mask: List[List[int]] = []
-    completion_ids: List[List[int]] = []
-    completion_mask: List[List[int]] = []
-    rewards: List[float] = []
+    prompt_ids: list[list[int]] = []
+    prompt_mask: list[list[int]] = []
+    completion_ids: list[list[int]] = []
+    completion_mask: list[list[int]] = []
+    rewards: list[float] = []
 
     prompt_completion_texts = [
         apply_chat_template(
@@ -563,13 +547,53 @@ def build_batch_result(
         completion_inputs["input_ids"],
         completion_inputs["attention_mask"],
     )
+    # calculate completion lengths
+    completion_lengths = [sum(cm) for cm in completion_mask]
 
     rewards = [float(sample["reward"]) for sample in samples]
+    if trainer_config.soft_completion_penalty_length is not None:
+        processed_rewards = []
+        for (
+            _prompt_id,
+            _prompt_mask,
+            _completion_id,
+            _completion_mask,
+            _reward,
+            _completion_length,
+        ) in zip(
+            prompt_ids,
+            prompt_mask,
+            completion_ids,
+            completion_mask,
+            rewards,
+            completion_lengths,
+        ):
+            if _completion_length > trainer_config.soft_completion_penalty_length:
+                if _reward > 0:
+                    new_reward = _reward * (
+                        1
+                        - (
+                            _completion_length
+                            - trainer_config.soft_completion_penalty_length
+                        )
+                        / (
+                            trainer_config.max_completion_length  # type: ignore
+                            - trainer_config.soft_completion_penalty_length
+                        )
+                    )
+                else:
+                    new_reward = _reward
+                logger.info(
+                    f"Applying soft completion penalty to completion {_completion_length} with reward {_reward} -> {new_reward}"
+                )
+                _reward = new_reward
+            processed_rewards.append(_reward)
+        rewards = processed_rewards
 
-    for prompt_id, prompt_mask, completion_id, completion_mask, reward in zip(
+    for prompt_id, _prompt_mask, completion_id, _completion_mask, _reward in zip(
         prompt_ids, prompt_mask, completion_ids, completion_mask, rewards
     ):
-        if len(prompt_id) > effective_max_prompt:
+        if effective_max_prompt is not None and len(prompt_id) > effective_max_prompt:
             logger.warning(
                 f"Prompt length {len(prompt_id)} is greater than effective max prompt length {effective_max_prompt}"
             )
@@ -600,4 +624,5 @@ def build_batch_result(
         completions=completions_text,
         processed_results=processed_results,
         all_reward_dict={"reward": rewards},
+        metrics=metrics or {},
     )

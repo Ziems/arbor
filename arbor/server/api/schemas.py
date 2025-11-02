@@ -1,0 +1,313 @@
+from enum import Enum
+from typing import Any, Generic, Literal, Optional, TypeVar
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+# Generic type for list items
+T = TypeVar("T")
+
+
+class StrictBaseModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class PaginatedResponse(StrictBaseModel, Generic[T]):
+    object: str = "list"
+    data: list[T]
+    has_more: bool = False
+
+
+class FileModel(StrictBaseModel):
+    id: str
+    object: str = "file"
+    bytes: int
+    created_at: int
+    filename: str
+    purpose: str
+    format: str = "unknown"  # Detected format: "sft", "dpo", or "unknown"
+
+
+class FineTuneRequest(StrictBaseModel):
+    model: str
+    training_file: str  # id of uploaded jsonl file
+    method: Optional[dict] = None
+    suffix: Optional[str] = None
+    num_gpus: Optional[int] = 1  # Number of GPUs to request for training
+    # UNUSED
+    validation_file: Optional[str] = None
+    seed: Optional[int] = None
+
+
+class ErrorModel(StrictBaseModel):
+    code: str
+    message: str
+    param: str | None = None
+
+
+class SupervisedHyperparametersModel(StrictBaseModel):
+    batch_size: int | str = "auto"
+    learning_rate_multiplier: float | str = "auto"
+    n_epochs: int | str = "auto"
+
+
+class DPOHyperparametersModel(StrictBaseModel):
+    beta: float | str = "auto"
+    batch_size: int | str = "auto"
+    learning_rate_multiplier: float | str = "auto"
+    n_epochs: int | str = "auto"
+
+
+class SupervisedModel(StrictBaseModel):
+    hyperparameters: SupervisedHyperparametersModel
+
+
+class DpoModel(StrictBaseModel):
+    hyperparameters: DPOHyperparametersModel
+
+
+class MethodModel(StrictBaseModel):
+    type: Literal["supervised"] | Literal["dpo"]
+    supervised: SupervisedModel | None = None
+    dpo: DpoModel | None = None
+
+
+# https://platform.openai.com/docs/api-reference/fine-tuning/object
+class JobStatus(Enum):
+    PENDING = "pending"  # Not in OAI
+    PENDING_PAUSE = "pending_pause"  # Not in OAI
+    PENDING_RESUME = "pending_resume"  # Not in OAI
+    PAUSED = "paused"  # Not in OAI
+    VALIDATING_FILES = "validating_files"
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    PENDING_CANCEL = "pending_cancel"
+    CREATED = "created"
+
+
+# https://platform.openai.com/docs/api-reference/fine-tuning/object
+class JobStatusModel(StrictBaseModel):
+    object: str = "fine_tuning.job"
+    id: str
+    fine_tuned_model: str | None = None
+    status: JobStatus
+    training_file: str | None = None
+    model: str | None = None
+
+    # UNUSED so commented out
+    # model: str
+    # created_at: int
+    # error: ErrorModel | None = None
+    # details: str = ""
+    # finished_at: int
+    # hyperparameters: None # deprecated in OAI
+    # organization_id: str
+    # result_files: list[str]
+    # trained_tokens: int | None = None # None if not finished
+    # training_file: str
+    # validation_file: str
+    # integrations: list[Integration]
+    # seed: int
+    # estimated_finish: int | None = None # The Unix timestamp (in seconds) for when the fine-tuning job is estimated to finish. The value will be null if the fine-tuning job is not running.
+    # method: MethodModel
+    # metadata: dict[str, str]
+
+
+class JobEventModel(StrictBaseModel):
+    object: str = "fine_tuning.job_event"
+    id: str
+    created_at: int
+    level: str
+    message: str
+    data: dict[str, Any]
+    type: str
+
+
+class MetricsModel(StrictBaseModel):
+    step: int
+    train_loss: float
+    train_mean_token_accuracy: float
+    valid_loss: float
+    valid_mean_token_accuracy: float
+    full_valid_loss: float
+    full_valid_mean_token_accuracy: float
+
+
+class JobCheckpointModel(StrictBaseModel):
+    object: str = "fine_tuning.job_checkpoint"
+    id: str
+    created_at: int
+    fine_tuned_model_checkpoint: str
+    step_number: int
+    metrics: MetricsModel
+    fine_tuning_job_id: str
+
+
+class ChatCompletionMessage(StrictBaseModel):
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+
+class ChatCompletionRequest(StrictBaseModel):
+    model: str
+    messages: list[ChatCompletionMessage]
+    temperature: float | None = None
+    top_p: float | None = None
+    max_tokens: int | None = None
+
+
+class ChatCompletionChoice(StrictBaseModel):
+    message: ChatCompletionMessage
+    index: int
+    finish_reason: Literal["stop", "length", "tool_calls"]
+
+
+class ChatCompletionModel(StrictBaseModel):
+    id: str
+    object: str = "chat.completion"
+    created: int
+    model: str
+    choices: list[ChatCompletionChoice]
+
+
+class InferenceLaunchOwner(StrictBaseModel):
+    type: Literal["grpo"]
+    job_id: str
+
+
+class InferenceLaunchRequest(StrictBaseModel):
+    model: str
+    max_context_length: Optional[int] = None
+    hf_token: Optional[str] = None
+    num_gpus: Optional[int] = 1
+    owner: Optional[InferenceLaunchOwner] = None
+    log_file_path: Optional[str] = None
+
+
+class InferenceTerminateRequest(StrictBaseModel):
+    job_id: str
+
+
+### GRPO
+class MultiGPUConfig(StrictBaseModel):
+    num_inference_gpus: int
+    num_training_gpus: int  # Number of GPUs to use for training
+
+
+class GRPOGPUConfig(StrictBaseModel):
+    type: Literal["multi"]
+    multi: MultiGPUConfig
+
+
+class GRPOStatus(StrictBaseModel):
+    job_id: str
+    status: Optional[str] = None
+    current_model: str
+    checkpoints: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    last_checkpoint: Optional[str] = None
+    pending_batch_ids: list[int] = Field(default_factory=list)
+
+
+class LoRAConfigRequest(StrictBaseModel):
+    r: int
+    lora_alpha: int
+    target_modules: list[str]
+    lora_dropout: float
+
+
+class ArborGRPOConfigRequest(StrictBaseModel):
+    """Only the settings we want to feed straight into ArborGRPOConfig."""
+
+    temperature: Optional[float] = None
+    beta: Optional[float] = None
+    num_generations: Optional[int] = None
+    per_device_train_batch_size: Optional[int] = None
+    learning_rate: Optional[float] = None
+    gradient_accumulation_steps: Optional[int] = None
+    gradient_checkpointing: Optional[bool] = None
+    lr_scheduler_type: Optional[str] = None
+    max_prompt_length: Optional[int] = None
+    max_completion_length: Optional[int] = None
+    soft_completion_penalty_length: Optional[int] = None
+    gradient_checkpointing_kwargs: Optional[dict[str, Any]] = None
+    bf16: Optional[bool] = None
+    scale_rewards: Optional[bool] = None
+    max_grad_norm: Optional[float] = None
+    report_to: Optional[str] = None
+    log_completions: Optional[bool] = None
+    logging_steps: Optional[int] = None
+    generation_batch_size: Optional[int] = None
+    mask_truncated_completions: Optional[bool] = None
+    async_generation_timeout: Optional[float] = None
+    max_seq_len: Optional[int] = None
+    lora_config: Optional[LoRAConfigRequest] = None
+    max_steps: Optional[int] = None
+    warmup_steps: Optional[int] = None
+    loss_type: Optional[str] = None
+    num_training_gpus: Optional[int] = None
+    weight_decay: Optional[float] = None
+    # ...and any other ArborGRPOConfig fields you care about.
+    # Thanks to extra="allow" you can keep this list short and still pass others.
+
+
+class HFConfigRequest(StrictBaseModel):
+    """
+    Attributes:
+        hub_model_id: The model id to use when pushing to the huggingface hub. The name of the repository to keep in sync with the local *output_dir*. It can be a simple model ID in
+            which case the model will be pushed in your namespace. Otherwise it should be the whole repository name,
+            for instance `"user_name/model"`, which allows you to push to an organization you are a member of with
+            `"organization_name/model"`. Will default to `user_name/output_dir_name` with *output_dir_name* being the
+            name of `output_dir`.
+        hub_token: The token to use to push the model to the huggingface hub.
+        hub_revision: The revision to use when pushing to the Hub. Can be a branch name, a tag, or a commit hash.
+        hub_private_repo: Whether the huggingface repo should be private.
+    """
+
+    hub_model_id: Optional[str] = None
+    hub_token: Optional[str] = None
+    hub_revision: Optional[str] = None
+    hub_private_repo: Optional[bool] = None
+
+    # model validator to allow all fields to be None or hub_model_id and hub_token to be present and the rest to be optional
+    @model_validator(mode="after")
+    def ensure_required_fields(self) -> "HFConfigRequest":
+        dump = self.model_dump()
+        if any(val for val in dump.values()):
+            if any(dump.get(key := k) is None for k in ["hub_model_id", "hub_token"]):
+                raise ValueError(f"{key} is required")
+        return self
+
+
+class GRPOInitializeRequest(StrictBaseModel):
+    run_name: Optional[str] = None
+    model: str
+    trainer_config: ArborGRPOConfigRequest
+    inference_config: InferenceLaunchRequest
+    gpu_config: GRPOGPUConfig = GRPOGPUConfig(
+        type="multi", multi=MultiGPUConfig(num_inference_gpus=1, num_training_gpus=1)
+    )
+    hf_config: Optional[HFConfigRequest] = None
+
+
+# Base class for all GRPO requests except initialize
+class GRPOBaseRequest(StrictBaseModel):
+    job_id: str
+
+
+class GRPOStepRequest(GRPOBaseRequest):
+    model: str
+    batch_id: int
+    batch: list[dict] | list[list[dict]]
+    metrics: Optional[dict[str, Any]] = None
+
+
+class GRPOCheckpointRequest(GRPOBaseRequest):
+    checkpoint_name: str
+    metadata: Optional[dict[str, Any]] = None
+    push_to_hub: bool = False
+
+
+class GRPOTerminateRequest(GRPOBaseRequest):
+    pass

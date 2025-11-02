@@ -13,10 +13,10 @@ import os
 import socket
 import time
 from contextlib import closing
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from arbor.cli import start_server, stop_server
-from arbor.server.utils.logging import get_logger
+from arbor.core.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -68,7 +68,7 @@ def init(
     storage_path: Optional[str] = None,
     auto_config: bool = True,
     silent: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Initialize Arbor server in background (Ray-like interface).
 
@@ -197,7 +197,7 @@ def shutdown():
         print(f"Error shutting down server: {e}")
 
 
-def status() -> Optional[Dict[str, Any]]:
+def status() -> Optional[dict[str, Any]]:
     """
     Get current Arbor server status.
 

@@ -1,12 +1,13 @@
 import threading
-import zmq
-import wandb
+from typing import TYPE_CHECKING, Any, Optional
 
-from typing import Any, Dict, Optional, TYPE_CHECKING
+import wandb
+import zmq
+
 from arbor.server.services.comms.async_batch_requester import BatchResult
 
 if TYPE_CHECKING:
-    from arbor.server.services.scripts.arbor_grpo_trainer import ArborGRPOTrainer
+    from arbor.training.grpo.trainer import ArborGRPOTrainer
 
 
 class TrainerControlClient(threading.Thread):
@@ -75,7 +76,7 @@ class TrainerControlClient(threading.Thread):
             except Exception:
                 pass
 
-    def _handle_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+    def _handle_message(self, message: dict[str, Any]) -> dict[str, Any]:
         cmd = message.get("cmd")
         requester = self.trainer.async_requester
 

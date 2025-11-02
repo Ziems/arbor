@@ -1,13 +1,13 @@
 from typing import TYPE_CHECKING, Optional
 
-from arbor.server.api.models.schemas import (
+from arbor.core.config import Config
+from arbor.server.api.schemas import (
+    GRPOCheckpointRequest,
     GRPOInitializeRequest,
     GRPOStatus,
     GRPOStepRequest,
-    GRPOCheckpointRequest,
     GRPOTerminateRequest,
 )
-from arbor.server.core.config import Config
 from arbor.server.services.jobs.grpo_job import GRPOJob
 from arbor.server.services.managers.base_manager import BaseManager
 from arbor.server.services.managers.inference_manager import InferenceManager

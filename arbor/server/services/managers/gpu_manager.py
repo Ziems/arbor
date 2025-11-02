@@ -1,11 +1,11 @@
 """Simple GPU Manager for tracking GPU allocations and availability."""
 
 import threading
-from typing import Dict, List, Optional, Set
+from typing import Optional
 
-from arbor.server.core.config import Config
+from arbor.core.config import Config
+from arbor.core.logging import get_logger
 from arbor.server.services.managers.base_manager import BaseManager
-from arbor.server.utils.logging import get_logger
 
 
 class NoGPUsDetectedError(RuntimeError):
@@ -19,7 +19,7 @@ class NoGPUAvailableError(RuntimeError):
 LOGGER = get_logger(__name__)
 
 
-def _detect_gpus_with_nvml() -> Dict[str, Set[int]]:
+def _detect_gpus_with_nvml() -> dict[str, set[int]]:
     """Return GPU availability information using NVML."""
 
     try:
@@ -37,9 +37,9 @@ def _detect_gpus_with_nvml() -> Dict[str, Set[int]]:
         ) from exc
 
     try:
-        total: Set[int] = set()
-        free: Set[int] = set()
-        busy: Set[int] = set()
+        total: set[int] = set()
+        free: set[int] = set()
+        busy: set[int] = set()
 
         device_count = pynvml.nvmlDeviceGetCount()
 
@@ -92,7 +92,7 @@ def _detect_gpus_with_nvml() -> Dict[str, Set[int]]:
             pass
 
 
-def get_gpu_state() -> Dict[str, List[int]]:
+def get_gpu_state() -> dict[str, list[int]]:
     """Return a snapshot of total, free, and busy GPU IDs."""
 
     info = _detect_gpus_with_nvml()
@@ -108,7 +108,7 @@ def get_gpu_state() -> Dict[str, List[int]]:
     }
 
 
-def detect_all_gpu_ids() -> List[int]:
+def detect_all_gpu_ids() -> list[int]:
     """Detect every GPU ID visible on the system."""
 
     state = get_gpu_state()
@@ -117,7 +117,7 @@ def detect_all_gpu_ids() -> List[int]:
     return gpu_ids
 
 
-def detect_available_gpus() -> List[int]:
+def detect_available_gpus() -> list[int]:
     """Detect GPUs that are not currently being used by other processes."""
 
     state = get_gpu_state()
@@ -154,8 +154,8 @@ class GPUManager(BaseManager):
         self._lock = threading.Lock()
 
         # Track GPU allocations even if initialization fails mid-way
-        self.gpu_allocations: Dict[str, List[int]] = {}  # job_id -> [gpu_ids]
-        self.all_gpus: Set[int] = set()
+        self.gpu_allocations: dict[str, list[int]] = {}  # job_id -> [gpu_ids]
+        self.all_gpus: set[int] = set()
 
         try:
             state = get_gpu_state()
@@ -184,14 +184,14 @@ class GPUManager(BaseManager):
                 context={"busy_gpus": busy_gpus},
             )
 
-    def get_all_allocated_gpus(self) -> Set[int]:
+    def get_all_allocated_gpus(self) -> set[int]:
         """Get set of all currently allocated GPUs across all jobs."""
         allocated = set()
         for gpus in self.gpu_allocations.values():
             allocated.update(gpus)
         return allocated
 
-    def allocate_gpus(self, job_id: str, num_gpus: int) -> List[int]:
+    def allocate_gpus(self, job_id: str, num_gpus: int) -> list[int]:
         """
         Allocate GPUs to a job.
 
@@ -229,19 +229,19 @@ class GPUManager(BaseManager):
                 raise GPUAllocationError(
                     "Not enough free GPUs. "
                     f"Requested: {num_gpus}, "
-                    f"Free: {sorted(list(available_pool))}, "
+                    f"Free: {sorted(available_pool)}, "
                     f"Busy: {busy_gpus}, "
                     f"Allocated: {sorted(allocated_gpus)}"
                 )
 
             # Allocate the first N available GPUs
-            allocated = sorted(list(available_pool))[:num_gpus]
+            allocated = sorted(available_pool)[:num_gpus]
             self.gpu_allocations[job_id] = allocated
 
             self.logger.info(f"Allocated GPUs {allocated} to job {job_id}")
             return allocated
 
-    def get_allocated_gpus(self, job_id: str) -> Optional[List[int]]:
+    def get_allocated_gpus(self, job_id: str) -> Optional[list[int]]:
         """Get the GPUs allocated to a specific job."""
         with self._lock:
             return self.gpu_allocations.get(job_id)
@@ -264,7 +264,7 @@ class GPUManager(BaseManager):
                 return True
             return False
 
-    def get_status(self) -> Dict:
+    def get_status(self) -> dict:
         """Get current GPU allocation status."""
         with self._lock:
             allocated_gpus = self.get_all_allocated_gpus()
@@ -276,9 +276,9 @@ class GPUManager(BaseManager):
             free_gpus = (self.all_gpus & system_free_gpus) - allocated_gpus
 
             return {
-                "total_gpus": sorted(list(self.all_gpus)),
-                "free_gpus": sorted(list(free_gpus)),
-                "allocated_gpus": sorted(list(allocated_gpus)),
+                "total_gpus": sorted(self.all_gpus),
+                "free_gpus": sorted(free_gpus),
+                "allocated_gpus": sorted(allocated_gpus),
                 "allocations": dict(self.gpu_allocations),
             }
 

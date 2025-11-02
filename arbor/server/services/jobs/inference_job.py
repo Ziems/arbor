@@ -4,28 +4,18 @@ import sys
 import time
 from datetime import datetime
 from typing import Optional
-import psutil
 
+import psutil
 import requests
 
-from arbor.server.core.config import Config
-from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
+from arbor.core.config import Config
+from arbor.core.logging import get_logger
 from arbor.server.services.comms.control_server import TrainerControlServer
+from arbor.server.services.inference.vllm_client import VLLMClient
+from arbor.server.services.jobs.inference_launch_config import InferenceLaunchConfig
 from arbor.server.services.jobs.job import Job, JobArtifact
-from arbor.server.utils.helpers import get_free_port
-from arbor.server.utils.logging import get_logger
-from arbor.server.utils.mock_utils import (
-    get_vllm_serve_module,
-    setup_mock_environment,
-    should_use_mock_gpu,
-)
-from arbor.server.utils.process_runner import InferenceProcessRunner
-
-# Conditionally import the appropriate vLLM client
-if should_use_mock_gpu():
-    from arbor.server.services.inference.vllm_client_mock import VLLMClient
-else:
-    from arbor.server.services.inference.vllm_client import VLLMClient
+from arbor.utils.helpers import get_free_port
+from arbor.utils.process_runner import InferenceProcessRunner
 
 logger = get_logger(__name__)
 
@@ -72,7 +62,7 @@ class InferenceJob(Job):
         self,
         model: str,
         launch_config: InferenceLaunchConfig,
-        trainer_controller: TrainerControlServer = None,
+        trainer_controller: TrainerControlServer | None = None,
     ):
         self.launched_model_name = model
         self.trainer_controller = trainer_controller
@@ -83,27 +73,32 @@ class InferenceJob(Job):
         launch_config = launch_config or self.launch_config
 
         # If this is a GRPO inference job, inherit the parent job's ID and don't create separate directories
-        is_grpo_sub_job = bool(launch_config.is_grpo and launch_config.grpo_job_id)
+        is_grpo_sub_job = bool(launch_config.grpo_job_id)
         if is_grpo_sub_job:
             self.id = f"{launch_config.grpo_job_id}-inference"
             self._is_grpo_sub_job = True
-        else:
-            self._is_grpo_sub_job = False
             assert trainer_controller is not None, (
                 "Trainer controller is required for GRPO inference jobs"
             )
             self.trainer_controller = trainer_controller
+        else:
+            self._is_grpo_sub_job = False
+            if trainer_controller is not None:
+                self.trainer_controller = trainer_controller
             # Don't create separate directories for GRPO inference jobs
             # The log file path will be set by the parent GRPO job
 
         if launch_config.log_file_path:
             self.log_file_path = launch_config.log_file_path
 
+        self.launch_config = launch_config
+
         logger.info(f"Grabbing a free port to launch a vLLM server for model {model}")
         self.port = get_free_port()
         my_env = os.environ.copy()
 
         # Convert gpu_ids list to comma-separated string for environment variable
+        assert launch_config.gpu_ids is not None, "GPU IDs must be set before launching"
         gpu_ids_str = ",".join(map(str, launch_config.gpu_ids))
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
 
@@ -111,11 +106,8 @@ class InferenceJob(Job):
         if launch_config.hf_token:
             my_env["HF_TOKEN"] = launch_config.hf_token
 
-        # Setup mock environment if needed
-        my_env = setup_mock_environment(my_env)
-
         n_gpus = len(launch_config.gpu_ids)
-        vllm_module = get_vllm_serve_module()
+        vllm_module = "arbor.server.services.inference.vllm_serve"
         command = f"{sys.executable} -m {vllm_module} --model {self.launched_model_name} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching --disable-log-stats"
 
         if launch_config.max_context_length:
@@ -179,10 +171,7 @@ class InferenceJob(Job):
 
         # Ensure vLLM worker subtree is terminated as well
         try:
-            if (
-                getattr(self, "process", None) is not None
-                and self.process.poll() is None
-            ):
+            if self.process is not None and self.process.poll() is not None:
                 kill_vllm_server(self.process.pid)
         except Exception as e:
             logger.warning(f"Force-kill fallback for vLLM processes failed: {e}")
@@ -193,6 +182,10 @@ class InferenceJob(Job):
         logger.info("Server terminated.")
 
     async def run_inference(self, request_json: dict):
+        if self.vllm_client is None:
+            raise RuntimeError(
+                "vLLM client is not initialized. Please launch the server first."
+            )
         requested_model = request_json["model"]
         request_json["model"] = self.launched_model_name
 
@@ -270,7 +263,7 @@ class InferenceJob(Job):
         self._setup_directories([JobArtifact.LOGS])
 
 
-def wait_for_server(base_url: str, timeout: int = None) -> None:
+def wait_for_server(base_url: str, timeout: int = 5 * 60) -> None:
     """
     Wait for the server to be ready by polling the /v1/models endpoint.
 

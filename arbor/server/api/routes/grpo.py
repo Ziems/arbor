@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Request
 
-from arbor.server.api.models.schemas import (
+from arbor.server.api.schemas import (
+    GRPOBaseRequest,  # TODO: These should be handled with a subclass like GRPOTerminateRequest
+    GRPOCheckpointRequest,
     GRPOInitializeRequest,
     GRPOStatus,
     GRPOStepRequest,
-    GRPOCheckpointRequest,
     GRPOTerminateRequest,
-    GRPOBaseRequest,  # TODO: These should be handled with a subclass like GRPOTerminateRequest
 )
 from arbor.server.services.managers.grpo_manager import GRPOManager
 from arbor.server.services.managers.inference_manager import InferenceManager

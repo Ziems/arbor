@@ -1,11 +1,23 @@
 from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
-from arbor.server.api.routes import files, grpo, inference, jobs, monitor
-from arbor.server.utils.logging import apply_uvicorn_formatting, get_logger
+from arbor.core.logging import get_logger
+from arbor.server.api.routes import grpo, inference
 
 logger = get_logger(__name__)
+
+
+# Small helper to serialize exceptions for responses/logging
+def make_error_payload(exc: Exception) -> dict[str, Any]:
+    return {
+        "type": type(exc).__name__,
+        "message": str(exc),
+        "timestamp": datetime.now().isoformat(),
+    }
 
 
 def cleanup_managers(app: FastAPI):
@@ -41,7 +53,6 @@ def cleanup_managers(app: FastAPI):
 async def lifespan(app: FastAPI):
     """Lifespan event handler for FastAPI app."""
     # Startup
-    apply_uvicorn_formatting()
     logger.info("Application startup completed")
 
     yield
@@ -55,9 +66,26 @@ app = FastAPI(title="Arbor API", lifespan=lifespan)
 
 
 # Include routers
-app.include_router(files.router, prefix="/v1/files")
-app.include_router(jobs.router, prefix="/v1/fine_tuning/jobs")
 app.include_router(grpo.router, prefix="/v1/fine_tuning/grpo")
 app.include_router(inference.router, prefix="/v1/chat")
-# Monitoring and observability
-app.include_router(monitor.router)
+
+
+# ---- Centralized exception handling ----
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_: Request, exc: Exception):
+    # Map common exception types to HTTP statuses; default to 500
+    status_map = {
+        ValueError: 400,
+        KeyError: 400,
+        FileNotFoundError: 404,
+        TimeoutError: 504,
+        ConnectionError: 502,
+    }
+    status = 500
+    for etype, code in status_map.items():
+        if isinstance(exc, etype):
+            status = code
+            break
+    return JSONResponse(status_code=status, content=make_error_payload(exc))
