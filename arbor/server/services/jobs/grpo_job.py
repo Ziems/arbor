@@ -329,8 +329,6 @@ class GRPOJob(Job):
         if not self.trainer_controller:
             raise RuntimeError("Trainer controller is not initialized for this job")
 
-        logger.info(f"Requesting checkpoint: {request}")  # REMOVEME
-
         response = self.trainer_controller.request_checkpoint(
             request.checkpoint_name, request.metadata, request.push_to_hub
         )

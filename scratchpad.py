@@ -54,6 +54,10 @@ student_lm = dspy.LM(
     api_base="http://127.0.0.1:7453/v1/",
     api_key="arbor",
     hf_token=os.getenv("HF_TOKEN"),
+    temperature=1.0,
+    top_k=50,
+    top_p=1.0,
+    repetition_penalty=1.0,
 )
 
 student_classify = classify.deepcopy()
@@ -71,6 +75,12 @@ compiler = ArborGRPO(
         hub_token=os.getenv("HF_TOKEN"),
         push_to_hub=True,
     ),
+    train_kwargs={
+        "temperature": 1.0,
+        "top_k": 50,
+        "top_p": 1.0,
+        "repetition_penalty": 1.0,
+    },
 )
 
 # Run optimization

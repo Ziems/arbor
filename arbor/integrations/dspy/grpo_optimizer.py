@@ -544,14 +544,6 @@ class ArborGRPO(FinetuneTeleprompter):
 
         group_queue: deque = deque()
         logger.info("Starting the GRPO training loop...")
-        self._save_checkpoint_for_job(  # REMOVEME
-            grpo_training_job,
-            first_lm,
-            "model_checkpoint_test",
-            score=0,
-            step_idx=0,
-            push_to_hub=True,
-        )
         for train_step_idx in range(self.num_train_steps):
             logger.info(
                 f"GRPO training step {train_step_idx + 1}/{self.num_train_steps}..."

@@ -608,9 +608,6 @@ class ArborGRPOTrainer(Trainer):
     ) -> dict[str, Any] | None:
         if metadata is not None and not isinstance(metadata, dict):
             raise TypeError("Checkpoint metadata must be a mapping if provided")
-        self.logger.info(
-            f"Executing checkpoint: {checkpoint_name}, push_to_hub={push_to_hub}"
-        )  # REMOVEME
         self.logger.debug(
             "Entering checkpoint execution",
             context={
