@@ -23,11 +23,12 @@ from arbor.client import (
     stop,
     watch_job,
 )
-from arbor.integrations.dspy import ArborGRPO, ArborProvider
+from arbor.integrations.dspy import ArborGRPO, ArborProvider, ArborHFConfig
 
 __all__ = [
     "ArborGRPO",
     "ArborProvider",
+    "ArborHFConfig",
     "__version__",
     "get_client",
     "init",

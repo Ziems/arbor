@@ -102,6 +102,10 @@ class InferenceJob(Job):
         gpu_ids_str = ",".join(map(str, launch_config.gpu_ids))
         my_env["CUDA_VISIBLE_DEVICES"] = gpu_ids_str
 
+        # Set the HF_TOKEN environment variable
+        if launch_config.hf_token:
+            my_env["HF_TOKEN"] = launch_config.hf_token
+
         n_gpus = len(launch_config.gpu_ids)
         vllm_module = "arbor.server.services.inference.vllm_serve"
         command = f"{sys.executable} -m {vllm_module} --model {self.launched_model_name} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching --disable-log-stats"

@@ -9,3 +9,4 @@ class InferenceLaunchConfig:
     num_gpus: Optional[int] = 1
     grpo_job_id: Optional[str] = None
     log_file_path: Optional[str] = None
+    hf_token: Optional[str] = None

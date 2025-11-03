@@ -203,6 +203,7 @@ class ArborReinforceJob(ReinforceJob):
             "inference_config": {
                 "model": finetune_model,
                 "max_context_length": max_context_length,
+                "hf_token": self.lm.kwargs.get("hf_token", None),
             },
             "gpu_config": {
                 "type": "multi",
@@ -211,10 +212,15 @@ class ArborReinforceJob(ReinforceJob):
                     "num_training_gpus": num_training_gpus,
                 },
             },
+            "hf_config": self.train_kwargs.get("hf_config", None),
         }
+        # if the hub token is not provided, use the one set in the LM
+        if (hf_config := data.get("hf_config")) and hf_config["hub_token"] is None:
+            hf_config["hub_token"] = self.lm.kwargs.get("hf_token", None)
         url = urljoin(api_base, "fine_tuning/grpo/initialize")
         headers = {"Content-Type": "application/json"}
         response = requests.post(url=url, headers=headers, json=data)
+
         print(json.dumps(response.json(), indent=2))
         response.raise_for_status()
         response = response.json()
@@ -287,11 +293,16 @@ class ArborReinforceJob(ReinforceJob):
         checkpoint_name: str,
         score: float | None = None,
         metadata: dict[str, Any] | None = None,
+        push_to_hub: bool = False,
     ):
         api_base = self.lm.kwargs["api_base"]
         url = urljoin(api_base, "fine_tuning/grpo/checkpoint")
         headers = {"Content-Type": "application/json"}
-        body = {"checkpoint_name": checkpoint_name, "job_id": self.provider_job_id}
+        body = {
+            "checkpoint_name": checkpoint_name,
+            "job_id": self.provider_job_id,
+            "push_to_hub": push_to_hub,
+        }
         if metadata is not None:
             body["metadata"] = metadata
         response = requests.post(url, headers=headers, json=body)
@@ -352,13 +363,14 @@ class ArborProvider(Provider):
         model = ArborProvider._remove_provider_prefix(lm.model)
 
         api_base = lm.kwargs["api_base"]
+        hf_token = lm.kwargs.get("hf_token", None)
 
         launch_kwargs = launch_kwargs or lm.launch_kwargs
 
         # Make request to launch endpoint
         response = requests.post(
             urljoin(api_base, "chat/launch"),
-            json={"model": model, "launch_kwargs": launch_kwargs},
+            json={"model": model, "launch_kwargs": launch_kwargs, "hf_token": hf_token},
         )
 
         if response.status_code != 200:

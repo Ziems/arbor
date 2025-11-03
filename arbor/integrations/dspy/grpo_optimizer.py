@@ -30,8 +30,34 @@ from dspy.teleprompt.bootstrap_finetune import (
     assert_structural_equivalency,
 )
 from dspy.teleprompt.bootstrap_trace import FailedPrediction, bootstrap_trace_data
+from pydantic import BaseModel
+from .arbor_provider import ArborReinforceJob
 
 logger = logging.getLogger(__name__)
+
+from typing import Optional
+
+
+class ArborHFConfig(BaseModel):
+    """
+    Configures Hugging Face model pushing.
+    Attributes:
+        hub_model_id: The model id to use when pushing to the huggingface hub. The name of the repository to keep in sync with the local *output_dir*. It can be a simple model ID in
+            which case the model will be pushed in your namespace. Otherwise it should be the whole repository name,
+            for instance `"user_name/model"`, which allows you to push to an organization you are a member of with
+            `"organization_name/model"`. Will default to `user_name/output_dir_name` with *output_dir_name* being the
+            name of `output_dir`.
+        hub_token: The token to use to push the model to the huggingface hub. (if not provided will default to the one set in the LM)
+        hub_revision: The revision to use when pushing to the Hub. Can be a branch name, a tag, or a commit hash.
+        hub_private_repo: Whether the huggingface repo should be private.
+        push_to_hub: Whether to push the model to the huggingface hub every time a checkpoint is saved. Default is True.
+    """
+
+    hub_model_id: str
+    hub_token: Optional[str] = None
+    hub_revision: Optional[str] = None
+    hub_private_repo: Optional[bool] = None
+    push_to_hub: bool = True
 
 
 class ArborGRPO(FinetuneTeleprompter):
@@ -60,7 +86,15 @@ class ArborGRPO(FinetuneTeleprompter):
         | Literal["max"]
         | None = None,
         checkpoint: Literal["single-best", "improvements", "none"] = "single-best",
+        hf_config: Optional[ArborHFConfig | dict[str, Any]] = None,
     ):
+        hf_config = (
+            ArborHFConfig(**hf_config) if isinstance(hf_config, dict) else hf_config
+        )
+        # hub pushes will be handled by the optimizer not the server
+        if hf_config:
+            train_kwargs = train_kwargs or {}
+            train_kwargs["hf_config"] = hf_config.model_dump(exclude=["push_to_hub"])
         super().__init__(train_kwargs=train_kwargs)
         self.metric = metric
         self.adapter: dict[LM, Adapter] = self.convert_to_lm_dict(adapter)
@@ -79,6 +113,7 @@ class ArborGRPO(FinetuneTeleprompter):
         self.report_train_scores = report_train_scores
         self.failure_score = failure_score
         self.format_failure_score = format_failure_score
+        self.hf_config = hf_config
 
         assert failure_score > format_failure_score, (
             "failure_score must be greater than format_failure_score since the range [format_failure_score, failure_score] is used to provide dspy formatting rewards"
@@ -166,7 +201,7 @@ class ArborGRPO(FinetuneTeleprompter):
         valset,
         logger,
         step_idx: int = -1,
-        grpo_training_job: Any | None = None,
+        grpo_training_job: ArborReinforceJob | None = None,
         lm_for_job: LM | None = None,
     ):
         if (
@@ -346,6 +381,7 @@ class ArborGRPO(FinetuneTeleprompter):
                     checkpoint_name,
                     score=score,
                     step_idx=step_idx,
+                    push_to_hub=self._should_push_to_hub(),
                 )
 
     def update_shuffled_trainset(self, original_trainset):
@@ -398,6 +434,13 @@ class ArborGRPO(FinetuneTeleprompter):
         valset: list[Example] | None = None,
         **kwargs,
     ) -> Module:
+        """
+        Args:
+            student: The student program to train.
+            trainset: The training set to use.
+            teacher: The teacher program(s) to use.
+            valset: The validation set to use.
+        """
         logger.info(
             "Starting the GRPO compilation process... The LM(s) for the student program will be updated in place at the end of the training."
         )
@@ -833,7 +876,6 @@ class ArborGRPO(FinetuneTeleprompter):
 
         logger.info("Done with the iterations! Retrieving the final model...")
         grpo_training_job.terminate()
-
         recover_lm_cache(program=student, lm_cache_dict=lm_cache_dict)
         for t in teachers:
             recover_lm_cache(program=t, lm_cache_dict=lm_cache_dict)
@@ -844,12 +886,13 @@ class ArborGRPO(FinetuneTeleprompter):
 
     def _save_checkpoint_for_job(
         self,
-        grpo_training_job: Any,
+        grpo_training_job: ArborReinforceJob,
         lm_for_job: LM,
         checkpoint_name: str,
         *,
         score: float | None = None,
         step_idx: int | None = None,
+        push_to_hub: bool = False,
     ) -> None:
         metadata = None
         if score is not None or step_idx is not None:
@@ -864,6 +907,7 @@ class ArborGRPO(FinetuneTeleprompter):
             kwargs["score"] = score
         if metadata:
             kwargs["metadata"] = metadata
+        kwargs["push_to_hub"] = push_to_hub
 
         try:
             grpo_training_job.save_checkpoint(**kwargs)
@@ -889,6 +933,11 @@ class ArborGRPO(FinetuneTeleprompter):
             )
         else:
             logger.info("Saved checkpoint %s for %s", checkpoint_name, job_label)
+
+    def _should_push_to_hub(self) -> bool:
+        if self.hf_config is None:
+            return False
+        return self.hf_config.push_to_hub
 
 
 def disable_lm_cache(program: Module, lm_cache_dict: dict):

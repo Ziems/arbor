@@ -116,11 +116,15 @@ class TrainerControlServer:
         return resp
 
     def request_checkpoint(
-        self, checkpoint_name: str, metadata: Optional[Mapping[str, Any]] = None
+        self,
+        checkpoint_name: str,
+        metadata: Optional[Mapping[str, Any]] = None,
+        push_to_hub: bool = False,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "cmd": "checkpoint",
             "checkpoint_name": checkpoint_name,
+            "push_to_hub": push_to_hub,
         }
         if metadata is not None:
             payload["metadata"] = dict(metadata)

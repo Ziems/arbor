@@ -86,7 +86,10 @@ class GRPOJob(Job):
         return f"grpo:{model}:{name}:{timestamp}"
 
     def _build_trainer_config(
-        self, request: GRPOInitializeRequest, output_dir: str, vllm_port: int
+        self,
+        request: GRPOInitializeRequest,
+        output_dir: str,
+        vllm_port: int,
     ) -> ArborGRPOConfig:
         if output_dir is None:
             raise ValueError("output_dir is required to build ArborGRPOConfig")
@@ -96,6 +99,12 @@ class GRPOJob(Job):
         )
 
         config = ArborGRPOConfig(**trainer_kwargs)
+        if (hf_config := request.hf_config) is not None:
+            config.hub_model_id = hf_config.hub_model_id
+            config.hub_private_repo = hf_config.hub_private_repo
+            config.hub_token = hf_config.hub_token
+            config.push_to_hub_token = hf_config.hub_token
+            config.hub_revision = hf_config.hub_revision
 
         config.output_dir = output_dir
         config.vllm_server_port = vllm_port
@@ -189,6 +198,9 @@ class GRPOJob(Job):
         self.trainer_config.steps_per_generation = None
 
         config_dict = self.trainer_config.to_dict()
+        # need to add hf_token back to config_dict because ArborGRPOConfig's to_dict method obsecures if for security reasons
+        config_dict["hub_token"] = self.trainer_config.hub_token
+        config_dict["push_to_hub_token"] = self.trainer_config.push_to_hub_token
         trainer_config_json = json.dumps(config_dict, separators=(",", ":"))
 
         # Build script args directly (everything that goes after the script path)
@@ -318,7 +330,7 @@ class GRPOJob(Job):
             raise RuntimeError("Trainer controller is not initialized for this job")
 
         response = self.trainer_controller.request_checkpoint(
-            request.checkpoint_name, request.metadata
+            request.checkpoint_name, request.metadata, request.push_to_hub
         )
         if not response.get("ok", False):
             raise RuntimeError(

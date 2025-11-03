@@ -10,7 +10,9 @@ from arbor.server.api.schemas import (
 )
 from arbor.server.services.managers.grpo_manager import GRPOManager
 from arbor.server.services.managers.inference_manager import InferenceManager
+from logging import getLogger
 
+logger = getLogger(__name__)
 router = APIRouter()
 
 
