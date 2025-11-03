@@ -26,7 +26,7 @@ import Stemmer
 
 corpus = []
 
-with open("/home/nziems/arbor-exps/libs/dspy/docs/docs/tutorials/rl_multihop/wiki.abstracts.2017.jsonl") as f:
+with open("wiki.abstracts.2017.jsonl") as f:
     for line in f:
         line = ujson.loads(line)
         corpus.append(f"{line['title']} | {' '.join(line['text'])}")

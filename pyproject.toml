@@ -6,30 +6,28 @@ authors = [
     {name = "Noah Ziems", email = "nziems2@nd.edu"}
 ]
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "torch>=2.7.0",
     "fastapi",
     "uvicorn",
     "click",
-    "python-multipart",
     "pydantic-settings",
     "dspy",
     "vllm>=0.9.1",
     "transformers",
     "trl==0.23.1",
     "peft",
-    "ray>=2.9",
     "setuptools (>=76.0.0,<79.0.1)",
     "pyzmq>=26.4.0",
     "pyyaml>=6.0.2",
     "wandb",
     "httpx",
     "coolname",
-    "jq>=1.8.0",
+    "pynvml",
     "textual",
-    "verifiers",
     "deepspeed>=0.17.6",
+    "pynvml>=13.0.1"
 ]
 
 [project.scripts]
@@ -58,6 +56,9 @@ dev = [
     "ruff==0.14.0",
     "ty==0.0.1-alpha.25"
 ]
+
+[tool.uv.sources]
+dspy = { git = "https://github.com/stanfordnlp/dspy", rev = "1df5984007b7fd9bb56f3a8fba7a68b5517efb69"}
 
 [tool.ty.rules]
 unresolved-import = "warn"
