@@ -1,0 +1,49 @@
+# Run the full multihop training
+#
+# Launch:
+#   sky jobs launch -n multihop-dev deploy/skypilot_train.yaml --infra <aws|gcp|nebius|lambda|etc>
+#
+# Monitor progress:
+#   sky logs multihop-dev
+#
+# This will train the model using 4x L40S GPUs and save results to S3.
+
+name: arbor-multihop-train
+
+resources:
+  accelerators: L40S:4
+  use_spot: true
+  disk_size: 256
+
+file_mounts:
+  /mnt/checkpoints:
+    source: s3://arbor-multihop-checkpoints/
+    mode: MOUNT_CACHED
+
+#envs:
+  # Fill in your wandb key: copy from https://wandb.ai/authorize
+  # Alternatively, you can use `--env WANDB_API_KEY=$WANDB_API_KEY`
+  # to pass the key in the command line, during `sky jobs launch`.
+#  WANDB_API_KEY:
+
+workdir: .
+
+setup: |
+  echo "Begin setup..."
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$HOME/.local/bin:$PATH"
+  uv sync
+  echo "Installing dependencies unique to multihop-dev..."
+  uv pip install ujson
+  uv pip install bm25s
+  uv pip install PyStemmer
+  uv pip install "jax[cpu]"
+  uv pip install datasets==3.6.0
+  echo "Downloading wiki.abstracts.2017.tar.gz from HuggingFace..."
+  curl -Ls https://huggingface.co/dspy/cache/resolve/main/wiki.abstracts.2017.tar.gz | tar -xz -C examples
+
+run: |
+  echo "Begin run..."
+  cd examples/
+  uv run python multihop_dev.py
+  echo "End run..."
