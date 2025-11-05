@@ -69,7 +69,7 @@ train_kwargs = {
     "max_grad_norm": 1.0,
     "report_to": "wandb",
     "log_completions": True,
-    "max_context_length": None,
+    "max_seq_len": None, #defaults to 2048
     "max_steps": 1000,
     "logging_steps": 10,
     "loss_type": "dapo", #"dr_grpo",

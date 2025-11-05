@@ -18,13 +18,13 @@ client = OpenAI(
 
 
 def launch_model(
-    model_name: str, *, num_gpus: int = 1, max_context_length: int | None = None
+    model_name: str, *, num_gpus: int = 1, max_seq_len: int | None = None
 ) -> str:
     """Launch the inference server for a model via Arbor's /launch endpoint."""
 
     payload: dict[str, object] = {"model": model_name, "num_gpus": num_gpus}
-    if max_context_length is not None:
-        payload["max_context_length"] = max_context_length
+    if max_seq_len is not None:
+        payload["max_seq_len"] = max_seq_len
 
     response = requests.post(f"{chat_base}/launch", json=payload)
     response.raise_for_status()

@@ -179,7 +179,7 @@ class InferenceLaunchOwner(StrictBaseModel):
 
 class InferenceLaunchRequest(StrictBaseModel):
     model: str
-    max_context_length: Optional[int] = None
+    max_seq_len: Optional[int] = None
     num_gpus: Optional[int] = 1
     owner: Optional[InferenceLaunchOwner] = None
     log_file_path: Optional[str] = None

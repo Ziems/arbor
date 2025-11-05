@@ -1,4 +1,3 @@
-import json
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -64,13 +63,13 @@ class ArborReinforceJob(ReinforceJob):
         "max_completion_length": None,
         "gradient_checkpointing_kwargs": None,
         "bf16": False,
+        "fp16": True,
         "scale_rewards": True,
         "max_grad_norm": 1.0,
         "report_to": "none",
         "log_completions": True,
         "logging_steps": 10,
-        # By default, none is the model's max context length
-        "max_context_length": None,
+        "max_seq_len": None,
         "lora_config": None,
         "loss_type": "dapo",
         "soft_completion_penalty_length": None,
@@ -135,6 +134,7 @@ class ArborReinforceJob(ReinforceJob):
             self.DEFAULT_TRAIN_KWARGS["mask_truncated_completions"],
         )
         bf16 = self.train_kwargs.get("bf16", self.DEFAULT_TRAIN_KWARGS["bf16"])
+        fp16 = self.train_kwargs.get("fp16", self.DEFAULT_TRAIN_KWARGS["fp16"])
         scale_rewards = self.train_kwargs.get(
             "scale_rewards", self.DEFAULT_TRAIN_KWARGS["scale_rewards"]
         )
@@ -154,8 +154,8 @@ class ArborReinforceJob(ReinforceJob):
         logging_steps = self.train_kwargs.get(
             "logging_steps", self.DEFAULT_TRAIN_KWARGS["logging_steps"]
         )
-        max_context_length = self.train_kwargs.get(
-            "max_context_length", self.DEFAULT_TRAIN_KWARGS["max_context_length"]
+        max_seq_len = self.train_kwargs.get(
+            "max_seq_len", self.DEFAULT_TRAIN_KWARGS["max_seq_len"]
         )
         max_steps = self.train_kwargs.get("max_steps", 500)
         num_training_gpus = self.train_kwargs.get("num_training_gpus", 1)
@@ -186,14 +186,14 @@ class ArborReinforceJob(ReinforceJob):
                 "soft_completion_penalty_length": soft_completion_penalty_length,
                 "mask_truncated_completions": mask_truncated_completions,
                 "bf16": bf16,
+                "fp16": fp16,
                 "scale_rewards": scale_rewards,
                 "gradient_checkpointing_kwargs": gradient_checkpointing_kwargs,
                 "max_grad_norm": max_grad_norm,
                 "report_to": report_to,
                 "log_completions": log_completions,
                 "logging_steps": logging_steps,
-                # "max_context_length": max_context_length,
-                # "max_seq_len": max_context_length,
+                "max_seq_len": max_seq_len,
                 "max_steps": max_steps,
                 "loss_type": loss_type,
                 "num_training_gpus": num_training_gpus,
@@ -202,7 +202,7 @@ class ArborReinforceJob(ReinforceJob):
             },
             "inference_config": {
                 "model": finetune_model,
-                "max_context_length": max_context_length,
+                "max_seq_len": max_seq_len,
             },
             "gpu_config": {
                 "type": "multi",
@@ -214,12 +214,21 @@ class ArborReinforceJob(ReinforceJob):
         }
         url = urljoin(api_base, "fine_tuning/grpo/initialize")
         headers = {"Content-Type": "application/json"}
-        response = requests.post(url=url, headers=headers, json=data)
-        print(json.dumps(response.json(), indent=2))
-        response.raise_for_status()
-        response = response.json()
-        self.lm.model = ArborProvider._add_provider_prefix(response["current_model"])
-        self.provider_job_id = response.get("job_id")
+        try:
+            response = requests.post(url=url, headers=headers, json=data)
+            response.raise_for_status()
+            response = response.json()
+            self.lm.model = ArborProvider._add_provider_prefix(
+                response["current_model"]
+            )
+            self.provider_job_id = response.get("job_id")
+        except KeyboardInterrupt:
+            print(
+                "Keyboard interrupt received. Stopping reinforcement learning job initialization."
+            )
+        except Exception as err:
+            print(f"Error initializing reinforcement learning job: {err}")
+            raise err
 
     def _run_grpo_step_one_group(
         self,

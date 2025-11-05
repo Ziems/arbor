@@ -65,7 +65,7 @@ def initialize_grpo(
         "trainer_config": trainer_config,
         "inference_config": {
             "model": model,
-            "max_context_length": 2048,
+            "max_seq_len": 2048,
         },
         "gpu_config": {
             "type": "multi",

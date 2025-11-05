@@ -84,7 +84,7 @@ class InferenceManager(BaseManager):
                 return existing_job
 
         launch_config = InferenceLaunchConfig(
-            max_context_length=launch_request.max_context_length,
+            max_seq_len=launch_request.max_seq_len,
             gpu_ids=list(preallocated_gpu_ids) if preallocated_gpu_ids else None,
             num_gpus=launch_request.num_gpus,
             log_file_path=launch_request.log_file_path,

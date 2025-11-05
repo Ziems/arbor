@@ -55,3 +55,4 @@ mise.toml
 uv.lock
 **/wandb/
 .ruff_cache/
+*.pkl

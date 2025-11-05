@@ -106,8 +106,8 @@ class InferenceJob(Job):
         vllm_module = "arbor.server.services.inference.vllm_serve"
         command = f"{sys.executable} -m {vllm_module} --model {self.launched_model_name} --port {self.port} --gpu-memory-utilization 0.9 --tensor-parallel-size {n_gpus} --enable_prefix_caching --disable-log-stats"
 
-        if launch_config.max_context_length:
-            command += f" --max_model_len {launch_config.max_context_length}"
+        if launch_config.max_seq_len:
+            command += f" --max_model_len {launch_config.max_seq_len}"
 
         logger.info(f"Running command: {command}")
 
