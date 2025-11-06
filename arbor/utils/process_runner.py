@@ -210,7 +210,6 @@ class AccelerateProcessRunner(ProcessRunner):
         num_processes: int,
         main_process_port: int,
         script_args: list[str],
-        accelerate_config: Optional[str] = None,
         env: Optional[dict[str, str]] = None,
         log_callback: Optional[Callable[[str], None]] = None,
     ) -> subprocess.Popen:
@@ -235,9 +234,6 @@ class AccelerateProcessRunner(ProcessRunner):
             "--main_process_port",
             str(main_process_port),
         ]
-
-        if accelerate_config:
-            command.extend(["--config_file", accelerate_config])
 
         command.extend(["--module", module])
 

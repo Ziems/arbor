@@ -13,7 +13,7 @@ class Config(BaseModel):
     max_context_length: Optional[int] = None
 
     # Training settings
-    accelerate_config: Optional[str] = None
+    # accelerate_config removed; Arbor manages Accelerate internally
 
     # Server settings
     inactivity_timeout: int = 30
