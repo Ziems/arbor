@@ -135,6 +135,7 @@ train_kwargs = {
     "num_training_gpus": 3,
     "num_inference_gpus": 1,
     "weight_decay": 0.001,
+    "max_seq_len": 4096,
 }
 
 compiler = ArborGRPO(

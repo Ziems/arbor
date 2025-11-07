@@ -134,7 +134,7 @@ class ArborReinforceJob(ReinforceJob):
             self.DEFAULT_TRAIN_KWARGS["mask_truncated_completions"],
         )
         bf16 = self.train_kwargs.get("bf16", self.DEFAULT_TRAIN_KWARGS["bf16"])
-        fp16 = self.train_kwargs.get("fp16", self.DEFAULT_TRAIN_KWARGS["fp16"])
+        # fp16 = self.train_kwargs.get("fp16", self.DEFAULT_TRAIN_KWARGS["fp16"])
         scale_rewards = self.train_kwargs.get(
             "scale_rewards", self.DEFAULT_TRAIN_KWARGS["scale_rewards"]
         )
@@ -186,7 +186,6 @@ class ArborReinforceJob(ReinforceJob):
                 "soft_completion_penalty_length": soft_completion_penalty_length,
                 "mask_truncated_completions": mask_truncated_completions,
                 "bf16": bf16,
-                "fp16": fp16,
                 "scale_rewards": scale_rewards,
                 "gradient_checkpointing_kwargs": gradient_checkpointing_kwargs,
                 "max_grad_norm": max_grad_norm,
