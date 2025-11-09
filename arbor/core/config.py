@@ -12,10 +12,7 @@ class Config(BaseModel):
     storage_path: str = str(Path.home() / ".arbor" / "storage")
     max_context_length: Optional[int] = None
 
-    # Training settings
-    # accelerate_config removed; Arbor manages Accelerate internally
-
-    # Server settings
+        # Server settings
     inactivity_timeout: int = 30
 
     @classmethod

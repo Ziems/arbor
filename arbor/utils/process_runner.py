@@ -214,21 +214,26 @@ class AccelerateProcessRunner(ProcessRunner):
         log_callback: Optional[Callable[[str], None]] = None,
     ) -> subprocess.Popen:
         """
-        Start an accelerate-based training process.
+        Start an accelerate-based training process using the bundled config.
 
         Args:
-            script_path: Path to the training script
+            module: The python module to run
             num_processes: Number of processes for accelerate
             main_process_port: Port for main process
-            script_args: Arguments to pass to the script (everything after script path)
-            accelerate_config: Optional accelerate config file path
+            script_args: Arguments to pass to the script
             env: Environment variables
             log_callback: Function to call with each log line
         """
+        # Path to the bundled deepspeed config within the project
+        project_root = Path(__file__).resolve().parent.parent.parent
+        accelerate_config = str(project_root / "configs" / "deepspeed_config.yaml")
+
         command = [
             sys.executable,
             "-m",
             "accelerate.commands.launch",
+            "--config_file",
+            accelerate_config,
             "--num_processes",
             str(num_processes),
             "--main_process_port",
