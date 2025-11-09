@@ -214,6 +214,9 @@ class GRPOJob(Job):
             log_callback=self.create_log_callback("GRPO"),
         )
 
+        self.trainer_controller.wait_for_clients(num_processes)
+        logger.info("Trainer controller clients ready")
+
         # Start status handling thread
         self.event_thread = threading.Thread(
             target=self._handle_event_updates, args=(), daemon=True
