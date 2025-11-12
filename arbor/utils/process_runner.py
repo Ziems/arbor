@@ -8,6 +8,7 @@ import sys
 import threading
 from pathlib import Path
 from typing import Callable, Optional
+import os
 
 from arbor.core.logging import get_logger
 
@@ -247,7 +248,18 @@ class AccelerateProcessRunner(ProcessRunner):
             command.append("--")
             command.extend(script_args)
 
-        return self.start(command, env=env, log_callback=log_callback)
+        # Ensure a stable, unique rendezvous port is used for torch.distributed
+        runtime_env = dict(os.environ)
+        if env:
+            runtime_env.update(env)
+        # Pin MASTER_ADDR/MASTER_PORT and Accelerate's port to the provided main_process_port
+        runtime_env.setdefault("MASTER_ADDR", "127.0.0.1")
+        runtime_env["MASTER_PORT"] = str(main_process_port)
+        runtime_env["ACCELERATE_TORCH_DISTRIBUTED_PORT"] = str(main_process_port)
+        # Optionally keep torch distributed debug noise off unless explicitly enabled by caller
+        runtime_env.setdefault("TORCH_DISTRIBUTED_DEBUG", "OFF")
+
+        return self.start(command, env=runtime_env, log_callback=log_callback)
 
     def start_training_from_full_command(
         self,
