@@ -12,7 +12,7 @@ class Config(BaseModel):
     storage_path: str = str(Path.home() / ".arbor" / "storage")
     max_context_length: Optional[int] = None
 
-        # Server settings
+    # Server settings
     inactivity_timeout: int = 30
 
     @classmethod

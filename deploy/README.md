@@ -49,10 +49,10 @@ If your script requires additional dependencies or data downloads, edit the `set
 ```yaml
 setup: |
   # ... common setup ...
-  
+
   # Add your script-specific dependencies:
   uv pip install package-name
-  
+
   # Add your script-specific data downloads:
   curl -Ls https://example.com/data.tar.gz | tar -xz -C examples
 ```

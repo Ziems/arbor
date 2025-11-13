@@ -2,13 +2,13 @@
 Clean abstraction for running long-running processes without the Popen ugliness.
 """
 
+import os
 import signal
 import subprocess
 import sys
 import threading
 from pathlib import Path
 from typing import Callable, Optional
-import os
 
 from arbor.core.logging import get_logger
 
