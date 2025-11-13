@@ -11,9 +11,6 @@ class Config(BaseModel):
     # Basic settings
     storage_path: str = str(Path.home() / ".arbor" / "storage")
 
-    # Training settings
-    accelerate_config: Optional[str] = None
-
     # Server settings
     inactivity_timeout: int = 30
 

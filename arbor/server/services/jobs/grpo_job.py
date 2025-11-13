@@ -210,7 +210,6 @@ class GRPOJob(Job):
             num_processes=num_processes,
             main_process_port=main_process_port,
             script_args=script_args,
-            accelerate_config=self.config.accelerate_config,
             env=my_env,
             log_callback=self.create_log_callback("GRPO"),
         )

@@ -144,14 +144,6 @@ print(optimized_translate(english="hello"))
 ```
 ---
 
-### Accelerate Configuration
-
-For advanced distributed training setups, you can specify a custom [Hugging Face Accelerate](https://huggingface.co/docs/accelerate/) config in your `~/.arbor/config.yaml`:
-
-```yaml
-accelerate_config: "/path/to/your/accelerate_config.yaml"
-```
-
 ---
 
 ### Troubleshooting

@@ -2,6 +2,7 @@
 Clean abstraction for running long-running processes without the Popen ugliness.
 """
 
+import os
 import signal
 import subprocess
 import sys
@@ -210,34 +211,35 @@ class AccelerateProcessRunner(ProcessRunner):
         num_processes: int,
         main_process_port: int,
         script_args: list[str],
-        accelerate_config: Optional[str] = None,
         env: Optional[dict[str, str]] = None,
         log_callback: Optional[Callable[[str], None]] = None,
     ) -> subprocess.Popen:
         """
-        Start an accelerate-based training process.
+        Start an accelerate-based training process using the bundled config.
 
         Args:
-            script_path: Path to the training script
+            module: The python module to run
             num_processes: Number of processes for accelerate
             main_process_port: Port for main process
-            script_args: Arguments to pass to the script (everything after script path)
-            accelerate_config: Optional accelerate config file path
+            script_args: Arguments to pass to the script
             env: Environment variables
             log_callback: Function to call with each log line
         """
+        # Path to the bundled deepspeed config within the project
+        project_root = Path(__file__).resolve().parent.parent.parent
+        accelerate_config = str(project_root / "configs" / "deepspeed_config.yaml")
+
         command = [
             sys.executable,
             "-m",
             "accelerate.commands.launch",
+            "--config_file",
+            accelerate_config,
             "--num_processes",
             str(num_processes),
             "--main_process_port",
             str(main_process_port),
         ]
-
-        if accelerate_config:
-            command.extend(["--config_file", accelerate_config])
 
         command.extend(["--module", module])
 
@@ -246,7 +248,18 @@ class AccelerateProcessRunner(ProcessRunner):
             command.append("--")
             command.extend(script_args)
 
-        return self.start(command, env=env, log_callback=log_callback)
+        # Ensure a stable, unique rendezvous port is used for torch.distributed
+        runtime_env = dict(os.environ)
+        if env:
+            runtime_env.update(env)
+        # Pin MASTER_ADDR/MASTER_PORT and Accelerate's port to the provided main_process_port
+        runtime_env.setdefault("MASTER_ADDR", "127.0.0.1")
+        runtime_env["MASTER_PORT"] = str(main_process_port)
+        runtime_env["ACCELERATE_TORCH_DISTRIBUTED_PORT"] = str(main_process_port)
+        # Optionally keep torch distributed debug noise off unless explicitly enabled by caller
+        runtime_env.setdefault("TORCH_DISTRIBUTED_DEBUG", "OFF")
+
+        return self.start(command, env=runtime_env, log_callback=log_callback)
 
     def start_training_from_full_command(
         self,
