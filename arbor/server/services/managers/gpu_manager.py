@@ -26,7 +26,7 @@ def _detect_gpus_with_nvml() -> dict[str, set[int]]:
         import pynvml
     except ImportError as exc:
         raise NoGPUsDetectedError(
-            "GPU detection requires NVML support (install the pynvml package)."
+            "GPU detection requires NVML support (install the nvidia-ml-py package)."
         ) from exc
 
     try:
