@@ -14,7 +14,7 @@ dependencies = [
     "click",
     "pydantic-settings",
     "dspy",
-    "vllm>=0.9.1",
+    "vllm==0.10.0",
     "transformers",
     "trl==0.23.1",
     "peft",
@@ -24,10 +24,9 @@ dependencies = [
     "wandb",
     "httpx",
     "coolname",
-    "pynvml",
+    "nvidia-ml-py",
     "textual",
     "deepspeed>=0.17.6",
-    "pynvml>=13.0.1"
 ]
 
 [project.scripts]
