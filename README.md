@@ -68,7 +68,7 @@ translate_program = dspy.Predict("english -> french")
 provider = ArborProvider()
 lm_name = "Qwen/Qwen2.5-1.5B-Instruct"
 lm = dspy.LM(
-    model=f"openai/arbor:{student_lm_name}",
+    model=f"openai/arbor:{lm_name}",
     provider=provider,
     api_base=arbor_server_info["base_url"],
     api_key="arbor",
@@ -117,6 +117,7 @@ train_kwargs = {
     "num_training_gpus": 3,
     "num_inference_gpus": 1,
     "weight_decay": 0.001,
+    "max_seq_len": 4096,
 }
 
 # Optimize with Arbor's GRPO trainer
@@ -135,7 +136,7 @@ compiler = ArborGRPO(
 
 # Run optimization
 optimized_translate = compiler.compile(
-    student=student_translate,
+    student=translate_program,
     trainset=trainset,
     valset=valset,
 )
