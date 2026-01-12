@@ -19,7 +19,7 @@ from dspy.adapters.base import Adapter
 from dspy.adapters.chat_adapter import ChatAdapter
 from dspy.adapters.xml_adapter import XMLAdapter
 from dspy.clients.lm import LM
-from dspy.clients.utils_finetune import GRPOGroup, GRPOStatus, TrainDataFormat
+from dspy.clients.utils_finetune import GRPOChatData, GRPOGroup, GRPOStatus, TrainDataFormat
 from dspy.dsp.utils.settings import settings
 from dspy.evaluate.evaluate import Evaluate
 from dspy.primitives.example import Example
@@ -573,7 +573,7 @@ class ArborGRPO(FinetuneTeleprompter):
             logger.info(
                 "Preparing the training data batch from bootstrapped examples for GRPO..."
             )
-            train_batch_per_predictor: list[list[GRPOGroup]] = [
+            train_batch_per_predictor: list[list[list[GRPOChatData]]] = [
                 [] for _ in range(num_student_predictors)
             ]
             for pred_id in range(num_student_predictors):
@@ -653,7 +653,7 @@ class ArborGRPO(FinetuneTeleprompter):
                         ]
                     )
 
-                    example_training_data: list[GRPOGroup] = [
+                    example_training_data: list[list[GRPOChatData]] = [
                         [] for _ in range(max_len)
                     ]
 
@@ -759,10 +759,10 @@ class ArborGRPO(FinetuneTeleprompter):
                         )
 
             logger.info("Invoking GRPO training step...")
-            all_train_data: list[GRPOGroup] = list(
+            all_train_data: list[list[GRPOChatData]] = list(
                 chain.from_iterable(train_batch_per_predictor)
             )
-            train_data: list[GRPOGroup] = all_train_data
+            train_data: list[list[GRPOChatData]] = all_train_data
             for group in train_data:
                 if len(group) != self.num_rollouts_per_grpo_step:
                     while len(group) < self.num_rollouts_per_grpo_step:
