@@ -19,7 +19,12 @@ from dspy.adapters.base import Adapter
 from dspy.adapters.chat_adapter import ChatAdapter
 from dspy.adapters.xml_adapter import XMLAdapter
 from dspy.clients.lm import LM
-from dspy.clients.utils_finetune import GRPOChatData, GRPOGroup, GRPOStatus, TrainDataFormat
+from dspy.clients.utils_finetune import (
+    GRPOChatData,
+    GRPOGroup,
+    GRPOStatus,
+    TrainDataFormat,
+)
 from dspy.dsp.utils.settings import settings
 from dspy.evaluate.evaluate import Evaluate
 from dspy.primitives.example import Example
