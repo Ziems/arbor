@@ -573,7 +573,7 @@ class ArborGRPO(FinetuneTeleprompter):
             logger.info(
                 "Preparing the training data batch from bootstrapped examples for GRPO..."
             )
-            train_batch_per_predictor: list[list[GRPOGroup]] = [
+            train_batch_per_predictor: list[list[list[dict[str, Any]]]] = [
                 [] for _ in range(num_student_predictors)
             ]
             for pred_id in range(num_student_predictors):
@@ -653,7 +653,7 @@ class ArborGRPO(FinetuneTeleprompter):
                         ]
                     )
 
-                    example_training_data: list[GRPOGroup] = [
+                    example_training_data: list[list[dict[str, Any]]] = [
                         [] for _ in range(max_len)
                     ]
 
